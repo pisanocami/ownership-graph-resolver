@@ -309,8 +309,60 @@ function attachRevenue(ownership, revenueByCompany) {
   return clone;
 }
 
+// Rescale focal + sibling central estimates so they sum to the parent's
+// reported 10-K total. Each adjustment is clamped to the entity's own
+// [low, high] band, the raw estimate is preserved on `revenue_estimate_raw`,
+// and `anchor_adjusted: true` is flagged so the UI and reconciliation can
+// distinguish corrected values from raw model output.
+function applyAnchorAdjustment(tree, parentAnchor) {
+  if (!tree || !parentAnchor || !parentAnchor.is_public) return null;
+  const anchorTotal = parentAnchor.total_revenue_usd || 0;
+  if (anchorTotal <= 0) return null;
+
+  const targets = [tree, ...(tree.siblings || [])].filter(
+    (n) => n && n.revenue_estimate && (n.revenue_estimate.central || 0) > 0
+  );
+  if (targets.length < 2) return null;
+
+  const sumRaw = targets.reduce((a, n) => a + (n.revenue_estimate.central || 0), 0);
+  if (sumRaw <= 0) return null;
+  const scale = anchorTotal / sumRaw;
+  // Skip if already within 5% — no meaningful correction to make.
+  if (Math.abs(scale - 1) < 0.05) return null;
+
+  let adjustedSum = 0;
+  targets.forEach((n) => {
+    const rev = n.revenue_estimate;
+    const rawCentral = rev.central || 0;
+    const scaled = rawCentral * scale;
+    const clamped = Math.max(rev.low || 0, Math.min(rev.high || Infinity, scaled));
+    n.revenue_estimate_raw = { low: rev.low, high: rev.high, central: rawCentral, confidence: rev.confidence };
+    n.revenue_estimate = {
+      ...rev,
+      central: Math.round(clamped),
+      anchor_adjusted: true,
+      anchor_scale: Number(scale.toFixed(3)),
+      anchor_clamped: clamped !== scaled,
+    };
+    adjustedSum += clamped;
+  });
+
+  return {
+    scale: Number(scale.toFixed(3)),
+    anchor_total: anchorTotal,
+    sum_raw: Math.round(sumRaw),
+    sum_adjusted: Math.round(adjustedSum),
+    adjusted_count: targets.length,
+    residual_pct: Math.round(((adjustedSum - anchorTotal) / anchorTotal) * 100),
+  };
+}
+
+// Deterministic local synthesis. Chosen over a 3rd LLM call because (a) the
+// positioning math is mechanical (ratios, ranking) and (b) it avoids token cost
+// and JSON-parse risk of a synthesis call given two large prior outputs.
 function synthesize(ownership, revenueByCompany, parentAnchor = null) {
   const tree = attachRevenue(ownership, revenueByCompany);
+  const anchorAdjustment = applyAnchorAdjustment(tree, parentAnchor);
   const focalRev = tree.revenue_estimate?.central || 0;
   const parentRev = tree.parent?.revenue_estimate?.central || 0;
   if (parentAnchor) tree.parent_anchor = parentAnchor;
@@ -361,9 +413,15 @@ function synthesize(ownership, revenueByCompany, parentAnchor = null) {
     else if (focalRev < Math.min(...sibRevs.filter((x) => x > 0))) notes.push('Focal trails siblings — may be a growth bet or underperforming.');
   }
 
-  const sibCentrals = siblings.map((s) => s.revenue_estimate?.central || 0);
-  const sumChildCentral = focalRev + sibCentrals.reduce((a, b) => a + b, 0);
-  const knownSibCount = sibCentrals.filter((x) => x > 0).length + (focalRev > 0 ? 1 : 0);
+  // ── Reconciliation: sum(focal + siblings) vs parent reported total ─────────
+  // Prefer the 10-K anchor when available; otherwise fall back to the parent's
+  // estimated central. Large gaps surface as an explicit warning. When an
+  // anchor adjustment was applied, diagnose against the raw (pre-adjustment)
+  // values so the warning reflects the original model gap, not the corrected one.
+  const rawFocalRev = tree.revenue_estimate_raw?.central ?? focalRev;
+  const sibCentrals = siblings.map((s) => s.revenue_estimate_raw?.central ?? s.revenue_estimate?.central ?? 0);
+  const sumChildCentral = rawFocalRev + sibCentrals.reduce((a, b) => a + b, 0);
+  const knownSibCount = sibCentrals.filter((x) => x > 0).length + (rawFocalRev > 0 ? 1 : 0);
 
   let reconciliation = null;
   if (tree.parent && knownSibCount >= 2) {
@@ -387,6 +445,7 @@ function synthesize(ownership, revenueByCompany, parentAnchor = null) {
         pct_delta: pctDelta,
         focal_segment_revenue: focalSegmentRev || null,
         children_counted: knownSibCount,
+        anchor_adjustment: anchorAdjustment,
       };
       const sumStr = formatUSD(sumChildCentral);
       const benchStr = formatUSD(benchmark);
@@ -397,11 +456,18 @@ function synthesize(ownership, revenueByCompany, parentAnchor = null) {
       } else if (anchorTotal > 0) {
         notes.push(`Reconciliation: focal + siblings (${sumStr}) reconciles within ${Math.abs(pctDelta)}% of ${benchmarkLabel} (${benchStr}).`);
       }
-      if (focalSegmentRev > 0 && focalRev > 0) {
-        const segRatio = focalRev / focalSegmentRev;
+      if (focalSegmentRev > 0 && rawFocalRev > 0) {
+        const segRatio = rawFocalRev / focalSegmentRev;
         if (segRatio > 1.3 || segRatio < 0.7) {
-          notes.push(`⚠ Focal estimate (${formatUSD(focalRev)}) diverges from its parent 10-K segment revenue (${formatUSD(focalSegmentRev)}, ${Math.round(segRatio * 100)}%).`);
+          notes.push(`⚠ Focal estimate (${formatUSD(rawFocalRev)}) diverges from its parent 10-K segment revenue (${formatUSD(focalSegmentRev)}, ${Math.round(segRatio * 100)}%).`);
         }
+      }
+      if (anchorAdjustment) {
+        const direction = anchorAdjustment.scale > 1 ? 'scaled up' : 'scaled down';
+        const residualClause = Math.abs(anchorAdjustment.residual_pct) >= 5
+          ? ` Residual gap after band-clamping: ${anchorAdjustment.residual_pct > 0 ? '+' : ''}${anchorAdjustment.residual_pct}%.`
+          : '';
+        notes.push(`Auto-corrected: ${anchorAdjustment.adjusted_count} central estimates ${direction} by ${anchorAdjustment.scale}× to reconcile with ${benchmarkLabel} (${formatUSD(anchorAdjustment.anchor_total)}); raw values preserved.${residualClause}`);
       }
     }
   }
@@ -1050,6 +1116,18 @@ function FlowNode({ data }) {
           <>
             <span className={`confidence-dot confidence-${rev.confidence || 'unknown'}`} />
             <span className="flow-node-rev">{formatUSD(rev.central)}</span>
+            {rev.anchor_adjusted && (
+              <span
+                className="chip"
+                title={
+                  node.revenue_estimate_raw
+                    ? `Anchor-adjusted from raw ${formatUSD(node.revenue_estimate_raw.central)}${rev.anchor_clamped ? ' (clamped to band)' : ''}`
+                    : 'Anchor-adjusted to parent 10-K total'
+                }
+              >
+                {rev.anchor_clamped ? 'adj·clamp' : 'adj'}
+              </span>
+            )}
           </>
         )}
       </div>
@@ -1189,7 +1267,18 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
               <span className={`confidence-dot confidence-${rev.confidence || 'unknown'}`} />
               <span>{rev.confidence || 'unknown'} confidence</span>
             </span>
+            {rev.anchor_adjusted && (
+              <span className="chip" style={{ marginLeft: 8 }}>
+                anchor-adjusted{rev.anchor_clamped ? ' · clamped' : ''}
+                {rev.anchor_scale ? ` · ${rev.anchor_scale}×` : ''}
+              </span>
+            )}
           </div>
+          {rev.anchor_adjusted && node.revenue_estimate_raw && (
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+              Raw model estimate: {formatUSD(node.revenue_estimate_raw.central)} (range {formatUSD(node.revenue_estimate_raw.low)} — {formatUSD(node.revenue_estimate_raw.high)})
+            </div>
+          )}
         </div>
       ) : (
         <div className="rev-card" style={{ color: 'var(--text-muted)', fontSize: 13 }}>
