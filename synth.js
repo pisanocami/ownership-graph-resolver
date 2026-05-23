@@ -4,6 +4,16 @@
 
 // ─── Pure helpers ──────────────────────────────────────────────────────────
 
+// Extract a JSON object from a model response. Handles three real-world cases:
+//   1. The model wrapped the JSON in a ```json fence.
+//   2. The model emitted trailing prose / citations / a second object AFTER
+//      the closing `}` (Gemini with Google Search grounding does this often).
+//   3. The model got truncated and never wrote the final closing braces.
+// Strategy: locate the first `{`, then walk the string while counting brace
+// depth — but only while OUTSIDE of a JSON string (respecting `\"` escapes).
+// When depth returns to 0 we slice exactly that substring and parse it. If we
+// run off the end without closing, fall back to the old "append `}` and retry"
+// trick for the truncation case.
 export function safeExtractJSON(text) {
   if (!text) return null;
   const fence = text.match(/```json\s*([\s\S]+?)\s*```/);
@@ -11,14 +21,38 @@ export function safeExtractJSON(text) {
   const cleaned = candidate.replace(/```json|```/g, '').trim();
   const firstBrace = cleaned.indexOf('{');
   if (firstBrace === -1) return null;
-  let attempt = cleaned.slice(firstBrace);
-  try {
-    return JSON.parse(attempt);
-  } catch {
-    for (let i = 0; i < 15; i++) {
-      attempt += '}';
-      try { return JSON.parse(attempt); } catch { /* keep trying */ }
+
+  // Walk with brace counting + string-state awareness.
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let end = -1;
+  for (let i = firstBrace; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (escape) { escape = false; continue; }
+    if (inString) {
+      if (ch === '\\') escape = true;
+      else if (ch === '"') inString = false;
+      continue;
     }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) { end = i; break; }
+    }
+  }
+
+  if (end !== -1) {
+    try { return JSON.parse(cleaned.slice(firstBrace, end + 1)); } catch { /* fall through */ }
+  }
+
+  // Truncation fallback: never closed. Try appending `}` to whatever we have.
+  let attempt = cleaned.slice(firstBrace);
+  try { return JSON.parse(attempt); } catch { /* keep trying */ }
+  for (let i = 0; i < 15; i++) {
+    attempt += '}';
+    try { return JSON.parse(attempt); } catch { /* keep trying */ }
   }
   return null;
 }
