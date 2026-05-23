@@ -320,15 +320,15 @@ async function callAnthropic({ model = DEFAULT_MODEL, system, user, maxSearches 
 
 // Call the Express proxy → Gemini (Google Search grounding). Gemini self-limits
 // search use, so maxSearches has no per-call analogue here.
-async function callGemini({ model, system, user, maxTokens = 4096 }) {
-  // Gemini 2.5 Flash ships with thinking mode ON by default; "thoughts" tokens
-  // are charged against maxOutputTokens, which can silently truncate the JSON.
-  // Disable thinking on Flash so the whole budget goes to the actual answer.
-  // Keep thinking enabled on Pro (it benefits from extended reasoning).
-  const isFlash = /flash/i.test(model || '');
-  // Give Gemini meaningfully more headroom than the caller's hint — search
-  // grounding + structured JSON in one shot pushes past 4-6k tokens easily.
-  const budget = Math.max(maxTokens, isFlash ? 8192 : 12288);
+//
+// Auto-retry on MAX_TOKENS truncation: ownership JSON for aggregators with many
+// brands (e.g. Kellanova / Pringles) routinely runs past a conservative budget.
+// If the first call hits MAX_TOKENS AND the text fails to parse as JSON, we
+// retry once with the budget doubled (capped at Gemini's 65536 ceiling) and
+// emit a synthetic trace event so the user sees the retry.
+const GEMINI_MAX_OUTPUT_CEILING = 65536;
+
+async function callGeminiOnce({ model, system, user, budget, isFlash }) {
   const generationConfig = { maxOutputTokens: budget };
   if (isFlash) generationConfig.thinkingConfig = { thinkingBudget: 0 };
 
@@ -349,10 +349,43 @@ async function callGemini({ model, system, user, maxTokens = 4096 }) {
   }
   const data = await res.json();
   const parsed = parseGeminiResponse(data);
-  // Annotate the parsed response with finishReason so upstream error messages
-  // can explain truncation (MAX_TOKENS, SAFETY, RECITATION…) instead of just
-  // saying "did not return parseable JSON".
   parsed.finishReason = data.candidates?.[0]?.finishReason || null;
+  parsed.budgetUsed = budget;
+  return parsed;
+}
+
+async function callGemini({ model, system, user, maxTokens = 4096 }) {
+  // Gemini 2.5 Flash ships with thinking mode ON by default; "thoughts" tokens
+  // are charged against maxOutputTokens, which can silently truncate the JSON.
+  // Disable thinking on Flash so the whole budget goes to the actual answer.
+  // Keep thinking enabled on Pro (it benefits from extended reasoning).
+  const isFlash = /flash/i.test(model || '');
+  // Generous initial budgets — Flash output is cheap and the JSON can be large.
+  // Caller's maxTokens hint acts as a floor, never a ceiling.
+  const initialBudget = Math.min(
+    GEMINI_MAX_OUTPUT_CEILING,
+    Math.max(maxTokens, isFlash ? 24576 : 16384)
+  );
+
+  let parsed = await callGeminiOnce({ model, system, user, budget: initialBudget, isFlash });
+
+  // Retry once if truncated AND the text doesn't already contain a parseable
+  // JSON object. We probe with safeExtractJSON to avoid wasting a second call
+  // when the partial output happens to still parse.
+  if (parsed.finishReason === 'MAX_TOKENS' && !safeExtractJSON(parsed.text)) {
+    const retryBudget = Math.min(GEMINI_MAX_OUTPUT_CEILING, initialBudget * 2);
+    if (retryBudget > initialBudget) {
+      parsed.trace.push({
+        kind: 'phase',
+        label: `Output truncated at ${initialBudget} tokens — retrying with ${retryBudget}-token budget`,
+      });
+      const retried = await callGeminiOnce({ model, system, user, budget: retryBudget, isFlash });
+      // Prepend the original trace so the retry context is preserved.
+      retried.trace = [...parsed.trace, ...retried.trace];
+      retried.retried = true;
+      return retried;
+    }
+  }
   return parsed;
 }
 
