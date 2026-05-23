@@ -203,8 +203,44 @@ function formatUSD(n) {
   return `$${n}`;
 }
 
+function isSafeUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function keyOf(node) {
   return (node?.company || '').toLowerCase().trim();
+}
+
+// Pool executor: limits max concurrent tasks. Prevents rate-limit 429s and cost spikes.
+async function concurrencyPool(tasks, maxConcurrent = 3) {
+  const results = [];
+  let running = 0;
+  let nextIdx = 0;
+
+  return new Promise((resolve, reject) => {
+    const launch = () => {
+      while (running < maxConcurrent && nextIdx < tasks.length) {
+        running++;
+        const idx = nextIdx++;
+        Promise.resolve(tasks[idx]())
+          .then((res) => { results[idx] = res; })
+          .catch((err) => { results[idx] = Promise.reject(err); })
+          .finally(() => {
+            running--;
+            if (nextIdx < tasks.length) launch();
+            else if (running === 0) resolve(results);
+          });
+      }
+      if (nextIdx >= tasks.length && running === 0) resolve(results);
+    };
+    launch();
+  });
 }
 
 // Call the existing Express proxy → Anthropic.
@@ -644,8 +680,8 @@ export default function App() {
         }
       })();
 
-      const revenueResults = await Promise.all(
-        entities.map(async (ent) => {
+      const revenueResults = await concurrencyPool(
+        entities.map((ent) => async () => {
           const tag = `revenue:${ent.company}`;
           appendTrace([{ kind: 'phase', phase: tag, label: `→ ${ent.company} (${ent.role})` }]);
           try {
@@ -659,7 +695,8 @@ export default function App() {
             appendTrace([{ kind: 'error', tag, message: e.message }]);
             return { company: ent.company, role: ent.role, error: e.message, confidence: 'low' };
           }
-        })
+        }),
+        3
       );
 
       const parentAnchor = await parentAnchorPromise;
@@ -940,7 +977,7 @@ function ResultView({ result, showRaw, setShowRaw, selectedKey, setSelectedKey, 
                       <span className="strategic-entity">{s.entity}</span>
                     </div>
                     {s.details && <div className="strategic-details">{s.details}</div>}
-                    {s.source_url && (
+                    {s.source_url && isSafeUrl(s.source_url) && (
                       <div className="strategic-source">
                         <a href={s.source_url} target="_blank" rel="noopener noreferrer">{s.source_url}</a>
                       </div>
@@ -1415,7 +1452,7 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
         <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)' }}>
           Acquired by <strong style={{ color: 'var(--text)' }}>{node.acquisition.acquired_by}</strong>
           {node.acquisition.year ? ` · ${node.acquisition.year}` : ''}
-          {node.acquisition.source_url && (
+          {node.acquisition.source_url && isSafeUrl(node.acquisition.source_url) && (
             <> · <a href={node.acquisition.source_url} target="_blank" rel="noopener noreferrer">source</a></>
           )}
         </div>
