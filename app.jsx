@@ -321,6 +321,17 @@ async function callAnthropic({ model = DEFAULT_MODEL, system, user, maxSearches 
 // Call the Express proxy → Gemini (Google Search grounding). Gemini self-limits
 // search use, so maxSearches has no per-call analogue here.
 async function callGemini({ model, system, user, maxTokens = 4096 }) {
+  // Gemini 2.5 Flash ships with thinking mode ON by default; "thoughts" tokens
+  // are charged against maxOutputTokens, which can silently truncate the JSON.
+  // Disable thinking on Flash so the whole budget goes to the actual answer.
+  // Keep thinking enabled on Pro (it benefits from extended reasoning).
+  const isFlash = /flash/i.test(model || '');
+  // Give Gemini meaningfully more headroom than the caller's hint — search
+  // grounding + structured JSON in one shot pushes past 4-6k tokens easily.
+  const budget = Math.max(maxTokens, isFlash ? 8192 : 12288);
+  const generationConfig = { maxOutputTokens: budget };
+  if (isFlash) generationConfig.thinkingConfig = { thinkingBudget: 0 };
+
   const res = await fetch('/api/gemini', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -329,7 +340,7 @@ async function callGemini({ model, system, user, maxTokens = 4096 }) {
       contents: [{ role: 'user', parts: [{ text: user }] }],
       systemInstruction: { parts: [{ text: system }] },
       tools: [{ google_search: {} }],
-      generationConfig: { maxOutputTokens: maxTokens },
+      generationConfig,
     }),
   });
   if (!res.ok) {
@@ -337,7 +348,12 @@ async function callGemini({ model, system, user, maxTokens = 4096 }) {
     throw new Error(`API ${res.status}: ${errText.slice(0, 240)}`);
   }
   const data = await res.json();
-  return parseGeminiResponse(data);
+  const parsed = parseGeminiResponse(data);
+  // Annotate the parsed response with finishReason so upstream error messages
+  // can explain truncation (MAX_TOKENS, SAFETY, RECITATION…) instead of just
+  // saying "did not return parseable JSON".
+  parsed.finishReason = data.candidates?.[0]?.finishReason || null;
+  return parsed;
 }
 
 function parseAnthropicResponse(data) {
@@ -588,7 +604,14 @@ export default function App() {
       });
       appendTrace(ownershipResp.trace.map((t) => ({ ...t, tag: 'ownership' })));
       const ownership = safeExtractJSON(ownershipResp.text);
-      if (!ownership) throw new Error('Ownership phase did not return parseable JSON.');
+      if (!ownership) {
+        const fr = ownershipResp.finishReason ? ` (finishReason: ${ownershipResp.finishReason})` : '';
+        const preview = (ownershipResp.text || '').trim().slice(0, 200);
+        const hintMsg = ownershipResp.finishReason === 'MAX_TOKENS'
+          ? ' — output was truncated. Try Gemini 2.5 Pro or Claude Sonnet for this query.'
+          : (!preview ? ' — empty response from the model.' : '');
+        throw new Error(`Ownership phase did not return parseable JSON${fr}.${hintMsg}${preview ? ` Preview: "${preview}…"` : ''}`);
+      }
       if (ownership.disambiguation_required) {
         setResult({ disambiguation: ownership, raw: ownershipResp.text });
         setError('Disambiguation required — please re-run with a more specific context hint.');
