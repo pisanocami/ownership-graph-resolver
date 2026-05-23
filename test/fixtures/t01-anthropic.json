@@ -1,0 +1,34 @@
+{
+  "ownership": {
+    "company": "Anthropic",
+    "domain": "anthropic.com",
+    "node_type": "legal_entity",
+    "layer": "root",
+    "standalone": true,
+    "in_current_sources": true,
+    "in_historical_sources": false,
+    "last_mention_date": "2025-05",
+    "category": "AI research and frontier models",
+    "strategic_control": [
+      { "entity": "Dario Amodei", "role_description": "co-founder & CEO", "evidence": "company about page", "source_url": "https://anthropic.com/company" }
+    ],
+    "strategic_control_note": null,
+    "parent": null,
+    "siblings": [
+      { "company": "Bun", "domain": "bun.sh", "node_type": "operating_brand", "category": "JavaScript runtime and toolchain", "in_current_sources": true, "in_historical_sources": false, "last_mention_date": "2024-09", "source_urls": ["https://example.com/portfolio"] }
+    ],
+    "confidence": "high",
+    "sources": ["https://anthropic.com"]
+  },
+  "revenueByCompany": {
+    "anthropic": {
+      "revenue_estimate": { "low": 800000000, "high": 1400000000, "central": 1000000000 },
+      "confidence": "medium",
+      "signals_attempted": 5,
+      "signals_found_count": 2,
+      "signals_found": [{ "type": "press", "label": "annualized revenue", "value": "~$1B run-rate", "source": "press", "weight": "high" }],
+      "reasoning_summary": "Reported annualized revenue around $1B."
+    }
+  },
+  "parentAnchor": null
+}
