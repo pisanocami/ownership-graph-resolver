@@ -1224,7 +1224,7 @@ export default function OwnershipResolver() {
       try {
         setLoadingStage('extracting');
         addLog('SYSTEM', 'Building request payload');
-        const response = await fetch('http://localhost:3002/api/anthropic', {
+        const response = await fetch('/api/anthropic', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
