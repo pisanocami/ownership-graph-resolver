@@ -228,12 +228,24 @@ function LoadingStepper({ currentStage }) {
   );
 }
 
-function SummaryRow({ result }) {
+function SummaryRow({ result, resolvedAt }) {
   if (!result || result.error || result.disambiguation_required) return null;
 
   const chain = buildChain(result);
   const strategicCount = result.strategic_control?.length || 0;
   const sourceCount = result.sources?.length || 0;
+
+  const formatTime = (date) => {
+    if (!date) return null;
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return date.toLocaleDateString();
+  };
 
   const statusBadge = result.standalone ? (
     <span style={{
@@ -311,6 +323,14 @@ function SummaryRow({ result }) {
             <Star className="w-4 h-4" style={{ color: '#6b7280' }} />
             <span style={{ fontSize: '13px', color: '#6b7280' }}>
               {strategicCount} relationship{strategicCount !== 1 ? 's' : ''}
+            </span>
+          </div>
+        )}
+
+        {formatTime(resolvedAt) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '13px', color: '#9ca3af' }}>
+              Resolved {formatTime(resolvedAt)}
             </span>
           </div>
         )}
@@ -1170,6 +1190,7 @@ export default function OwnershipResolver() {
   const [rawResponse, setRawResponse] = useState(null);
   const [logs, setLogs] = useState([]);
   const [showLogs, setShowLogs] = useState(false);
+  const [resolvedAt, setResolvedAt] = useState(null);
 
   const addLog = (level, message) => {
     const now = new Date();
@@ -1280,6 +1301,7 @@ export default function OwnershipResolver() {
 
         setLoadingStage('rendering');
         setResult(parsed);
+        setResolvedAt(new Date());
         addLog('COMPLETE', 'Done');
         return { retry: false, result: parsed };
       } catch (err) {
@@ -1426,6 +1448,9 @@ export default function OwnershipResolver() {
         {/* Loading */}
         {loading && <LoadingStepper currentStage={loadingStage} />}
 
+        {/* Empty State */}
+        {!loading && !result && !error && <EmptyState />}
+
         {/* Error */}
         {error && (
           <div style={{ border: '1px solid #fee2e2', background: '#fef2f2', padding: '14px', borderRadius: '8px', display: 'flex', gap: '12px', marginBottom: '24px' }}>
@@ -1438,7 +1463,7 @@ export default function OwnershipResolver() {
         )}
 
         {/* Summary Row */}
-        {result && <SummaryRow result={result} />}
+        {result && <SummaryRow result={result} resolvedAt={resolvedAt} />}
 
         {/* Result */}
         {result && <ResultDisplay result={result} rawResponse={rawResponse} />}
