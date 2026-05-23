@@ -982,11 +982,13 @@ function ResultView({ result, showRaw, setShowRaw, selectedKey, setSelectedKey, 
               </button>
             </div>
           </div>
-          {viewMode === 'tree' ? (
-            <TreeView tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} />
-          ) : (
-            <GraphView tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} theme={theme} />
-          )}
+          <div id="og-graph-capture">
+            {viewMode === 'tree' ? (
+              <TreeView tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} />
+            ) : (
+              <GraphView tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} theme={theme} />
+            )}
+          </div>
 
           {/* Strategic control per layer + non-warning notes (under tree on desktop) */}
           <StrategicControlSection tree={tree} />
@@ -1850,200 +1852,316 @@ function flattenTree(tree) {
   return out;
 }
 
-// Generate professional PDF report
+// Generate professional PDF report. Vector-text layout (crisp at any zoom) with a
+// designed cover band, section headers, colored pills, bordered/zebra tables, an
+// embedded high-res snapshot of the on-screen ownership map, page numbers, and the
+// full F11 dataset (derived status + category, reconciliation explanation, per-layer
+// strategic control). Forces a direct download via a Blob + anchor.
 async function generatePDF(result) {
   if (!result || !result.ownership_tree) return;
 
   const tree = result.ownership_tree;
   const positioning = result.positioning_analysis || {};
+  const recon = positioning.reconciliation;
   const focal = tree.company;
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+  // Palette (light, print-friendly) mirroring the app's design tokens.
+  const C = {
+    accent: [8, 145, 178], accentHover: [14, 116, 144], accentSoft: [236, 254, 255],
+    text: [24, 24, 27], muted: [82, 82, 91], subtle: [161, 161, 170],
+    border: [229, 231, 235], surface: [247, 247, 248],
+    activeFg: [21, 128, 61], activeBg: [220, 252, 231],
+    warning: [180, 83, 9], warnBg: [255, 251, 235],
+    danger: [185, 28, 28], dangerBg: [254, 242, 242],
+    white: [255, 255, 255], ink: [17, 17, 20], tint: [224, 247, 250],
+  };
 
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-  const margin = 15;
-  const contentWidth = pageWidth - 2 * margin;
-  let yPos = margin;
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const margin = 16;
+  const contentW = pageW - 2 * margin;
+  const bottomLimit = pageH - 16;
+  let y = margin;
 
-  const addNewPage = () => {
-    pdf.addPage();
-    yPos = margin;
-  };
+  const font = (size, style = 'normal') => { pdf.setFontSize(size); pdf.setFont('helvetica', style); };
+  const addPage = () => { pdf.addPage(); y = margin; };
+  const ensure = (h) => { if (y + h > bottomLimit) addPage(); };
 
-  const addText = (text, opts = {}) => {
-    const { size = 11, bold = false, color = [0, 0, 0], maxWidth = contentWidth } = opts;
-    pdf.setFontSize(size);
-    pdf.setTextColor(...color);
-    if (bold) pdf.setFont(undefined, 'bold');
-    const lines = pdf.splitTextToSize(text, maxWidth);
-    const lineHeight = size * 0.4;
-    const textHeight = lines.length * lineHeight;
-    if (yPos + textHeight > pageHeight - margin) addNewPage();
-    pdf.text(lines, margin, yPos);
-    yPos += textHeight + 2;
-    if (bold) pdf.setFont(undefined, 'normal');
-    pdf.setTextColor(0, 0, 0);
-  };
-
-  const addSection = (title) => {
-    if (yPos > pageHeight - margin - 20) addNewPage();
-    yPos += 4;
-    addText(title, { size: 14, bold: true, color: [64, 190, 204] });
-    pdf.setDrawColor(64, 190, 204);
-    pdf.line(margin, yPos, margin + contentWidth, yPos);
-    yPos += 3;
-  };
-
-  const addTable = (headers, rows) => {
-    const colWidths = headers.map((h) => contentWidth / headers.length);
-    const rowHeight = 7;
-    const headerHeight = 8;
-
-    if (yPos + headerHeight + rows.length * rowHeight > pageHeight - margin) addNewPage();
-
-    // Header
-    pdf.setFillColor(14, 14, 18);
-    pdf.setTextColor(255, 255, 255);
-    pdf.setFontSize(10);
-    pdf.setFont(undefined, 'bold');
-    let xPos = margin;
-    headers.forEach((h, i) => {
-      pdf.rect(xPos, yPos, colWidths[i], headerHeight, 'F');
-      pdf.text(h, xPos + 2, yPos + 5);
-      xPos += colWidths[i];
+  const text = (str, opts = {}) => {
+    const { size = 10, style = 'normal', color = C.text, x = margin, maxW = contentW, gap = 1.8 } = opts;
+    font(size, style); pdf.setTextColor(...color);
+    const lines = pdf.splitTextToSize(String(str ?? ''), maxW);
+    const lineH = size * 0.42;
+    lines.forEach((ln) => {
+      ensure(lineH);
+      pdf.text(ln, x, y, { baseline: 'top' });
+      y += lineH;
     });
-    yPos += headerHeight;
+    y += gap;
+  };
 
-    // Rows
-    pdf.setTextColor(0, 0, 0);
-    pdf.setFont(undefined, 'normal');
-    pdf.setFontSize(9);
-    rows.forEach((row, ridx) => {
-      if (yPos + rowHeight > pageHeight - margin) addNewPage();
-      if (ridx % 2 === 1) {
-        pdf.setFillColor(240, 240, 240);
-        pdf.rect(margin, yPos, contentWidth, rowHeight, 'F');
-      }
-      xPos = margin;
+  const section = (title) => {
+    ensure(13);
+    y += 3;
+    pdf.setFillColor(...C.accent);
+    pdf.rect(margin, y, 2.2, 5.4, 'F');
+    font(12, 'bold'); pdf.setTextColor(...C.ink);
+    pdf.text(title.toUpperCase(), margin + 5, y + 0.3, { baseline: 'top' });
+    y += 7.5;
+    pdf.setDrawColor(...C.border); pdf.setLineWidth(0.3);
+    pdf.line(margin, y, margin + contentW, y);
+    y += 4;
+  };
+
+  // Inline pill; returns the width consumed so callers can chain pills on one row.
+  const pill = (label, x, yy, fill, fg) => {
+    font(7.5, 'bold');
+    const tw = pdf.getTextWidth(String(label));
+    const padX = 2.2, h = 4.8, w = tw + padX * 2;
+    pdf.setFillColor(...fill);
+    pdf.roundedRect(x, yy, w, h, 1.2, 1.2, 'F');
+    pdf.setTextColor(...fg);
+    pdf.text(String(label), x + padX, yy + h / 2 + 0.15, { baseline: 'middle' });
+    return w;
+  };
+
+  const statusColors = (label) =>
+    label === 'active' ? [C.activeBg, C.activeFg]
+      : label === 'legacy' ? [C.warnBg, C.warning]
+        : label === 'discontinued' ? [C.dangerBg, C.danger]
+          : [C.surface, C.muted];
+
+  const table = (headers, rows, widths) => {
+    const rowH = 7, headH = 8;
+    ensure(headH + rows.length * rowH + 4);
+    const top = y;
+    let x = margin;
+    pdf.setFillColor(...C.ink);
+    pdf.rect(margin, y, contentW, headH, 'F');
+    font(8.5, 'bold'); pdf.setTextColor(...C.white);
+    headers.forEach((h, i) => { pdf.text(String(h), x + 2, y + headH / 2 + 0.2, { baseline: 'middle' }); x += widths[i]; });
+    y += headH;
+    rows.forEach((row, ri) => {
+      if (ri % 2 === 1) { pdf.setFillColor(...C.surface); pdf.rect(margin, y, contentW, rowH, 'F'); }
+      x = margin;
       row.forEach((cell, i) => {
-        const lines = pdf.splitTextToSize(String(cell || ''), colWidths[i] - 2);
-        pdf.text(lines, xPos + 1, yPos + 2);
-        xPos += colWidths[i];
+        const val = cell && typeof cell === 'object' ? cell.text : cell;
+        const color = cell && typeof cell === 'object' && cell.color ? cell.color : C.text;
+        const style = cell && typeof cell === 'object' && cell.bold ? 'bold' : 'normal';
+        font(8.5, style); pdf.setTextColor(...color);
+        const line = pdf.splitTextToSize(String(val ?? ''), widths[i] - 3)[0] || '';
+        pdf.text(line, x + 2, y + rowH / 2 + 0.2, { baseline: 'middle' });
+        x += widths[i];
       });
-      yPos += rowHeight;
+      y += rowH;
     });
-    yPos += 2;
+    pdf.setDrawColor(...C.border); pdf.setLineWidth(0.2);
+    pdf.rect(margin, top, contentW, headH + rows.length * rowH);
+    y += 4;
   };
 
-  // ─── Header ───
-  pdf.setFontSize(20);
-  pdf.setFont(undefined, 'bold');
-  pdf.text(`${focal}`, margin, yPos);
-  yPos += 10;
+  // ─── Capture the on-screen ownership map (high-res) ───
+  let graphImg = null;
+  try {
+    const el = typeof document !== 'undefined' && document.getElementById('og-graph-capture');
+    if (el) {
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+      if (canvas.width > 0 && canvas.height > 0) {
+        graphImg = { data: canvas.toDataURL('image/png'), w: canvas.width, h: canvas.height };
+      }
+    }
+  } catch (_) { /* snapshot is best-effort; skip on failure */ }
 
-  pdf.setFontSize(10);
-  pdf.setFont(undefined, 'normal');
-  pdf.setTextColor(100, 100, 100);
-  pdf.text(`Ownership & Revenue Analysis · ${dateStr} ${timeStr}`, margin, yPos);
-  yPos += 8;
+  // ─── Cover band (page 1) ───
+  pdf.setFillColor(...C.accent);
+  pdf.rect(0, 0, pageW, 34, 'F');
+  font(22, 'bold'); pdf.setTextColor(...C.white);
+  pdf.text(focal, margin, 14, { baseline: 'middle' });
+  font(10.5, 'normal'); pdf.setTextColor(...C.tint);
+  pdf.text('Ownership & Revenue Analysis', margin, 23, { baseline: 'middle' });
+  font(8.5, 'normal');
+  pdf.text(`${dateStr} · ${timeStr}`, margin, 29, { baseline: 'middle' });
+  y = 42;
 
   // ─── Executive Summary ───
-  addSection('Executive Summary');
+  section('Executive Summary');
   const revEst = tree.revenue_estimate || {};
-  addText(`${focal} is a ${tree.layer || 'brand'} with estimated annual revenue of ${formatUSD(revEst.low)} – ${formatUSD(revEst.high)} (central: ${formatUSD(revEst.central)}).`, { size: 11 });
-  if (tree.parent) {
-    addText(`Parent: ${tree.parent.company} (${tree.parent.layer || 'parent'}). Confidence: ${revEst.confidence || 'unknown'}.`, { size: 11 });
-  } else {
-    addText(`Standalone entity. Confidence: ${revEst.confidence || 'unknown'}.`, { size: 11 });
+  text(
+    `${focal} is a ${tree.layer || 'brand'}${tree.parent ? ` under ${tree.parent.company}` : ' (standalone)'} with an estimated annual revenue of ${formatUSD(revEst.low)}–${formatUSD(revEst.high)} (central ${formatUSD(revEst.central)}).`,
+    { size: 10.5, color: C.muted, gap: 3 }
+  );
+  {
+    ensure(6);
+    let px = margin; const py = y;
+    px += pill(`confidence: ${revEst.confidence || 'unknown'}`, px, py, C.surface, C.muted) + 2;
+    const st = deriveStatus(tree).label;
+    const [sbg, sfg] = statusColors(st);
+    px += pill(st, px, py, sbg, sfg) + 2;
+    if (tree.category) px += pill(tree.category, px, py, C.accentSoft, C.accentHover) + 2;
+    if (tree.terminal_layer === 'private_equity') px += pill('PE-owned', px, py, C.warnBg, C.warning) + 2;
+    y = py + 8;
   }
-  yPos += 2;
 
-  // ─── Ownership Tree ───
-  addSection('Ownership Structure');
-  const renderChain = (node, depth = 0) => {
-    const indent = '  '.repeat(depth);
-    const rev = node.revenue_estimate || {};
-    const revStr = rev.central ? ` (${formatUSD(rev.central)})` : '';
-    const status = node.layer ? ` · ${node.layer}` : '';
-    addText(`${indent}${node.company}${revStr}${status}`, { size: 10 });
+  // ─── Ownership Map (snapshot) ───
+  if (graphImg) {
+    section('Ownership Map');
+    const ratio = graphImg.h / graphImg.w;
+    let imgW = contentW;
+    let imgH = imgW * ratio;
+    let avail = bottomLimit - y;
+    if (imgH > avail) {
+      if (avail < 70) { addPage(); avail = bottomLimit - y; }
+      if (imgH > avail) { imgH = avail; imgW = imgH / ratio; }
+    }
+    const imgX = margin + (contentW - imgW) / 2;
+    pdf.addImage(graphImg.data, 'PNG', imgX, y, imgW, imgH, undefined, 'FAST');
+    pdf.setDrawColor(...C.border); pdf.setLineWidth(0.2);
+    pdf.rect(imgX, y, imgW, imgH);
+    y += imgH + 4;
+  }
+
+  // ─── Ownership Structure ───
+  section('Ownership Structure');
+  const renderNode = (node, depth) => {
+    ensure(6.5);
+    const indent = margin + depth * 5;
+    font(9.5, 'bold'); pdf.setTextColor(...C.text);
+    pdf.text(node.company, indent, y + 0.3, { baseline: 'top' });
+    let nx = indent + pdf.getTextWidth(node.company) + 3;
+    const rev = node.revenue_estimate;
+    if (rev && rev.central > 0) {
+      font(9, 'normal'); pdf.setTextColor(...C.muted);
+      const rs = formatUSD(rev.central);
+      pdf.text(rs, nx, y + 0.5, { baseline: 'top' });
+      nx += pdf.getTextWidth(rs) + 3;
+    }
+    if (node.category) {
+      font(8, 'normal'); pdf.setTextColor(...C.subtle);
+      pdf.text(node.category, nx, y + 0.7, { baseline: 'top' });
+      nx += pdf.getTextWidth(node.category) + 3;
+    }
+    const st = deriveStatus(node).label;
+    if (st !== 'active') { const [bg, fg] = statusColors(st); pill(st, nx, y - 0.2, bg, fg); }
+    y += 6.5;
   };
-  let p = tree.parent;
   const chain = [];
-  while (p) { chain.unshift(p); p = p.parent; }
-  chain.forEach((n, i) => renderChain(n, i));
-  renderChain(tree, chain.length);
-  yPos += 2;
-
-  if ((tree.siblings || []).length > 0) {
-    addText('Siblings:', { size: 10, bold: true });
-    tree.siblings.slice(0, 6).forEach((s) => renderChain(s, 1));
-    yPos += 2;
+  let cp = tree.parent;
+  while (cp) { chain.unshift(cp); cp = cp.parent; }
+  chain.forEach((n, i) => renderNode(n, i));
+  renderNode(tree, chain.length);
+  const siblings = tree.siblings || [];
+  if (siblings.length > 0) {
+    y += 1.5;
+    text('Siblings', { size: 9, style: 'bold', color: C.ink, gap: 1 });
+    siblings.forEach((s) => renderNode(s, 1));
   }
-
   if ((tree.children || []).length > 0) {
-    addText('Children:', { size: 10, bold: true });
-    tree.children.slice(0, 6).forEach((c) => renderChain(c, 1));
-    yPos += 2;
+    y += 1.5;
+    text('Children', { size: 9, style: 'bold', color: C.ink, gap: 1 });
+    tree.children.forEach((c) => renderNode(c, 1));
   }
+  y += 2;
 
   // ─── Revenue Breakdown ───
-  if ((result._revenueResults || []).length > 1 || tree.siblings?.length > 0) {
-    addSection('Revenue Breakdown');
-    const rows = [tree, ...(tree.siblings || [])].filter((n) => n && n.revenue_estimate?.central).map((n) => [
-      n.company,
-      formatUSD(n.revenue_estimate.central),
-      n.revenue_estimate.confidence || '—',
-      n.layer || '—',
-    ]);
-    if (rows.length > 0) {
-      addTable(['Company', 'Revenue', 'Confidence', 'Layer'], rows);
-    }
+  const breakdownRows = [tree, ...siblings].map((n) => {
+    const st = deriveStatus(n).label;
+    const [, fg] = statusColors(st);
+    const rev = n.revenue_estimate;
+    return [
+      { text: n.company, bold: n === tree },
+      n.category || '—',
+      (rev && rev.central > 0) ? formatUSD(rev.central) : '—',
+      (rev && rev.confidence) || '—',
+      { text: st, color: fg, bold: true },
+    ];
+  });
+  if (breakdownRows.length > 0) {
+    section('Revenue Breakdown');
+    table(['Company', 'Category', 'Revenue', 'Conf.', 'Status'], breakdownRows, [46, 48, 30, 22, 32]);
   }
 
   // ─── Positioning Analysis ───
   if (positioning.focal_vs_parent_ratio || positioning.focal_vs_siblings) {
-    addSection('Positioning Analysis');
-    if (positioning.focal_vs_parent_ratio) {
-      addText(`Parent Ratio: ${positioning.focal_vs_parent_ratio}`, { size: 10 });
+    section('Positioning Analysis');
+    if (positioning.focal_vs_parent_ratio) text(`Parent ratio: ${positioning.focal_vs_parent_ratio}`, { size: 9.5, color: C.text, gap: 1 });
+    if (positioning.focal_vs_siblings) text(`Sibling ranking: ${positioning.focal_vs_siblings}`, { size: 9.5, color: C.text });
+    if (positioning.growth_signals) text(`Growth signals: ${positioning.growth_signals}`, { size: 9, color: C.muted });
+  }
+
+  // ─── Reconciliation (+ explanation) ───
+  if (recon) {
+    section('Reconciliation');
+    text(
+      `Focal + siblings ${formatUSD(recon.sum_children_central)} vs ${formatUSD(recon.parent_benchmark)} (${recon.parent_benchmark_source}). Coverage ${(recon.ratio * 100).toFixed(0)}%, delta ${recon.pct_delta > 0 ? '+' : ''}${recon.pct_delta}%.`,
+      { size: 9.5, color: C.text, gap: 2.5 }
+    );
+    // Coverage bar — center tick at 1.0× (parent).
+    ensure(11);
+    const barW = contentW, barH = 4.5, btop = y;
+    pdf.setFillColor(...C.surface); pdf.rect(margin, btop, barW, barH, 'F');
+    const clamped = Math.max(0, Math.min(2, recon.ratio));
+    const col = (recon.ratio > 1.5 || recon.ratio < 0.5) ? C.warning : C.accent;
+    pdf.setFillColor(...col); pdf.rect(margin, btop, (clamped / 2) * barW, barH, 'F');
+    pdf.setDrawColor(...C.ink); pdf.setLineWidth(0.3); pdf.line(margin + barW / 2, btop - 1, margin + barW / 2, btop + barH + 1);
+    pdf.setDrawColor(...C.border); pdf.setLineWidth(0.2); pdf.rect(margin, btop, barW, barH);
+    y += barH + 2;
+    font(7, 'normal'); pdf.setTextColor(...C.subtle);
+    pdf.text('0×', margin, y, { baseline: 'top' });
+    pdf.text('1.0× parent', margin + barW / 2, y, { align: 'center', baseline: 'top' });
+    pdf.text('2.0×+', margin + barW, y, { align: 'right', baseline: 'top' });
+    y += 6;
+    if (recon.explanation && Array.isArray(recon.explanation.likely_causes)) {
+      text('Likely causes of the gap', { size: 9.5, style: 'bold', color: C.ink, gap: 1.5 });
+      recon.explanation.likely_causes.forEach((cause, i) => {
+        text(`• ${cause}`, { size: 9, style: 'bold', color: C.text, x: margin + 2, maxW: contentW - 4, gap: 0.6 });
+        const ev = recon.explanation.evidence_for_each?.[i];
+        if (ev) text(ev, { size: 8.5, color: C.muted, x: margin + 6, maxW: contentW - 8, gap: 1.6 });
+      });
     }
-    if (positioning.focal_vs_siblings) {
-      addText(`Sibling Ranking: ${positioning.focal_vs_siblings}`, { size: 10 });
-    }
-    yPos += 2;
   }
 
   // ─── Strategic Control (per layer) ───
-  const scChain = [];
-  let scP = tree.parent;
-  while (scP) { scChain.unshift(scP); scP = scP.parent; }
-  const scLayers = [...scChain, tree];
+  const scLayers = [...chain, tree];
   if (scLayers.some((n) => (n.strategic_control || []).length > 0 || n.strategic_control_note)) {
-    addSection('Strategic Control');
+    section('Strategic Control');
     scLayers.forEach((node) => {
       const items = node.strategic_control || [];
       if (items.length === 0 && !node.strategic_control_note) return;
-      addText(node.company, { size: 10, bold: true });
+      ensure(7);
+      font(10, 'bold'); pdf.setTextColor(...C.ink);
+      pdf.text(node.company, margin, y + 0.3, { baseline: 'top' });
+      if (node.layer) pill(node.layer, margin + pdf.getTextWidth(node.company) + 3, y - 0.2, C.surface, C.muted);
+      y += 6;
       if (items.length === 0) {
-        addText(node.strategic_control_note || 'no_data_found', { size: 9 });
+        text(node.strategic_control_note || 'no_data_found', { size: 8.5, style: 'italic', color: C.subtle, x: margin + 3 });
       } else {
-        items.slice(0, 10).forEach((s) => {
-          addText(`${s.entity} · ${s.role_description || s.relationship || ''}`, { size: 10 });
-          const detail = s.evidence || s.details;
-          if (detail) addText(detail, { size: 9 });
+        items.slice(0, 12).forEach((s) => {
+          text(`${s.entity} — ${s.role_description || s.relationship || ''}`, { size: 9, style: 'bold', color: C.text, x: margin + 3, maxW: contentW - 6, gap: 0.6 });
+          const ev = s.evidence || s.details;
+          if (ev) text(ev, { size: 8.5, color: C.muted, x: margin + 6, maxW: contentW - 9, gap: 1.4 });
         });
       }
+      y += 1.5;
     });
-    yPos += 2;
   }
 
-  // ─── Footer ───
-  pdf.setFontSize(8);
-  pdf.setTextColor(150, 150, 150);
-  pdf.text(`Generated by Ownership & Revenue Agent · Confidential · ${dateStr}`, margin, pageHeight - 8);
+  // ─── Footer + page numbers (all pages) ───
+  const pageCount = pdf.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    pdf.setPage(i);
+    pdf.setDrawColor(...C.border); pdf.setLineWidth(0.2);
+    pdf.line(margin, pageH - 11, pageW - margin, pageH - 11);
+    font(7.5, 'normal'); pdf.setTextColor(...C.subtle);
+    pdf.text('Generated by Ownership & Revenue Agent · Confidential', margin, pageH - 7, { baseline: 'middle' });
+    pdf.text(`${i} / ${pageCount}`, pageW - margin, pageH - 7, { align: 'right', baseline: 'middle' });
+  }
 
+  // Force a direct file download via a Blob + anchor, bypassing jsPDF's save()
+  // fallback that can open the browser PDF viewer / print dialog instead.
   const filename = `${focal.replace(/\s+/g, '-')}-ownership-report.pdf`;
   try {
     const blob = pdf.output('blob');
