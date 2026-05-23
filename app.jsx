@@ -126,6 +126,53 @@ Return STRICT JSON in a \`\`\`json ... \`\`\` block:
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+function b64urlEncode(bytes) {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function b64urlDecode(str) {
+  const pad = str.length % 4 === 0 ? '' : '='.repeat(4 - (str.length % 4));
+  const bin = atob(str.replace(/-/g, '+').replace(/_/g, '/') + pad);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function encodeShareable(payload) {
+  const json = JSON.stringify(payload);
+  const bytes = new TextEncoder().encode(json);
+  if (typeof CompressionStream !== 'undefined') {
+    const cs = new CompressionStream('gzip');
+    const writer = cs.writable.getWriter();
+    writer.write(bytes);
+    writer.close();
+    const compressed = new Uint8Array(await new Response(cs.readable).arrayBuffer());
+    return 'g.' + b64urlEncode(compressed);
+  }
+  return 'r.' + b64urlEncode(bytes);
+}
+
+async function decodeShareable(token) {
+  if (!token) return null;
+  const [prefix, body] = token.split('.', 2);
+  if (!body) return null;
+  const bytes = b64urlDecode(body);
+  let jsonBytes = bytes;
+  if (prefix === 'g') {
+    if (typeof DecompressionStream === 'undefined') return null;
+    const ds = new DecompressionStream('gzip');
+    const writer = ds.writable.getWriter();
+    writer.write(bytes);
+    writer.close();
+    jsonBytes = new Uint8Array(await new Response(ds.readable).arrayBuffer());
+  } else if (prefix !== 'r') {
+    return null;
+  }
+  return JSON.parse(new TextDecoder().decode(jsonBytes));
+}
+
 function safeExtractJSON(text) {
   if (!text) return null;
   const fence = text.match(/```json\s*([\s\S]+?)\s*```/);
@@ -408,12 +455,53 @@ export default function App() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [showRaw, setShowRaw] = useState(false);
+  const [sharedView, setSharedView] = useState(false);
 
   useEffect(() => {
     const link = document.createElement('link');
     link.href = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=JetBrains+Mono:wght@400;500&family=Inter:wght@300;400;500;600&display=swap';
     link.rel = 'stylesheet';
     document.head.appendChild(link);
+
+    const style = document.createElement('style');
+    style.textContent = `
+      @media print {
+        body { background: #fff !important; }
+        .no-print { display: none !important; }
+        .print-root {
+          background: #fff !important;
+          background-image: none !important;
+          color: #111 !important;
+          padding: 0 !important;
+        }
+        .print-root * {
+          color: #111 !important;
+          background: transparent !important;
+          border-color: #ccc !important;
+        }
+        .print-root a { color: #1a5f8a !important; text-decoration: underline; }
+        .print-root section, .print-root div { page-break-inside: avoid; }
+      }
+    `;
+    document.head.appendChild(style);
+  }, []);
+
+  useEffect(() => {
+    const hash = window.location.hash;
+    const match = hash.match(/^#share=(.+)$/);
+    if (!match) return;
+    (async () => {
+      try {
+        const payload = await decodeShareable(decodeURIComponent(match[1]));
+        if (payload && payload.ownership_tree) {
+          setResult(payload);
+          setBrand(payload.focal_company || payload.ownership_tree.company || '');
+          setSharedView(true);
+        }
+      } catch (e) {
+        setError('Could not decode shared report: ' + e.message);
+      }
+    })();
   }, []);
 
   function appendTrace(items) {
@@ -539,6 +627,7 @@ export default function App() {
 
   return (
     <div
+      className="print-root"
       style={{
         minHeight: '100vh',
         background: '#0a0a0c',
@@ -551,6 +640,34 @@ export default function App() {
       }}
     >
       <div style={{ maxWidth: '820px', margin: '0 auto' }}>
+        {sharedView && (
+          <div
+            className="no-print"
+            style={{
+              background: '#0e1a1c',
+              border: '1px solid #1f3a3f',
+              padding: '14px 20px',
+              fontFamily: '"JetBrains Mono", monospace',
+              fontSize: '11px',
+              letterSpacing: '0.08em',
+              color: '#40BECC',
+              marginBottom: '32px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: '16px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <span>★ shared report · read-only view</span>
+            <a
+              href={window.location.pathname}
+              style={{ color: '#a8a59c', textDecoration: 'underline', fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase' }}
+            >
+              ↳ run new investigation
+            </a>
+          </div>
+        )}
         {/* HEADER */}
         <header style={{ marginBottom: '56px', borderBottom: '1px solid #1c1c20', paddingBottom: '36px' }}>
           <div
@@ -593,7 +710,8 @@ export default function App() {
         </header>
 
         {/* INPUT */}
-        <section style={{ marginBottom: '56px' }}>
+        {!sharedView && (
+        <section className="no-print" style={{ marginBottom: '56px' }}>
           <Label>Target brand</Label>
           <input
             type="text"
@@ -637,10 +755,11 @@ export default function App() {
             {loading ? `· · · ${phase || 'working'}` : '→ investigate'}
           </button>
         </section>
+        )}
 
         {/* TRACE */}
-        {(loading || trace.length > 0) && (
-          <section style={{ marginBottom: '56px' }}>
+        {!sharedView && (loading || trace.length > 0) && (
+          <section className="no-print" style={{ marginBottom: '56px' }}>
             <SectionHead>Investigation log</SectionHead>
             <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '12px', color: '#a8a59c' }}>
               {trace.map((item, i) => (
@@ -702,9 +821,67 @@ function ResultView({ result, showRaw, setShowRaw }) {
   const tree = result.ownership_tree;
   const positioning = result.positioning_analysis || {};
   const rev = tree.revenue_estimate || {};
+  const [shareState, setShareState] = useState('idle');
+
+  async function handleShare() {
+    try {
+      setShareState('working');
+      const payload = {
+        focal_company: result.focal_company,
+        ownership_tree: result.ownership_tree,
+        positioning_analysis: result.positioning_analysis,
+        _revenueResults: result._revenueResults,
+        _entities: result._entities,
+      };
+      const token = await encodeShareable(payload);
+      const url = `${window.location.origin}${window.location.pathname}#share=${encodeURIComponent(token)}`;
+      await navigator.clipboard.writeText(url);
+      setShareState('copied');
+      setTimeout(() => setShareState('idle'), 2200);
+    } catch (e) {
+      console.error(e);
+      setShareState('error');
+      setTimeout(() => setShareState('idle'), 2200);
+    }
+  }
+
+  const btn = {
+    background: 'transparent',
+    border: '1px solid #2a2a2e',
+    color: '#e8e6df',
+    padding: '10px 18px',
+    fontFamily: '"JetBrains Mono", monospace',
+    fontSize: '10px',
+    letterSpacing: '0.2em',
+    textTransform: 'uppercase',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+  };
 
   return (
     <section>
+      <div
+        className="no-print"
+        style={{
+          display: 'flex',
+          gap: '12px',
+          justifyContent: 'flex-end',
+          marginBottom: '20px',
+          flexWrap: 'wrap',
+        }}
+      >
+        <button onClick={() => window.print()} style={btn}>↓ download PDF</button>
+        <button
+          onClick={handleShare}
+          style={{
+            ...btn,
+            borderColor: shareState === 'copied' ? '#40BECC' : '#2a2a2e',
+            color: shareState === 'copied' ? '#40BECC' : '#e8e6df',
+          }}
+        >
+          {shareState === 'copied' ? '✓ link copied' : shareState === 'working' ? '· · · encoding' : shareState === 'error' ? '✕ failed' : '⎘ copy share link'}
+        </button>
+      </div>
       <SectionHead>Estimate · {tree.company}</SectionHead>
       <div
         style={{
@@ -812,7 +989,7 @@ function ResultView({ result, showRaw, setShowRaw }) {
         ))}
       </div>
 
-      <section style={{ marginTop: '24px', borderTop: '1px solid #1c1c20', paddingTop: '24px' }}>
+      <section className="no-print" style={{ marginTop: '24px', borderTop: '1px solid #1c1c20', paddingTop: '24px' }}>
         <button
           onClick={() => setShowRaw(!showRaw)}
           style={{
