@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import ReactFlow, { Background, Controls, MiniMap, Handle, Position } from 'reactflow';
 import 'reactflow/dist/style.css';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 const MODEL = 'claude-sonnet-4-20250514';
 
@@ -913,7 +915,7 @@ function ResultView({ result, showRaw, setShowRaw, selectedKey, setSelectedKey, 
     <>
       {/* Export actions */}
       <div className="no-print" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
-        <button className="btn btn-sm" onClick={() => window.print()}>↓ PDF</button>
+        <button className="btn btn-sm" onClick={() => generatePDF(result)}>↓ PDF</button>
         <button
           className={`btn btn-sm ${shareState === 'copied' ? 'btn-primary' : ''}`}
           onClick={handleShare}
@@ -1629,6 +1631,189 @@ function flattenTree(tree) {
   (tree.siblings || []).forEach(add);
   (tree.children || []).forEach(add);
   return out;
+}
+
+// Generate professional PDF report
+async function generatePDF(result) {
+  if (!result || !result.ownership_tree) return;
+
+  const tree = result.ownership_tree;
+  const positioning = result.positioning_analysis || {};
+  const focal = tree.company;
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const margin = 15;
+  const contentWidth = pageWidth - 2 * margin;
+  let yPos = margin;
+
+  const addNewPage = () => {
+    pdf.addPage();
+    yPos = margin;
+  };
+
+  const addText = (text, opts = {}) => {
+    const { size = 11, bold = false, color = [0, 0, 0], maxWidth = contentWidth } = opts;
+    pdf.setFontSize(size);
+    pdf.setTextColor(...color);
+    if (bold) pdf.setFont(undefined, 'bold');
+    const lines = pdf.splitTextToSize(text, maxWidth);
+    const lineHeight = size * 0.4;
+    const textHeight = lines.length * lineHeight;
+    if (yPos + textHeight > pageHeight - margin) addNewPage();
+    pdf.text(lines, margin, yPos);
+    yPos += textHeight + 2;
+    if (bold) pdf.setFont(undefined, 'normal');
+    pdf.setTextColor(0, 0, 0);
+  };
+
+  const addSection = (title) => {
+    if (yPos > pageHeight - margin - 20) addNewPage();
+    yPos += 4;
+    addText(title, { size: 14, bold: true, color: [64, 190, 204] });
+    pdf.setDrawColor(64, 190, 204);
+    pdf.line(margin, yPos, margin + contentWidth, yPos);
+    yPos += 3;
+  };
+
+  const addTable = (headers, rows) => {
+    const colWidths = headers.map((h) => contentWidth / headers.length);
+    const rowHeight = 7;
+    const headerHeight = 8;
+
+    if (yPos + headerHeight + rows.length * rowHeight > pageHeight - margin) addNewPage();
+
+    // Header
+    pdf.setFillColor(14, 14, 18);
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFontSize(10);
+    pdf.setFont(undefined, 'bold');
+    let xPos = margin;
+    headers.forEach((h, i) => {
+      pdf.rect(xPos, yPos, colWidths[i], headerHeight, 'F');
+      pdf.text(h, xPos + 2, yPos + 5);
+      xPos += colWidths[i];
+    });
+    yPos += headerHeight;
+
+    // Rows
+    pdf.setTextColor(0, 0, 0);
+    pdf.setFont(undefined, 'normal');
+    pdf.setFontSize(9);
+    rows.forEach((row, ridx) => {
+      if (yPos + rowHeight > pageHeight - margin) addNewPage();
+      if (ridx % 2 === 1) {
+        pdf.setFillColor(240, 240, 240);
+        pdf.rect(margin, yPos, contentWidth, rowHeight, 'F');
+      }
+      xPos = margin;
+      row.forEach((cell, i) => {
+        const lines = pdf.splitTextToSize(String(cell || ''), colWidths[i] - 2);
+        pdf.text(lines, xPos + 1, yPos + 2);
+        xPos += colWidths[i];
+      });
+      yPos += rowHeight;
+    });
+    yPos += 2;
+  };
+
+  // ─── Header ───
+  pdf.setFontSize(20);
+  pdf.setFont(undefined, 'bold');
+  pdf.text(`${focal}`, margin, yPos);
+  yPos += 10;
+
+  pdf.setFontSize(10);
+  pdf.setFont(undefined, 'normal');
+  pdf.setTextColor(100, 100, 100);
+  pdf.text(`Ownership & Revenue Analysis · ${dateStr} ${timeStr}`, margin, yPos);
+  yPos += 8;
+
+  // ─── Executive Summary ───
+  addSection('Executive Summary');
+  const revEst = tree.revenue_estimate || {};
+  addText(`${focal} is a ${tree.layer || 'brand'} with estimated annual revenue of ${formatUSD(revEst.low)} – ${formatUSD(revEst.high)} (central: ${formatUSD(revEst.central)}).`, { size: 11 });
+  if (tree.parent) {
+    addText(`Parent: ${tree.parent.company} (${tree.parent.layer || 'parent'}). Confidence: ${revEst.confidence || 'unknown'}.`, { size: 11 });
+  } else {
+    addText(`Standalone entity. Confidence: ${revEst.confidence || 'unknown'}.`, { size: 11 });
+  }
+  yPos += 2;
+
+  // ─── Ownership Tree ───
+  addSection('Ownership Structure');
+  const renderChain = (node, depth = 0) => {
+    const indent = '  '.repeat(depth);
+    const rev = node.revenue_estimate || {};
+    const revStr = rev.central ? ` (${formatUSD(rev.central)})` : '';
+    const status = node.layer ? ` · ${node.layer}` : '';
+    addText(`${indent}${node.company}${revStr}${status}`, { size: 10 });
+  };
+  let p = tree.parent;
+  const chain = [];
+  while (p) { chain.unshift(p); p = p.parent; }
+  chain.forEach((n, i) => renderChain(n, i));
+  renderChain(tree, chain.length);
+  yPos += 2;
+
+  if ((tree.siblings || []).length > 0) {
+    addText('Siblings:', { size: 10, bold: true });
+    tree.siblings.slice(0, 6).forEach((s) => renderChain(s, 1));
+    yPos += 2;
+  }
+
+  if ((tree.children || []).length > 0) {
+    addText('Children:', { size: 10, bold: true });
+    tree.children.slice(0, 6).forEach((c) => renderChain(c, 1));
+    yPos += 2;
+  }
+
+  // ─── Revenue Breakdown ───
+  if ((result._revenueResults || []).length > 1 || tree.siblings?.length > 0) {
+    addSection('Revenue Breakdown');
+    const rows = [tree, ...(tree.siblings || [])].filter((n) => n && n.revenue_estimate?.central).map((n) => [
+      n.company,
+      formatUSD(n.revenue_estimate.central),
+      n.revenue_estimate.confidence || '—',
+      n.layer || '—',
+    ]);
+    if (rows.length > 0) {
+      addTable(['Company', 'Revenue', 'Confidence', 'Layer'], rows);
+    }
+  }
+
+  // ─── Positioning Analysis ───
+  if (positioning.focal_vs_parent_ratio || positioning.focal_vs_siblings) {
+    addSection('Positioning Analysis');
+    if (positioning.focal_vs_parent_ratio) {
+      addText(`Parent Ratio: ${positioning.focal_vs_parent_ratio}`, { size: 10 });
+    }
+    if (positioning.focal_vs_siblings) {
+      addText(`Sibling Ranking: ${positioning.focal_vs_siblings}`, { size: 10 });
+    }
+    yPos += 2;
+  }
+
+  // ─── Strategic Control ───
+  if ((tree.strategic_control || []).length > 0) {
+    addSection('Strategic Control');
+    tree.strategic_control.slice(0, 10).forEach((s) => {
+      addText(`${s.entity} · ${s.relationship.replace(/_/g, ' ')}`, { size: 10, bold: true });
+      if (s.details) addText(s.details, { size: 9 });
+    });
+    yPos += 2;
+  }
+
+  // ─── Footer ───
+  pdf.setFontSize(8);
+  pdf.setTextColor(150, 150, 150);
+  pdf.text(`Generated by Ownership & Revenue Agent · Confidential · ${dateStr}`, margin, pageHeight - 8);
+
+  pdf.save(`${focal.replace(/\s+/g, '-')}-ownership-report.pdf`);
 }
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
