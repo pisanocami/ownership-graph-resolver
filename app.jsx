@@ -101,6 +101,29 @@ Produce a final JSON block in this EXACT format, wrapped in \`\`\`json ... \`\`\
 
 Weak/contradictory signals → wider range, "low" confidence. If you genuinely cannot estimate, set numbers to 0 and confidence "low" with a reasoning_summary explaining why.`;
 
+const PARENT_ANCHOR_PROMPT = `You are a filings agent. Given a PARENT company and a FOCAL subsidiary, determine if PARENT is publicly traded and, if so, extract the latest annual-report (10-K / 20-F / annual filing) segment revenue.
+
+Rules:
+- Search authoritative sources only: SEC EDGAR, the company's IR site, the actual 10-K/20-F PDF, or a reputable financial press summary of the filing.
+- If the filing breaks revenue by segment, list each segment with USD revenue. Mark "contains_focal":true on the segment that most plausibly contains FOCAL (by brand list, business description, or geography).
+- If PARENT is private or no filing is locatable, return is_public:false and null fields.
+- HARD CAP: 2 web searches. Be decisive.
+
+Return STRICT JSON in a \`\`\`json ... \`\`\` block:
+\`\`\`json
+{
+  "is_public": bool,
+  "ticker": str | null,
+  "fiscal_year": int | null,
+  "total_revenue_usd": <int USD> | null,
+  "segments": [
+    {"name": str, "revenue_usd": <int USD>, "contains_focal": bool}
+  ],
+  "source_url": str | null,
+  "notes": str
+}
+\`\`\``;
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function safeExtractJSON(text) {
@@ -254,10 +277,11 @@ function attachRevenue(ownership, revenueByCompany) {
 // Deterministic local synthesis. Chosen over a 3rd LLM call because (a) the
 // positioning math is mechanical (ratios, ranking) and (b) it avoids token cost
 // and JSON-parse risk of a synthesis call given two large prior outputs.
-function synthesize(ownership, revenueByCompany) {
+function synthesize(ownership, revenueByCompany, parentAnchor = null) {
   const tree = attachRevenue(ownership, revenueByCompany);
   const focalRev = tree.revenue_estimate?.central || 0;
   const parentRev = tree.parent?.revenue_estimate?.central || 0;
+  if (parentAnchor) tree.parent_anchor = parentAnchor;
 
   let focal_vs_parent_ratio = 'N/A (standalone)';
   if (tree.parent && parentRev > 0) {
@@ -305,6 +329,58 @@ function synthesize(ownership, revenueByCompany) {
     if (focalRev > maxSib) notes.push('Focal leads the sibling cohort by revenue — likely cash cow of the family.');
     else if (focalRev < Math.min(...sibRevs.filter((x) => x > 0))) notes.push('Focal trails siblings — may be a growth bet or underperforming.');
   }
+
+  // ── Reconciliation: sum(focal + siblings) vs parent reported total ─────────
+  // Prefer the 10-K anchor when available; otherwise fall back to the parent's
+  // estimated central. Large gaps surface as an explicit warning.
+  const sibCentrals = siblings.map((s) => s.revenue_estimate?.central || 0);
+  const sumChildCentral = focalRev + sibCentrals.reduce((a, b) => a + b, 0);
+  const knownSibCount = sibCentrals.filter((x) => x > 0).length + (focalRev > 0 ? 1 : 0);
+
+  let reconciliation = null;
+  if (tree.parent && knownSibCount >= 2) {
+    const anchorTotal = parentAnchor && parentAnchor.is_public ? (parentAnchor.total_revenue_usd || 0) : 0;
+    const focalSegmentRev = parentAnchor && Array.isArray(parentAnchor.segments)
+      ? (parentAnchor.segments.find((s) => s.contains_focal)?.revenue_usd || 0)
+      : 0;
+    const benchmark = anchorTotal > 0 ? anchorTotal : parentRev;
+    const benchmarkLabel = anchorTotal > 0
+      ? `${tree.parent.company} ${parentAnchor.fiscal_year || 'latest'} 10-K reported revenue`
+      : `${tree.parent.company} estimated central revenue`;
+
+    if (benchmark > 0) {
+      const ratio = sumChildCentral / benchmark;
+      const pctDelta = Math.round((ratio - 1) * 100);
+      reconciliation = {
+        sum_children_central: sumChildCentral,
+        parent_benchmark: benchmark,
+        parent_benchmark_source: anchorTotal > 0 ? '10-K' : 'estimated',
+        ratio: Number(ratio.toFixed(3)),
+        pct_delta: pctDelta,
+        focal_segment_revenue: focalSegmentRev || null,
+        children_counted: knownSibCount,
+      };
+      const sumStr = formatUSD(sumChildCentral);
+      const benchStr = formatUSD(benchmark);
+      if (ratio > 1.5) {
+        notes.push(`⚠ Reconciliation: sum of focal + ${siblings.length} sibling estimates (${sumStr}) is ${pctDelta > 0 ? '+' : ''}${pctDelta}% vs ${benchmarkLabel} (${benchStr}) — sibling estimates likely overstated or sibling set is over-broad.`);
+      } else if (ratio < 0.5) {
+        notes.push(`⚠ Reconciliation: sum of focal + ${siblings.length} sibling estimates (${sumStr}) covers only ${Math.round(ratio * 100)}% of ${benchmarkLabel} (${benchStr}) — likely missing siblings or underestimated revenues.`);
+      } else if (anchorTotal > 0) {
+        notes.push(`Reconciliation: focal + siblings (${sumStr}) reconciles within ${Math.abs(pctDelta)}% of ${benchmarkLabel} (${benchStr}).`);
+      }
+      if (focalSegmentRev > 0 && focalRev > 0) {
+        const segRatio = focalRev / focalSegmentRev;
+        if (segRatio > 1.3 || segRatio < 0.7) {
+          notes.push(`⚠ Focal estimate (${formatUSD(focalRev)}) diverges from its parent 10-K segment revenue (${formatUSD(focalSegmentRev)}, ${Math.round(segRatio * 100)}%).`);
+        }
+      }
+    }
+  }
+  if (parentAnchor && parentAnchor.is_public === false) {
+    notes.push(`${tree.parent?.company || 'Parent'} is not publicly traded — no 10-K anchor available; reconciliation uses estimates only.`);
+  }
+
   const strategic_notes = notes.length > 0 ? notes.join(' ') : 'No distinctive structural signals captured.';
 
   return {
@@ -315,6 +391,8 @@ function synthesize(ownership, revenueByCompany) {
       focal_vs_siblings,
       growth_signals,
       strategic_notes,
+      reconciliation,
+      parent_anchor: parentAnchor || null,
     },
   };
 }
@@ -373,10 +451,36 @@ export default function App() {
         return;
       }
 
-      // Phase 2 — revenue (parallel)
+      // Phase 2 — revenue (parallel) + optional parent 10-K anchor (parallel)
       setPhase('revenue');
       const entities = collectEntities(ownership);
       appendTrace([{ kind: 'phase', phase: 'revenue', label: `estimating revenue for ${entities.length} entit${entities.length === 1 ? 'y' : 'ies'}` }]);
+
+      // Fire the parent anchor lookup in parallel with the revenue calls when a
+      // parent exists. The agent itself decides if the parent is public; if not,
+      // it returns is_public:false and we just skip the anchor.
+      const parentAnchorPromise = (async () => {
+        if (!ownership.parent || !ownership.parent.company) return null;
+        const parentName = ownership.parent.company;
+        const tag = `anchor:${parentName}`;
+        appendTrace([{ kind: 'phase', phase: tag, label: `→ ${parentName} 10-K segment revenue (if public)` }]);
+        try {
+          const resp = await callAnthropic({
+            system: PARENT_ANCHOR_PROMPT,
+            user: `PARENT: "${parentName}"\nFOCAL subsidiary: "${ownership.company}"\n\nDetermine if PARENT is public and, if so, extract the latest annual-report segment revenue.`,
+            maxSearches: 2,
+            maxTokens: 1536,
+          });
+          appendTrace(resp.trace.map((t) => ({ ...t, tag })));
+          const parsed = safeExtractJSON(resp.text);
+          if (!parsed) return null;
+          return parsed;
+        } catch (e) {
+          appendTrace([{ kind: 'error', tag, message: e.message }]);
+          return null;
+        }
+      })();
+
       const revenueResults = await Promise.all(
         entities.map(async (ent) => {
           const tag = `revenue:${ent.company}`;
@@ -402,13 +506,15 @@ export default function App() {
         })
       );
 
+      const parentAnchor = await parentAnchorPromise;
+
       // Phase 3 — synthesis (local merge)
       setPhase('synthesis');
       appendTrace([{ kind: 'phase', phase: 'synthesis', label: 'merging ownership + revenue → positioning' }]);
       const byCompany = {};
       revenueResults.forEach((r) => { byCompany[r.company.toLowerCase().trim()] = r; });
-      const synthesized = synthesize(ownership, byCompany);
-      setResult({ ...synthesized, _entities: entities, _revenueResults: revenueResults });
+      const synthesized = synthesize(ownership, byCompany, parentAnchor);
+      setResult({ ...synthesized, _entities: entities, _revenueResults: revenueResults, _parentAnchor: parentAnchor });
       appendTrace([{ kind: 'phase', phase: 'done', label: 'investigation complete' }]);
     } catch (e) {
       setError(e.message || String(e));
