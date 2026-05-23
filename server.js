@@ -15,12 +15,12 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 const API_KEY = process.env.ANTHROPIC_API_KEY || process.env.VITE_ANTHROPIC_API_KEY;
-if (!API_KEY) {
-  console.error('ERROR: ANTHROPIC_API_KEY not set in environment');
-  process.exit(1);
-}
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+if (!API_KEY) console.warn('WARN: ANTHROPIC_API_KEY not set — Claude provider will be unavailable.');
+if (!GEMINI_API_KEY) console.warn('WARN: GEMINI_API_KEY not set — Gemini provider will be unavailable.');
 
 app.post('/api/anthropic', async (req, res) => {
+  if (!API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set on server.' });
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -30,6 +30,33 @@ app.post('/api/anthropic', async (req, res) => {
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify(req.body)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return res.status(response.status).json({ error: errorText });
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/gemini', async (req, res) => {
+  if (!GEMINI_API_KEY) return res.status(500).json({ error: 'GEMINI_API_KEY not set on server.' });
+  try {
+    const { model, ...body } = req.body || {};
+    if (!model) return res.status(400).json({ error: 'model required' });
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': GEMINI_API_KEY
+      },
+      body: JSON.stringify(body)
     });
 
     if (!response.ok) {

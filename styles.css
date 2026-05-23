@@ -146,6 +146,27 @@ a:hover { text-decoration: underline; }
 .input:focus { outline: none; box-shadow: var(--focus-ring); border-color: var(--accent); }
 .input:disabled { opacity: 0.6; }
 
+/* ─── Provider / model selector ────────────────────────────────────────── */
+.provider-bar {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 12px; flex-wrap: wrap;
+}
+.provider-bar-label {
+  font-size: 11px; font-weight: 500; color: var(--text-muted);
+  letter-spacing: 0.02em; text-transform: uppercase;
+}
+.select {
+  padding: 6px 28px 6px 10px; border-radius: 6px;
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--border);
+  font: inherit; font-size: 13px; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23a1a1aa' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center;
+}
+.select:focus { outline: none; box-shadow: var(--focus-ring); border-color: var(--accent); }
+.select:disabled { opacity: 0.6; cursor: not-allowed; }
+
 /* ─── Stepper ──────────────────────────────────────────────────────────── */
 .stepper {
   display: flex; align-items: center; gap: 8px;

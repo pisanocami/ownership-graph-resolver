@@ -13,7 +13,22 @@ import {
   deriveRevenueStatus,
 } from './synth.js';
 
-const MODEL = 'claude-sonnet-4-20250514';
+const PROVIDERS = {
+  anthropic: {
+    label: 'Claude',
+    models: [{ id: 'claude-sonnet-4-20250514', label: 'Sonnet 4' }],
+  },
+  gemini: {
+    label: 'Gemini',
+    models: [
+      { id: 'gemini-2.5-flash', label: '2.5 Flash' },
+      { id: 'gemini-2.5-pro', label: '2.5 Pro' },
+    ],
+  },
+};
+
+const DEFAULT_PROVIDER = 'anthropic';
+const DEFAULT_MODEL = PROVIDERS[DEFAULT_PROVIDER].models[0].id;
 
 // ─── System prompts ──────────────────────────────────────────────────────────
 
@@ -251,13 +266,21 @@ function formatRelativeTime(ts) {
   return new Date(ts).toLocaleDateString();
 }
 
+// Provider-agnostic dispatcher. Routes to the right proxy + builder/parser pair.
+// Both providers normalize to the same { text, trace, raw } contract so the rest
+// of the pipeline (safeExtractJSON, logs, synthesis) stays provider-unaware.
+async function callLLM({ provider = DEFAULT_PROVIDER, model, system, user, maxSearches = 4, maxTokens = 4096 }) {
+  if (provider === 'gemini') return callGemini({ model, system, user, maxTokens });
+  return callAnthropic({ model, system, user, maxSearches, maxTokens });
+}
+
 // Call the existing Express proxy → Anthropic.
-async function callAnthropic({ system, user, maxSearches = 4, maxTokens = 4096 }) {
+async function callAnthropic({ model = DEFAULT_MODEL, system, user, maxSearches = 4, maxTokens = 4096 }) {
   const res = await fetch('/api/anthropic', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: MODEL,
+      model,
       max_tokens: maxTokens,
       system,
       messages: [{ role: 'user', content: user }],
@@ -270,6 +293,28 @@ async function callAnthropic({ system, user, maxSearches = 4, maxTokens = 4096 }
   }
   const data = await res.json();
   return parseAnthropicResponse(data);
+}
+
+// Call the Express proxy → Gemini (Google Search grounding). Gemini self-limits
+// search use, so maxSearches has no per-call analogue here.
+async function callGemini({ model, system, user, maxTokens = 4096 }) {
+  const res = await fetch('/api/gemini', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      contents: [{ role: 'user', parts: [{ text: user }] }],
+      systemInstruction: { parts: [{ text: system }] },
+      tools: [{ google_search: {} }],
+      generationConfig: { maxOutputTokens: maxTokens },
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`API ${res.status}: ${errText.slice(0, 240)}`);
+  }
+  const data = await res.json();
+  return parseGeminiResponse(data);
 }
 
 function parseAnthropicResponse(data) {
@@ -287,6 +332,31 @@ function parseAnthropicResponse(data) {
       const results = Array.isArray(block.content) ? block.content : [];
       const sources = results.slice(0, 4).map((r) => r.title || r.url || '').filter(Boolean);
       trace.push({ kind: 'results', count: results.length, sources });
+    }
+  }
+  return { text, trace, raw: data };
+}
+
+// Normalize Gemini's candidates/groundingMetadata shape into the same
+// { text, trace, raw } contract as parseAnthropicResponse.
+function parseGeminiResponse(data) {
+  const trace = [];
+  let text = '';
+  const cand = data.candidates?.[0];
+  const parts = cand?.content?.parts || [];
+  for (const part of parts) {
+    if (part.text && part.text.trim()) {
+      trace.push({ kind: 'thought', text: part.text.trim() });
+      text += part.text + '\n';
+    }
+  }
+  const gm = cand?.groundingMetadata;
+  if (gm) {
+    (gm.webSearchQueries || []).forEach((q) => trace.push({ kind: 'search', query: q }));
+    const chunks = gm.groundingChunks || [];
+    if (chunks.length) {
+      const sources = chunks.slice(0, 4).map((c) => c.web?.title || c.web?.uri || '').filter(Boolean);
+      trace.push({ kind: 'results', count: chunks.length, sources });
     }
   }
   return { text, trace, raw: data };
@@ -340,6 +410,18 @@ export default function App() {
   const [logsOpen, setLogsOpen] = useState(false);
   const [history, setHistory] = useState([]);
   const [loadedFrom, setLoadedFrom] = useState(null); // { id, createdAt } when hydrated from cache
+  const [provider, setProvider] = useState(() => {
+    if (typeof window === 'undefined') return DEFAULT_PROVIDER;
+    const p = window.localStorage.getItem('orva.provider');
+    return p && PROVIDERS[p] ? p : DEFAULT_PROVIDER;
+  });
+  const [model, setModel] = useState(() => {
+    if (typeof window === 'undefined') return DEFAULT_MODEL;
+    const p = window.localStorage.getItem('orva.provider');
+    const m = window.localStorage.getItem('orva.model');
+    const prov = p && PROVIDERS[p] ? p : DEFAULT_PROVIDER;
+    return PROVIDERS[prov].models.some((x) => x.id === m) ? m : PROVIDERS[prov].models[0].id;
+  });
 
   // Apply theme + persist
   useEffect(() => {
@@ -351,6 +433,20 @@ export default function App() {
   useEffect(() => {
     try { window.localStorage.setItem('orva.view', viewMode); } catch {}
   }, [viewMode]);
+
+  // Persist provider/model
+  useEffect(() => {
+    try { window.localStorage.setItem('orva.provider', provider); } catch {}
+  }, [provider]);
+  useEffect(() => {
+    try { window.localStorage.setItem('orva.model', model); } catch {}
+  }, [model]);
+
+  function changeProvider(next) {
+    setProvider(next);
+    const models = PROVIDERS[next]?.models || [];
+    if (!models.some((m) => m.id === model)) setModel(models[0]?.id);
+  }
 
   // Load fonts
   useEffect(() => {
@@ -459,7 +555,9 @@ export default function App() {
     try {
       appendTrace([{ kind: 'phase', phase: 'ownership', label: `resolving ownership of ${brand.trim()}` }]);
       const ownershipUser = `Resolve the corporate ownership of: "${brand.trim()}"${hint.trim() ? `\n\nContext: ${hint.trim()}` : ''}`;
-      const ownershipResp = await callAnthropic({
+      const ownershipResp = await callLLM({
+        provider,
+        model,
         system: OWNERSHIP_PROMPT,
         user: ownershipUser,
         maxSearches: 8,
@@ -486,7 +584,9 @@ export default function App() {
         const tag = `anchor:${parentName}`;
         appendTrace([{ kind: 'phase', phase: tag, label: `→ ${parentName} 10-K segment revenue (if public)` }]);
         try {
-          const resp = await callAnthropic({
+          const resp = await callLLM({
+            provider,
+            model,
             system: PARENT_ANCHOR_PROMPT,
             user: `PARENT: "${parentName}"\nFOCAL subsidiary: "${ownership.company}"\n\nDetermine if PARENT is public and, if so, extract the latest annual-report segment revenue.`,
             maxSearches: 2,
@@ -506,7 +606,7 @@ export default function App() {
           appendTrace([{ kind: 'phase', phase: tag, label: `→ ${ent.company} (${ent.role})` }]);
           try {
             const user = `Investigate the annual revenue of: "${ent.company}"${ent.domain ? ` (domain: ${ent.domain})` : ''}. Role in corporate family: ${ent.role}.`;
-            const resp = await callAnthropic({ system: REVENUE_PROMPT, user, maxSearches: 4, maxTokens: 3072 });
+            const resp = await callLLM({ provider, model, system: REVENUE_PROMPT, user, maxSearches: 4, maxTokens: 3072 });
             appendTrace(resp.trace.map((t) => ({ ...t, tag })));
             const parsed = safeExtractJSON(resp.text);
             if (!parsed) return { company: ent.company, role: ent.role, error: 'parse_failed', confidence: 'low' };
@@ -635,6 +735,32 @@ export default function App() {
                   ↻ Re-run fresh
                 </button>
               )}
+            </div>
+
+            <div className="provider-bar no-print">
+              <span className="provider-bar-label">Model</span>
+              <select
+                className="select"
+                value={provider}
+                onChange={(e) => changeProvider(e.target.value)}
+                disabled={loading}
+                aria-label="Provider"
+              >
+                {Object.entries(PROVIDERS).map(([id, p]) => (
+                  <option key={id} value={id}>{p.label}</option>
+                ))}
+              </select>
+              <select
+                className="select"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                disabled={loading}
+                aria-label="Model"
+              >
+                {(PROVIDERS[provider]?.models || []).map((m) => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </select>
             </div>
 
             {loadedFrom && !loading && (
