@@ -245,6 +245,20 @@ async function concurrencyPool(tasks, maxConcurrent = 3) {
   });
 }
 
+function formatRelativeTime(ts) {
+  if (!ts) return '';
+  const diff = Date.now() - ts;
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
 // Call the existing Express proxy → Anthropic.
 async function callAnthropic({ system, user, maxSearches = 4, maxTokens = 4096 }) {
   const res = await fetch('/api/anthropic', {
@@ -575,6 +589,8 @@ export default function App() {
     return v === 'graph' || v === 'tree' ? v : 'tree';
   });
   const [logsOpen, setLogsOpen] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [loadedFrom, setLoadedFrom] = useState(null); // { id, createdAt } when hydrated from cache
 
   // Apply theme + persist
   useEffect(() => {
@@ -624,20 +640,73 @@ export default function App() {
     }
   }, [result, selectedKey]);
 
+  async function refreshHistory() {
+    try {
+      const res = await fetch('/api/investigations');
+      if (!res.ok) return;
+      const items = await res.json();
+      setHistory(items);
+    } catch { /* ignore */ }
+  }
+
+  useEffect(() => { refreshHistory(); }, []);
+
   function appendTrace(items) {
     setTrace((prev) => [...prev, ...items]);
   }
 
-  async function investigate() {
+  async function openFromHistory(id) {
+    try {
+      setError(null);
+      const res = await fetch(`/api/investigations/${id}`);
+      if (!res.ok) throw new Error('Could not load investigation');
+      const record = await res.json();
+      setBrand(record.brand);
+      setHint(record.hint || '');
+      setResult(record.result);
+      setTrace([]);
+      setLoadedFrom({ id: record.id, createdAt: record.createdAt });
+    } catch (e) {
+      setError(e.message || String(e));
+    }
+  }
+
+  async function deleteFromHistory(id) {
+    try {
+      await fetch(`/api/investigations/${id}`, { method: 'DELETE' });
+      if (loadedFrom?.id === id) setLoadedFrom(null);
+      refreshHistory();
+    } catch { /* ignore */ }
+  }
+
+  async function investigate(opts = {}) {
     if (!brand.trim()) return;
+    const force = !!opts.force;
     setLoading(true);
     setTrace([]);
     setResult(null);
     setError(null);
     setSelectedKey(null);
     setLogsOpen(false);
-    setPhase('ownership');
+    setLoadedFrom(null);
 
+    // Cache lookup — skip when force re-run is requested.
+    if (!force) {
+      try {
+        const q = new URLSearchParams({ brand: brand.trim(), hint: hint.trim() });
+        const res = await fetch(`/api/investigations/lookup?${q.toString()}`);
+        if (res.ok) {
+          const record = await res.json();
+          setResult(record.result);
+          setLoadedFrom({ id: record.id, createdAt: record.createdAt });
+          setLoading(false);
+          setPhase(null);
+          return;
+        }
+      } catch { /* fall through to live run */ }
+    }
+
+    setPhase('ownership');
     try {
       appendTrace([{ kind: 'phase', phase: 'ownership', label: `resolving ownership of ${brand.trim()}` }]);
       const ownershipUser = `Resolve the corporate ownership of: "${brand.trim()}"${hint.trim() ? `\n\nContext: ${hint.trim()}` : ''}`;
@@ -708,8 +777,23 @@ export default function App() {
       const byCompany = {};
       revenueResults.forEach((r) => { byCompany[r.company.toLowerCase().trim()] = r; });
       const synthesized = synthesize(ownership, byCompany, parentAnchor);
-      setResult({ ...synthesized, _entities: entities, _revenueResults: revenueResults, _parentAnchor: parentAnchor });
+      const finalResult = { ...synthesized, _entities: entities, _revenueResults: revenueResults, _parentAnchor: parentAnchor };
+      setResult(finalResult);
       appendTrace([{ kind: 'phase', phase: 'done', label: 'investigation complete' }]);
+
+      // Persist for instant re-open later.
+      try {
+        const saveRes = await fetch('/api/investigations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ brand: brand.trim(), hint: hint.trim(), result: finalResult }),
+        });
+        if (saveRes.ok) {
+          const saved = await saveRes.json();
+          setLoadedFrom({ id: saved.id, createdAt: saved.createdAt });
+          refreshHistory();
+        }
+      } catch { /* persistence is best-effort */ }
     } catch (e) {
       setError(e.message || String(e));
     } finally {
@@ -785,13 +869,30 @@ export default function App() {
               </div>
               <button
                 className="btn btn-primary"
-                onClick={investigate}
+                onClick={() => investigate()}
                 disabled={loading || !brand.trim()}
                 style={{ height: 38 }}
               >
                 {loading ? '· · · working' : 'Investigate →'}
               </button>
+              {loadedFrom && !loading && (
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => investigate({ force: true })}
+                  disabled={!brand.trim()}
+                  style={{ height: 38 }}
+                  title="Bypass cache and rerun a fresh investigation"
+                >
+                  ↻ Re-run fresh
+                </button>
+              )}
             </div>
+
+            {loadedFrom && !loading && (
+              <div className="mono" style={{ marginTop: 10, fontSize: 11, color: 'var(--text-subtle)' }}>
+                ✓ loaded from cache · {formatRelativeTime(loadedFrom.createdAt)}
+              </div>
+            )}
 
             {showStepper && (
               <Stepper phase={phase} loading={loading} result={result} />
@@ -804,6 +905,28 @@ export default function App() {
             <span className="banner-icon">⚠</span>
             <span>{error}</span>
           </div>
+        )}
+
+        {!sharedView && history.length > 0 && (
+          <section className="section no-print">
+            <div className="section-head">
+              <span className="section-title">Prior investigations</span>
+              <span className="mono" style={{ fontSize: 11, color: 'var(--text-subtle)' }}>
+                {history.length} saved
+              </span>
+            </div>
+            <div className="card">
+              {history.map((h) => (
+                <HistoryRow
+                  key={h.id}
+                  item={h}
+                  active={loadedFrom?.id === h.id}
+                  onOpen={() => openFromHistory(h.id)}
+                  onDelete={() => deleteFromHistory(h.id)}
+                />
+              ))}
+            </div>
+          </section>
         )}
 
         {result?.disambiguation && (
@@ -1335,6 +1458,80 @@ function FlowNode({ data }) {
         )}
       </div>
       <Handle type="source" position={Position.Bottom} style={handleStyle} className="flow-handle" />
+    </div>
+  );
+}
+
+function HistoryRow({ item, active, onOpen, onDelete }) {
+  return (
+    <div
+      className="history-row"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '10px 12px',
+        borderBottom: '1px solid var(--border)',
+        background: active ? 'var(--accent-soft)' : 'transparent',
+        borderLeft: active ? '2px solid var(--accent)' : '2px solid transparent',
+      }}
+    >
+      <button
+        onClick={onOpen}
+        className="history-row-open"
+        style={{
+          flex: 1,
+          background: 'transparent',
+          border: 'none',
+          color: 'var(--text)',
+          textAlign: 'left',
+          cursor: 'pointer',
+          padding: 0,
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 10,
+          flexWrap: 'wrap',
+          font: 'inherit',
+        }}
+      >
+        <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>
+          {item.focal_company || item.brand}
+        </span>
+        {item.hint && (
+          <span className="mono" style={{ fontSize: 11, color: 'var(--text-subtle)' }}>
+            · {item.hint}
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        {item.central != null && (
+          <span className="mono" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            {formatUSD(item.central)}
+          </span>
+        )}
+        {item.confidence && (
+          <span className={`chip confidence-${item.confidence}`}>
+            {item.confidence}
+          </span>
+        )}
+        <span className="mono" style={{ fontSize: 11, color: 'var(--text-subtle)', minWidth: 70, textAlign: 'right' }}>
+          {formatRelativeTime(item.createdAt)}
+        </span>
+      </button>
+      <button
+        onClick={onDelete}
+        title="Delete"
+        className="icon-btn"
+        style={{
+          background: 'transparent',
+          border: 'none',
+          color: 'var(--text-subtle)',
+          cursor: 'pointer',
+          fontSize: 16,
+          padding: '4px 8px',
+        }}
+      >
+        ×
+      </button>
     </div>
   );
 }

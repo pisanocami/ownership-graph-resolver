@@ -4,6 +4,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import crypto from 'crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -41,6 +42,102 @@ app.post('/api/anthropic', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// ─── Investigation persistence ───────────────────────────────────────────────
+// Lightweight JSON-file store. Each investigation stored under a stable id
+// derived from brand+hint so re-opening is instant and dedupes by default.
+
+const DATA_DIR = path.join(__dirname, '.data');
+const STORE_PATH = path.join(DATA_DIR, 'investigations.json');
+
+function ensureStore() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(STORE_PATH)) fs.writeFileSync(STORE_PATH, '[]', 'utf8');
+}
+
+function readStore() {
+  ensureStore();
+  try {
+    const raw = fs.readFileSync(STORE_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeStore(items) {
+  ensureStore();
+  fs.writeFileSync(STORE_PATH, JSON.stringify(items, null, 2), 'utf8');
+}
+
+function cacheKey(brand, hint) {
+  return `${(brand || '').toLowerCase().trim()}::${(hint || '').toLowerCase().trim()}`;
+}
+
+function summarize(item) {
+  const tree = item.result?.ownership_tree || {};
+  const rev = tree.revenue_estimate || {};
+  return {
+    id: item.id,
+    brand: item.brand,
+    hint: item.hint,
+    createdAt: item.createdAt,
+    focal_company: item.result?.focal_company || tree.company || item.brand,
+    central: rev.central ?? null,
+    confidence: rev.confidence || null,
+  };
+}
+
+app.get('/api/investigations', (_req, res) => {
+  const items = readStore();
+  res.json(items.map(summarize).sort((a, b) => b.createdAt - a.createdAt));
+});
+
+app.get('/api/investigations/lookup', (req, res) => {
+  const { brand, hint } = req.query;
+  if (!brand) return res.status(400).json({ error: 'brand required' });
+  const key = cacheKey(brand, hint || '');
+  const items = readStore();
+  const hit = items.find((it) => cacheKey(it.brand, it.hint) === key);
+  if (!hit) return res.status(404).json({ error: 'not found' });
+  res.json(hit);
+});
+
+app.get('/api/investigations/:id', (req, res) => {
+  const items = readStore();
+  const hit = items.find((it) => it.id === req.params.id);
+  if (!hit) return res.status(404).json({ error: 'not found' });
+  res.json(hit);
+});
+
+app.post('/api/investigations', (req, res) => {
+  const { brand, hint, result } = req.body || {};
+  if (!brand || !result) return res.status(400).json({ error: 'brand and result required' });
+  const items = readStore();
+  const key = cacheKey(brand, hint || '');
+  const existingIdx = items.findIndex((it) => cacheKey(it.brand, it.hint) === key);
+  const id = existingIdx >= 0 ? items[existingIdx].id : crypto.randomBytes(6).toString('hex');
+  const record = {
+    id,
+    brand: brand.trim(),
+    hint: (hint || '').trim(),
+    createdAt: Date.now(),
+    result,
+  };
+  if (existingIdx >= 0) items[existingIdx] = record;
+  else items.push(record);
+  writeStore(items);
+  res.json({ id, createdAt: record.createdAt });
+});
+
+app.delete('/api/investigations/:id', (req, res) => {
+  const items = readStore();
+  const next = items.filter((it) => it.id !== req.params.id);
+  if (next.length === items.length) return res.status(404).json({ error: 'not found' });
+  writeStore(next);
+  res.json({ ok: true });
 });
 
 const distDir = path.join(__dirname, 'dist');
