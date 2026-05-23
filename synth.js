@@ -348,6 +348,15 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null) {
   const growth_signals = growthHits.length > 0 ? growthHits.join('; ') : 'No explicit YoY growth signals captured.';
 
   const notes = [];
+  if (tree.pending_acquisition?.acquirer) {
+    const pa = tree.pending_acquisition;
+    const when = pa.expected_close_date ? ` (expected close ${pa.expected_close_date})` : '';
+    const ann = pa.announced_date ? `, announced ${pa.announced_date}` : '';
+    notes.push(`⚠ Pending acquisition by ${pa.acquirer}${ann}${when} — parent, siblings, and reconciliation reflect the CURRENT legal owner (${tree.parent?.company || 'standalone'}), not the post-close acquirer. ${pa.regulatory_status ? `Status: ${pa.regulatory_status}.` : ''}`);
+    if (tree.post_close_consolidated_parent?.company && tree.post_close_consolidated_parent.company !== pa.acquirer) {
+      notes.push(`Post-close consolidated parent will be ${tree.post_close_consolidated_parent.company}.`);
+    }
+  }
   if (tree.terminal_layer === 'private_equity') notes.push('Family is PE-owned — expect optimization for EBITDA and exit timing.');
   if ((tree.strategic_control || []).some((s) => deriveStrategicRoleClass(s.role_description || s.relationship) === 'investor')) {
     notes.push('Investor governance is material to strategic direction.');

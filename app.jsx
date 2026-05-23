@@ -42,9 +42,21 @@ Step 2 — Distinguish legal entity vs operating brand. Mark node_type: "legal_e
 
 Step 3 — Parent search. Queries in order: "[company] parent company" → "[company] acquired by" → "[company] subsidiary of" → SEC EDGAR if US-public → financial press.
 
-Step 4 — Recurse to root. Stop conditions: ultimate parent identifiable, PE firm (mark terminal_layer:"private_equity" and stop), or no evidence.
+ACQUISITION HANDLING (CRITICAL — read carefully):
+A company can have an ANNOUNCED but UNCLOSED deal. You MUST distinguish three states and never mix them:
+  - current_legal_parent: the entity that LEGALLY OWNS the company TODAY (the only one that consolidates its financials right now).
+  - pending_acquisition: a deal that has been ANNOUNCED but has not closed yet — antitrust/regulatory pending, no consolidation yet. Capture expected_close_date if available and source_url of the deal announcement.
+  - post_close_consolidated_parent: the entity that WILL own the company once the pending deal closes. This is NOT the current owner.
+Rules:
+  1. The "parent" field of the node MUST be the current_legal_parent. NEVER set "parent" to the post-close acquirer of a deal that has not legally closed.
+  2. If a pending deal exists, ALSO populate pending_acquisition (with acquirer, announced_date, expected_close_date, source_url) and post_close_consolidated_parent ({"company": ..., "source_url": ...}). Both are independent of the "parent" field.
+  3. Siblings (next step) are ALWAYS drawn from the current_legal_parent's brand portfolio — NEVER from the acquirer's portfolio while the deal is pending.
+  4. NEVER mix shareholders/governance of one universe with the parent of the other. Example: if the current_legal_parent is private/family-owned (Mars, Cargill, IKEA-INGKA, etc.), do NOT list institutional shareholders (BlackRock, Vanguard, etc.) because there are no public shares to hold. Those shareholders only exist in the public-company universe.
+  5. If you cannot tell whether the deal has closed, treat it as pending (more conservative) and explain in notes.
 
-Step 5 — Siblings. For each intermediate node, list brands at the same layer, ONLY with verifiable source. For EACH sibling capture: a free-text "category" describing what it sells (e.g. "premium hybrid mattress", "rugs", "B2B billing SaaS" — whatever the sources say; "" if unknown), and presence signals: in_current_sources (true if it appears in a PRIMARY/current source), in_historical_sources (true if it appears in a SECONDARY/older source), and last_mention_date (most recent date you saw it referenced, or null). Do NOT label a sibling active/legacy/discontinued — only report the raw flags and date; classification happens downstream.
+Step 4 — Recurse to root. Stop conditions: ultimate parent identifiable, PE firm (mark terminal_layer:"private_equity" and stop), or no evidence. Recurse through current_legal_parent only, never through the pending acquirer.
+
+Step 5 — Siblings. List brands at the same layer of the CURRENT LEGAL PARENT, ONLY with verifiable source. The "siblings" field is ALWAYS current_siblings_under_current_parent — do not contaminate it with brands of the post-close acquirer. If you want to surface the acquirer's portfolio for context, place them in the SEPARATE field "future_cousins_post_close" (and only when pending_acquisition is non-null). For EACH sibling capture: a free-text "category" describing what it sells (e.g. "premium hybrid mattress", "rugs", "B2B billing SaaS" — whatever the sources say; "" if unknown), and presence signals: in_current_sources (true if it appears in a PRIMARY/current source), in_historical_sources (true if it appears in a SECONDARY/older source), and last_mention_date (most recent date you saw it referenced, or null). Do NOT label a sibling active/legacy/discontinued — only report the raw flags and date; classification happens downstream.
 
 SOURCE PRIORITIZATION (apply when listing siblings and children):
 PRIMARY (current state, last ~24 months): the aggregator's official brand portfolio / "our brands" page, press releases dated within the last 24 months, and communications about the most recent acquisition. These reflect the CURRENT lineup.
@@ -76,10 +88,19 @@ STRICT JSON OUTPUT, NO PROSE, NO MARKDOWN FENCES:
   "in_historical_sources": bool,       // appears in a SECONDARY/older source
   "last_mention_date": str|null,       // most recent date referenced (ISO-ish) or null
   "category": str,                     // free text from sources; "" if unknown. NOT an enum.
-  "parent": {recursive} | null,
-  "siblings": [{"company": str, "domain": str, "node_type": str, "category": str, "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}],
+  "parent": {recursive} | null,             // ALWAYS the current legal parent. Never the post-close acquirer of an unclosed deal.
+  "siblings": [{"company": str, "domain": str, "node_type": str, "category": str, "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}],   // current_siblings_under_current_parent — brands of the current legal parent ONLY.
+  "future_cousins_post_close": [{"company": str, "domain": str, "category": str, "source_urls": [url]}] | null,   // ONLY when pending_acquisition is non-null. Brands of the announced acquirer that would become cousins post-close. Empty/null otherwise.
+  "pending_acquisition": {                  // null if no announced-but-unclosed deal
+    "acquirer": str,
+    "announced_date": str|null,             // ISO YYYY-MM-DD if known
+    "expected_close_date": str|null,        // ISO YYYY-MM-DD if disclosed
+    "regulatory_status": str|null,          // e.g. "antitrust review", "shareholder vote pending"
+    "source_url": str
+  } | null,
+  "post_close_consolidated_parent": {"company": str, "source_url": str} | null,   // entity that WILL own focal once pending_acquisition closes
   "children": [{recursive}],
-  "acquisition": {"acquired_by": str, "year": int, "source_url": str} | null,
+  "acquisition": {"acquired_by": str, "year": int, "source_url": str} | null,   // CLOSED acquisitions only (historical). Pending deals go in pending_acquisition.
   "strategic_control": [{"entity": str, "role_description": str, "evidence": str, "source_url": str}],
   "strategic_control_note": str|null,  // when strategic_control is []: "no_data_found: <reason>"
   "confidence": "high"|"medium"|"low",
@@ -145,10 +166,12 @@ Weak/contradictory signals → wider range, "low" confidence. If you genuinely c
 
 const PARENT_ANCHOR_PROMPT = `You are a filings agent. Given a PARENT company and a FOCAL subsidiary, determine if PARENT is publicly traded and, if so, extract the latest annual-report (10-K / 20-F / annual filing) segment revenue.
 
+CRITICAL: PARENT here is the CURRENT LEGAL PARENT (the entity that owns FOCAL today and consolidates its financials). If the user mentions a pending/announced acquisition by a different acquirer, IGNORE the acquirer — their filings do not yet consolidate FOCAL. Only look at the current legal parent's most recent filed annual report.
+
 Rules:
 - Search authoritative sources only: SEC EDGAR, the company's IR site, the actual 10-K/20-F PDF, or a reputable financial press summary of the filing.
 - If the filing breaks revenue by segment, list each segment with USD revenue. Mark "contains_focal":true on the segment that most plausibly contains FOCAL (by brand list, business description, or geography).
-- If PARENT is private or no filing is locatable, return is_public:false and null fields.
+- If PARENT is private (family-owned, mutual, cooperative, PE-held, etc.) or no filing is locatable, return is_public:false and null fields. Do NOT substitute the pending acquirer's filing — that is a different universe.
 - In "notes", mention if a segment mixes wholesale vs DTC revenue, or includes discontinued/legacy brands — this helps explain reconciliation gaps downstream.
 - HARD CAP: 2 web searches. Be decisive.
 
@@ -1623,6 +1646,30 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
           {node.acquisition.year ? ` · ${node.acquisition.year}` : ''}
           {node.acquisition.source_url && isSafeUrl(node.acquisition.source_url) && (
             <> · <a href={node.acquisition.source_url} target="_blank" rel="noopener noreferrer">source</a></>
+          )}
+        </div>
+      )}
+
+      {node.pending_acquisition?.acquirer && (
+        <div style={{ marginTop: 12, padding: '8px 10px', border: '1px solid var(--warning-border, #c79a3b)', borderRadius: 6, background: 'var(--warning-soft, rgba(199,154,59,0.08))', fontSize: 13 }}>
+          <div style={{ fontWeight: 600, color: 'var(--text)' }}>
+            ⏳ Pending acquisition by {node.pending_acquisition.acquirer}
+          </div>
+          <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>
+            {node.pending_acquisition.announced_date && <>announced {node.pending_acquisition.announced_date}</>}
+            {node.pending_acquisition.expected_close_date && <> · expected close {node.pending_acquisition.expected_close_date}</>}
+            {node.pending_acquisition.regulatory_status && <> · {node.pending_acquisition.regulatory_status}</>}
+            {node.pending_acquisition.source_url && isSafeUrl(node.pending_acquisition.source_url) && (
+              <> · <a href={node.pending_acquisition.source_url} target="_blank" rel="noopener noreferrer">source</a></>
+            )}
+          </div>
+          <div style={{ marginTop: 4, fontStyle: 'italic', color: 'var(--text-muted)' }}>
+            Parent & siblings shown reflect the current legal owner — not the post-close acquirer.
+          </div>
+          {Array.isArray(node.future_cousins_post_close) && node.future_cousins_post_close.length > 0 && (
+            <div style={{ marginTop: 6, color: 'var(--text-muted)' }}>
+              Future cousins post-close: {node.future_cousins_post_close.map((c) => c.company).filter(Boolean).join(', ')}
+            </div>
           )}
         </div>
       )}
