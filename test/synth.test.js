@@ -10,6 +10,7 @@ const load = (f) => JSON.parse(readFileSync(join(here, 'fixtures', f), 'utf8'));
 
 const t04 = load('t04-nectar.json');
 const t01 = load('t01-anthropic.json');
+const tZara = load('t-zara.json');
 
 // ─── Bundle A: Cloverlane temporal accuracy + status (T04) ──────────────────
 
@@ -98,4 +99,42 @@ test('T01: Bun still appears as a sibling', () => {
 test('T01: no parent / <2 known revenues → reconciliation stays inert (null)', () => {
   const out = synthesize(t01.ownership, t01.revenueByCompany, t01.parentAnchor);
   assert.equal(out.positioning_analysis.reconciliation, null);
+});
+
+// ─── Zara report fixes (discontinued status, double-count, currency, dedup) ──
+
+test('Zara: a listed-but-closed brand (Uterqüe) is discontinued, not active', () => {
+  const out = synthesize(tZara.ownership, tZara.revenueByCompany, tZara.parentAnchor);
+  const uterque = out.ownership_tree.siblings.find((s) => s.company === 'Uterqüe');
+  assert.ok(uterque);
+  assert.equal(deriveStatus(uterque).label, 'discontinued', 'closure signal + no revenue → discontinued');
+  assert.equal(uterque._derived_status.label, 'discontinued');
+});
+
+test('Zara: siblings consolidated in the focal segment are excluded from the sum', () => {
+  const out = synthesize(tZara.ownership, tZara.revenueByCompany, tZara.parentAnchor);
+  const recon = out.positioning_analysis.reconciliation;
+  assert.ok(recon, 'reconciliation fires');
+  assert.ok(recon.consolidated_siblings.includes('Zara Home'), 'Zara Home flagged consolidated');
+  assert.ok(recon.consolidated_siblings.includes('Lefties'), 'Lefties flagged consolidated');
+  // Zara Home ($1.8B) must NOT be double-counted on top of the Zara segment.
+  assert.ok(recon.sum_children_central < 43_000_000_000, 'Zara Home excluded from the sum');
+  assert.equal(recon.sum_children_central, 42_170_000_000);
+});
+
+test('Zara: parent revenue + ratio use the anchor USD total (currency consistency)', () => {
+  const out = synthesize(tZara.ownership, tZara.revenueByCompany, tZara.parentAnchor);
+  const parent = out.ownership_tree.parent;
+  assert.equal(parent.revenue_estimate.central, 42_317_000_000, 'parent shown in anchor USD');
+  assert.equal(parent.revenue_estimate.anchor_sourced, true);
+  assert.match(out.positioning_analysis.focal_vs_parent_ratio, /70\.9%/);
+});
+
+test('Zara: strategic_control is deduplicated across layers', () => {
+  const out = synthesize(tZara.ownership, tZara.revenueByCompany, tZara.parentAnchor);
+  const tree = out.ownership_tree;
+  const parentEntities = new Set(tree.parent.strategic_control.map((s) => s.entity));
+  const focalRepeats = tree.strategic_control.filter((s) => parentEntities.has(s.entity));
+  assert.equal(focalRepeats.length, 0, 'no owner repeated from the parent layer on the focal');
+  assert.ok(tree.parent.strategic_control.some((s) => s.entity === 'Amancio Ortega'));
 });

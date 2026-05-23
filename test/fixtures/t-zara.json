@@ -1,0 +1,77 @@
+{
+  "ownership": {
+    "company": "Zara",
+    "domain": "zara.com",
+    "node_type": "operating_brand",
+    "layer": "brand",
+    "in_current_sources": true,
+    "in_historical_sources": true,
+    "category": "fast fashion clothing and accessories",
+    "strategic_control": [
+      { "entity": "Amancio Ortega", "role_description": "founder of Zara in 1975, majority shareholder of parent", "evidence": "opened first Zara store in 1975", "source_url": "https://en.wikipedia.org/wiki/Inditex" },
+      { "entity": "Marta Ortega Pérez", "role_description": "oversees Zara's brand image since 2007", "evidence": "led Zara brand strategy", "source_url": "https://www.inditex.com/" }
+    ],
+    "strategic_control_note": null,
+    "parent": {
+      "company": "Inditex",
+      "domain": "inditex.com",
+      "node_type": "legal_entity",
+      "layer": "aggregator",
+      "in_current_sources": true,
+      "in_historical_sources": true,
+      "category": "multinational clothing company",
+      "parent": null,
+      "siblings": [],
+      "children": [],
+      "strategic_control": [
+        { "entity": "Amancio Ortega", "role_description": "founder and majority shareholder, owns 59.29%", "evidence": "founded Inditex", "source_url": "https://brandsownedby.com/who-owns-zara/" },
+        { "entity": "Sandra Ortega", "role_description": "key shareholder, owns 5.05%", "evidence": "daughter of founder", "source_url": "https://brandsownedby.com/who-owns-zara/" },
+        { "entity": "Marta Ortega Pérez", "role_description": "non-executive chairwoman since April 2022", "evidence": "appointed chairwoman", "source_url": "https://www.inditex.com/" },
+        { "entity": "Óscar García Maceiras", "role_description": "CEO since 2022", "evidence": "appointed CEO", "source_url": "https://www.inditex.com/" }
+      ],
+      "strategic_control_note": null
+    },
+    "siblings": [
+      { "company": "Bershka", "domain": "bershka.com", "node_type": "operating_brand", "category": "urban hip fashion", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.inditex.com/"] },
+      { "company": "Pull&Bear", "domain": "pullandbear.com", "node_type": "operating_brand", "category": "casual menswear", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.inditex.com/"] },
+      { "company": "Massimo Dutti", "domain": "massimodutti.com", "node_type": "operating_brand", "category": "upscale fashion", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.inditex.com/"] },
+      { "company": "Stradivarius", "domain": "stradivarius.com", "node_type": "operating_brand", "category": "youthful female fashion", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.inditex.com/"] },
+      { "company": "Oysho", "domain": "oysho.com", "node_type": "operating_brand", "category": "lingerie and women's clothing", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.inditex.com/"] },
+      { "company": "Zara Home", "domain": "zarahome.com", "node_type": "operating_brand", "category": "home decoration", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.inditex.com/"] },
+      { "company": "Uterqüe", "domain": "uterque.com", "node_type": "operating_brand", "category": "women's accessories", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.inditex.com/"] },
+      { "company": "Lefties", "domain": "lefties.com", "node_type": "operating_brand", "category": "outlet for old Zara clothing", "in_current_sources": false, "in_historical_sources": true, "source_urls": ["https://www.theindustry.fashion/"] }
+    ],
+    "children": [],
+    "acquisition": { "acquired_by": "Inditex", "year": 1985, "source_url": "https://en.wikipedia.org/wiki/Inditex" },
+    "confidence": "high",
+    "sources": ["https://en.wikipedia.org/wiki/Inditex"]
+  },
+  "revenueByCompany": {
+    "zara": { "revenue_estimate": { "low": 28000000000, "high": 32000000000, "central": 30000000000 }, "confidence": "high", "signals_found": [], "reasoning_summary": "Zara ~70% of Inditex sales." },
+    "inditex": { "revenue_estimate": { "low": 38600000000, "high": 38600000000, "central": 38600000000 }, "confidence": "high", "signals_found": [], "reasoning_summary": "Inditex FY2024 revenue €38.6B (reported in EUR)." },
+    "bershka": { "revenue_estimate": { "low": 3600000000, "high": 4600000000, "central": 4100000000 }, "confidence": "high", "signals_found": [], "reasoning_summary": "Second-largest brand." },
+    "pull&bear": { "revenue_estimate": { "low": 2400000000, "high": 2500000000, "central": 2460000000 }, "confidence": "high", "signals_found": [], "reasoning_summary": "FY2024 €2.46B." },
+    "massimo dutti": { "revenue_estimate": { "low": 1800000000, "high": 2200000000, "central": 2100000000 }, "confidence": "high", "signals_found": [], "reasoning_summary": "Premium brand." },
+    "stradivarius": { "revenue_estimate": { "low": 2400000000, "high": 2800000000, "central": 2660000000 }, "confidence": "high", "signals_found": [], "reasoning_summary": "Third-largest chain." },
+    "oysho": { "revenue_estimate": { "low": 750000000, "high": 1000000000, "central": 850000000 }, "confidence": "high", "signals_found": [], "reasoning_summary": "Fastest-growing brand." },
+    "zara home": { "revenue_estimate": { "low": 1400000000, "high": 2200000000, "central": 1800000000 }, "confidence": "medium", "signals_found": [], "reasoning_summary": "Home goods, reported within the Zara segment." },
+    "uterqüe": { "revenue_estimate": { "low": 0, "high": 0, "central": 0 }, "confidence": "low", "signals_found": [], "reasoning_summary": "No longer an independent entity.", "reason_for_null": "Uterqüe ceased independent operations in September 2021 and was integrated into Massimo Dutti; no separate revenue." },
+    "lefties": { "revenue_estimate": { "low": 0, "high": 0, "central": 0 }, "confidence": "low", "signals_found": [], "reasoning_summary": "" }
+  },
+  "parentAnchor": {
+    "is_public": true,
+    "ticker": "ITX.MC",
+    "fiscal_year": 2024,
+    "total_revenue_usd": 42317000000,
+    "segments": [
+      { "name": "Zara (including Zara Home and Lefties)", "revenue_usd": 30439000000, "contains_focal": true },
+      { "name": "Bershka", "revenue_usd": 3216000000, "contains_focal": false },
+      { "name": "Stradivarius", "revenue_usd": 2920000000, "contains_focal": false },
+      { "name": "Pull&Bear", "revenue_usd": 2700000000, "contains_focal": false },
+      { "name": "Massimo Dutti", "revenue_usd": 2153000000, "contains_focal": false },
+      { "name": "Oysho", "revenue_usd": 889000000, "contains_focal": false }
+    ],
+    "source_url": "https://fashionunited.com/",
+    "notes": "Zara segment includes Zara, Zara Home, and Lefties consolidated."
+  }
+}

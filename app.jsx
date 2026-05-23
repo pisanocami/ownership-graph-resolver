@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import ReactFlow, { Background, Controls, MiniMap, Handle, Position } from 'reactflow';
 import 'reactflow/dist/style.css';
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import {
   synthesize,
   collectEntities,
@@ -1038,13 +1037,11 @@ function ResultView({ result, showRaw, setShowRaw, selectedKey, setSelectedKey, 
               </button>
             </div>
           </div>
-          <div id="og-graph-capture">
-            {viewMode === 'tree' ? (
-              <TreeView tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} />
-            ) : (
-              <GraphView tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} theme={theme} />
-            )}
-          </div>
+          {viewMode === 'tree' ? (
+            <TreeView tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} />
+          ) : (
+            <GraphView tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} theme={theme} />
+          )}
 
           {/* Strategic control per layer + non-warning notes (under tree on desktop) */}
           <StrategicControlSection tree={tree} />
@@ -1947,10 +1944,23 @@ async function generatePDF(result) {
   const addPage = () => { pdf.addPage(); y = margin; };
   const ensure = (h) => { if (y + h > bottomLimit) addPage(); };
 
+  // jsPDF's standard font uses WinAnsi (cp1252); glyphs outside it (e.g. ★, emoji,
+  // arrows) render as garbage. Map the common star marker and strip pictographs.
+  const sanitize = (s) => String(s ?? '')
+    .replace(/[★☆]/g, '*')
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2190}-\u{21FF}\u{2300}-\u{27BF}\u{2B00}-\u{2BFF}️]/gu, '');
+  // Trim a string to fit a pixel/mm width at the CURRENT font, appending an ellipsis.
+  const truncateToWidth = (str, w) => {
+    let s = sanitize(str);
+    if (pdf.getTextWidth(s) <= w) return s;
+    while (s.length > 1 && pdf.getTextWidth(s + '...') > w) s = s.slice(0, -1);
+    return s.replace(/[\s,]+$/, '') + '...';
+  };
+
   const text = (str, opts = {}) => {
     const { size = 10, style = 'normal', color = C.text, x = margin, maxW = contentW, gap = 1.8 } = opts;
     font(size, style); pdf.setTextColor(...color);
-    const lines = pdf.splitTextToSize(String(str ?? ''), maxW);
+    const lines = pdf.splitTextToSize(sanitize(str), maxW);
     const lineH = size * 0.42;
     lines.forEach((ln) => {
       ensure(lineH);
@@ -1960,13 +1970,15 @@ async function generatePDF(result) {
     y += gap;
   };
 
-  const section = (title) => {
-    ensure(13);
+  const section = (title, reserve = 24) => {
+    // Reserve space for the header + first content so a header never lands alone
+    // at the bottom of a page (keep-with-next).
+    ensure(reserve);
     y += 3;
     pdf.setFillColor(...C.accent);
     pdf.rect(margin, y, 2.2, 5.4, 'F');
     font(12, 'bold'); pdf.setTextColor(...C.ink);
-    pdf.text(title.toUpperCase(), margin + 5, y + 0.3, { baseline: 'top' });
+    pdf.text(sanitize(title.toUpperCase()), margin + 5, y + 0.3, { baseline: 'top' });
     y += 7.5;
     pdf.setDrawColor(...C.border); pdf.setLineWidth(0.3);
     pdf.line(margin, y, margin + contentW, y);
@@ -1976,12 +1988,13 @@ async function generatePDF(result) {
   // Inline pill; returns the width consumed so callers can chain pills on one row.
   const pill = (label, x, yy, fill, fg) => {
     font(7.5, 'bold');
-    const tw = pdf.getTextWidth(String(label));
+    const lbl = sanitize(label);
+    const tw = pdf.getTextWidth(lbl);
     const padX = 2.2, h = 4.8, w = tw + padX * 2;
     pdf.setFillColor(...fill);
     pdf.roundedRect(x, yy, w, h, 1.2, 1.2, 'F');
     pdf.setTextColor(...fg);
-    pdf.text(String(label), x + padX, yy + h / 2 + 0.15, { baseline: 'middle' });
+    pdf.text(lbl, x + padX, yy + h / 2 + 0.15, { baseline: 'middle' });
     return w;
   };
 
@@ -2009,7 +2022,7 @@ async function generatePDF(result) {
         const color = cell && typeof cell === 'object' && cell.color ? cell.color : C.text;
         const style = cell && typeof cell === 'object' && cell.bold ? 'bold' : 'normal';
         font(8.5, style); pdf.setTextColor(...color);
-        const line = pdf.splitTextToSize(String(val ?? ''), widths[i] - 3)[0] || '';
+        const line = truncateToWidth(val, widths[i] - 4);
         pdf.text(line, x + 2, y + rowH / 2 + 0.2, { baseline: 'middle' });
         x += widths[i];
       });
@@ -2019,18 +2032,6 @@ async function generatePDF(result) {
     pdf.rect(margin, top, contentW, headH + rows.length * rowH);
     y += 4;
   };
-
-  // ─── Capture the on-screen ownership map (high-res) ───
-  let graphImg = null;
-  try {
-    const el = typeof document !== 'undefined' && document.getElementById('og-graph-capture');
-    if (el) {
-      const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
-      if (canvas.width > 0 && canvas.height > 0) {
-        graphImg = { data: canvas.toDataURL('image/png'), w: canvas.width, h: canvas.height };
-      }
-    }
-  } catch (_) { /* snapshot is best-effort; skip on failure */ }
 
   // ─── Cover band (page 1) ───
   pdf.setFillColor(...C.accent);
@@ -2062,63 +2063,70 @@ async function generatePDF(result) {
     y = py + 8;
   }
 
-  // ─── Ownership Map (snapshot) ───
-  if (graphImg) {
-    section('Ownership Map');
-    const ratio = graphImg.h / graphImg.w;
-    let imgW = contentW;
-    let imgH = imgW * ratio;
-    let avail = bottomLimit - y;
-    if (imgH > avail) {
-      if (avail < 70) { addPage(); avail = bottomLimit - y; }
-      if (imgH > avail) { imgH = avail; imgW = imgH / ratio; }
-    }
-    const imgX = margin + (contentW - imgW) / 2;
-    pdf.addImage(graphImg.data, 'PNG', imgX, y, imgW, imgH, undefined, 'FAST');
-    pdf.setDrawColor(...C.border); pdf.setLineWidth(0.2);
-    pdf.rect(imgX, y, imgW, imgH);
-    y += imgH + 4;
-  }
-
-  // ─── Ownership Structure ───
-  section('Ownership Structure');
-  const renderNode = (node, depth) => {
-    ensure(6.5);
-    const indent = margin + depth * 5;
-    font(9.5, 'bold'); pdf.setTextColor(...C.text);
-    pdf.text(node.company, indent, y + 0.3, { baseline: 'top' });
-    let nx = indent + pdf.getTextWidth(node.company) + 3;
-    const rev = node.revenue_estimate;
-    if (rev && rev.central > 0) {
-      font(9, 'normal'); pdf.setTextColor(...C.muted);
-      const rs = formatUSD(rev.central);
-      pdf.text(rs, nx, y + 0.5, { baseline: 'top' });
-      nx += pdf.getTextWidth(rs) + 3;
-    }
-    if (node.category) {
-      font(8, 'normal'); pdf.setTextColor(...C.subtle);
-      pdf.text(node.category, nx, y + 0.7, { baseline: 'top' });
-      nx += pdf.getTextWidth(node.category) + 3;
-    }
-    const st = deriveStatus(node).label;
-    if (st !== 'active') { const [bg, fg] = statusColors(st); pill(st, nx, y - 0.2, bg, fg); }
-    y += 6.5;
-  };
+  // ─── Ownership Map (native vector diagram) ───
   const chain = [];
   let cp = tree.parent;
   while (cp) { chain.unshift(cp); cp = cp.parent; }
-  chain.forEach((n, i) => renderNode(n, i));
-  renderNode(tree, chain.length);
   const siblings = tree.siblings || [];
+
+  const drawEntityBox = (x, yy, w, h, node, focal = false) => {
+    pdf.setFillColor(...(focal ? C.accentSoft : C.white));
+    pdf.setDrawColor(...(focal ? C.accent : C.border));
+    pdf.setLineWidth(focal ? 0.5 : 0.2);
+    pdf.roundedRect(x, yy, w, h, 1.6, 1.6, 'FD');
+    font(8.5, 'bold'); pdf.setTextColor(...C.ink);
+    pdf.text(truncateToWidth(node.company, w - 6), x + 3, yy + 4.6, { baseline: 'middle' });
+    const rev = node.revenue_estimate;
+    font(8, 'normal'); pdf.setTextColor(...C.muted);
+    pdf.text(rev && rev.central > 0 ? formatUSD(rev.central) : '—', x + 3, yy + 8.8, { baseline: 'middle' });
+    const st = deriveStatus(node).label;
+    if (st !== 'active') {
+      const [bg, fg] = statusColors(st);
+      pill(st, x + 3, yy + h - 5.4, bg, fg);
+    } else if (node.category) {
+      font(6.6, 'normal'); pdf.setTextColor(...C.subtle);
+      pdf.text(truncateToWidth(node.category, w - 6), x + 3, yy + h - 3.2, { baseline: 'middle' });
+    }
+  };
+
+  const drawGrid = (items) => {
+    const cols = 3, gap = 4;
+    const cardW = (contentW - (cols - 1) * gap) / cols;
+    const cardH = 17;
+    for (let i = 0; i < items.length;) {
+      ensure(cardH + gap);
+      const rowY = y;
+      for (let c = 0; c < cols && i < items.length; c++, i++) {
+        drawEntityBox(margin + c * (cardW + gap), rowY, cardW, cardH, items[i], false);
+      }
+      y = rowY + cardH + gap;
+    }
+  };
+
+  section('Ownership Map');
+  const boxH = 16, colW = 96, colX = margin + (contentW - colW) / 2;
+  const drawCenter = (node, focal, connectDown) => {
+    ensure(boxH + (connectDown ? 6 : 2));
+    drawEntityBox(colX, y, colW, boxH, node, focal);
+    y += boxH;
+    if (connectDown) {
+      pdf.setDrawColor(...C.border); pdf.setLineWidth(0.4);
+      pdf.line(colX + colW / 2, y, colX + colW / 2, y + 5);
+      y += 5;
+    }
+  };
+  chain.forEach((n) => drawCenter(n, false, true));
+  drawCenter(tree, true, siblings.length > 0);
+
   if (siblings.length > 0) {
-    y += 1.5;
-    text('Siblings', { size: 9, style: 'bold', color: C.ink, gap: 1 });
-    siblings.forEach((s) => renderNode(s, 1));
+    y += 1;
+    text('Siblings', { size: 8.5, style: 'bold', color: C.muted, gap: 2 });
+    drawGrid(siblings);
   }
   if ((tree.children || []).length > 0) {
-    y += 1.5;
-    text('Children', { size: 9, style: 'bold', color: C.ink, gap: 1 });
-    tree.children.forEach((c) => renderNode(c, 1));
+    y += 1;
+    text('Children', { size: 8.5, style: 'bold', color: C.muted, gap: 2 });
+    drawGrid(tree.children);
   }
   y += 2;
 
@@ -2141,10 +2149,20 @@ async function generatePDF(result) {
   }
 
   // ─── Positioning Analysis ───
-  if (positioning.focal_vs_parent_ratio || positioning.focal_vs_siblings) {
+  if (positioning.focal_vs_parent_ratio || siblings.length > 0 || positioning.growth_signals) {
     section('Positioning Analysis');
     if (positioning.focal_vs_parent_ratio) text(`Parent ratio: ${positioning.focal_vs_parent_ratio}`, { size: 9.5, color: C.text, gap: 1 });
-    if (positioning.focal_vs_siblings) text(`Sibling ranking: ${positioning.focal_vs_siblings}`, { size: 9.5, color: C.text });
+    if (siblings.length > 0) {
+      // Build the ranking from data (avoids the ★ glyph and right-margin overflow
+      // of the raw positioning string).
+      const ranked = [{ company: tree.company, central: tree.revenue_estimate?.central || 0 },
+        ...siblings.map((s) => ({ company: s.company, central: s.revenue_estimate?.central || 0 }))]
+        .sort((a, b) => b.central - a.central);
+      const focalRank = ranked.findIndex((r) => r.company === tree.company) + 1;
+      const list = ranked.map((r, i) => `#${i + 1} ${r.company} ${r.central > 0 ? formatUSD(r.central) : '—'}`).join('  ·  ');
+      text(`Sibling ranking: focal is #${focalRank} of ${ranked.length} by revenue.`, { size: 9.5, color: C.text, gap: 1 });
+      text(list, { size: 9, color: C.muted });
+    }
     if (positioning.growth_signals) text(`Growth signals: ${positioning.growth_signals}`, { size: 9, color: C.muted });
   }
 
@@ -2170,6 +2188,10 @@ async function generatePDF(result) {
     pdf.text('1.0× parent', margin + barW / 2, y, { align: 'center', baseline: 'top' });
     pdf.text('2.0×+', margin + barW, y, { align: 'right', baseline: 'top' });
     y += 6;
+    if (recon.consolidated_siblings && recon.consolidated_siblings.length) {
+      text(`${recon.consolidated_siblings.join(', ')} consolidated within the focal's reported segment — excluded from the sum to avoid double-counting.`,
+        { size: 8.5, style: 'italic', color: C.muted, maxW: contentW, gap: 2 });
+    }
     if (recon.explanation && Array.isArray(recon.explanation.likely_causes)) {
       text('Likely causes of the gap', { size: 9.5, style: 'bold', color: C.ink, gap: 1.5 });
       recon.explanation.likely_causes.forEach((cause, i) => {

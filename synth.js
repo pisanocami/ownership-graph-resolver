@@ -80,6 +80,19 @@ export function deriveStatus(node) {
   const hasFlags =
     node.in_current_sources !== undefined || node.in_historical_sources !== undefined;
 
+  // Explicit closure overrides presence flags: a brand can still be *listed*
+  // ("in current sources") yet have been wound down or merged away. Classify from
+  // the free-text captures (F11-compliant), gated on the absence of a live estimate.
+  const central = node.revenue_estimate?.central || 0;
+  const blob = `${node.reason_for_null || ''} ${node.reasoning_summary || ''} ${node.notes || ''}`.toLowerCase();
+  const closureSignal = /ceas(e|ed|ing)|discontinu|shut ?down|closed all|wound down|no longer operat|integrated into|merged into|absorbed into|folded into/.test(blob);
+  if (node.discontinued === true || (closureSignal && central <= 0)) {
+    return {
+      label: 'discontinued',
+      reason: node.discontinued === true ? 'discontinuation signal captured' : 'closure signal in captured text',
+    };
+  }
+
   if (!hasFlags) {
     // Legacy enum fallback for pre-F11 records.
     if (typeof node.status === 'string') {
@@ -93,12 +106,6 @@ export function deriveStatus(node) {
     return { label: 'active', reason: 'present in current/primary sources' };
   }
   if (node.in_historical_sources === true) {
-    // Discontinuation is only asserted when there is an explicit signal; otherwise
-    // a brand seen only in older sources is "legacy" (still standing, just not
-    // freshly referenced).
-    if (node.discontinued === true) {
-      return { label: 'discontinued', reason: 'discontinuation signal captured' };
-    }
     return { label: 'legacy', reason: 'only in historical/secondary sources' };
   }
   return { label: 'unknown', reason: 'no presence signals captured' };
@@ -338,21 +345,53 @@ function buildReconciliationExplanation({ ratio, tree, siblings, parentAnchor })
 export function synthesize(ownership, revenueByCompany, parentAnchor = null) {
   const tree = attachRevenue(ownership, revenueByCompany);
   const anchorAdjustment = applyAnchorAdjustment(tree, parentAnchor);
-  const focalRev = tree.revenue_estimate?.central || 0;
-  const parentRev = tree.parent?.revenue_estimate?.central || 0;
   if (parentAnchor) tree.parent_anchor = parentAnchor;
+  const notes = [];
 
   // Normalize per-layer strategic_control (Bundle C): every node in the chain
   // carries its own array + note; default to [] so the UI can iterate safely.
+  // Dedup across layers (root→focal) so an owner shown at a higher layer isn't
+  // repeated below (e.g. a founder listed on both parent and focal).
+  const seenControl = new Set();
   layerChain(tree).forEach((node) => {
     if (!Array.isArray(node.strategic_control)) node.strategic_control = [];
     if (node.strategic_control_note === undefined) node.strategic_control_note = null;
+    node.strategic_control = node.strategic_control.filter((sc) => {
+      const k = (sc.entity || '').toLowerCase().trim();
+      if (!k) return true;
+      if (seenControl.has(k)) return false;
+      seenControl.add(k);
+      return true;
+    });
   });
+
+  // Currency/consistency: when the parent is anchored to a public filing reported
+  // in USD, display the parent's revenue as the anchor total. The model's own parent
+  // estimate can be in the wrong currency (e.g. an EUR figure labeled USD), which
+  // otherwise disagrees with the reconciliation benchmark. Preserve the raw value.
+  if (tree.parent && parentAnchor && parentAnchor.is_public && (parentAnchor.total_revenue_usd || 0) > 0) {
+    const anchorUsd = parentAnchor.total_revenue_usd;
+    const cur = tree.parent.revenue_estimate?.central || 0;
+    if (cur <= 0 || Math.abs(cur - anchorUsd) / anchorUsd > 0.02) {
+      if (cur > 0 && !tree.parent.revenue_estimate_raw) tree.parent.revenue_estimate_raw = tree.parent.revenue_estimate;
+      tree.parent.revenue_estimate = {
+        low: anchorUsd,
+        high: anchorUsd,
+        central: anchorUsd,
+        confidence: tree.parent.revenue_estimate?.confidence || 'high',
+        anchor_sourced: true,
+      };
+      notes.push(`${tree.parent.company} revenue shown from its ${parentAnchor.fiscal_year || 'latest'} filing (${formatUSD(anchorUsd)}); model's raw parent estimate preserved.`);
+    }
+  }
+
+  const focalRev = tree.revenue_estimate?.central || 0;
+  const parentRev = tree.parent?.revenue_estimate?.central || 0;
 
   let focal_vs_parent_ratio = 'N/A (standalone)';
   if (tree.parent && parentRev > 0) {
     const pct = ((focalRev / parentRev) * 100).toFixed(1);
-    focal_vs_parent_ratio = `${pct}% of ${tree.parent.company} central revenue`;
+    focal_vs_parent_ratio = `${pct}% of ${tree.parent.company} revenue`;
   } else if (tree.parent && parentRev === 0) {
     focal_vs_parent_ratio = `${tree.parent.company} revenue unknown`;
   }
@@ -381,7 +420,6 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null) {
     .map((s) => `${s.label} (${s.source})`);
   const growth_signals = growthHits.length > 0 ? growthHits.join('; ') : 'No explicit YoY growth signals captured.';
 
-  const notes = [];
   if (tree.pending_acquisition?.acquirer) {
     const pa = tree.pending_acquisition;
     const when = pa.expected_close_date ? ` (expected close ${pa.expected_close_date})` : '';
@@ -411,39 +449,64 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null) {
   // values so the warning reflects the original model gap, not the corrected one.
   const rawFocalRev = tree.revenue_estimate_raw?.central ?? focalRev;
   const sibCentrals = siblings.map((s) => s.revenue_estimate_raw?.central ?? s.revenue_estimate?.central ?? 0);
-  const sumChildCentral = rawFocalRev + sibCentrals.reduce((a, b) => a + b, 0);
   const knownSibCount = sibCentrals.filter((x) => x > 0).length + (rawFocalRev > 0 ? 1 : 0);
 
   let reconciliation = null;
   if (tree.parent && knownSibCount >= 2) {
     const anchorTotal = parentAnchor && parentAnchor.is_public ? (parentAnchor.total_revenue_usd || 0) : 0;
-    const focalSegmentRev = parentAnchor && Array.isArray(parentAnchor.segments)
-      ? (parentAnchor.segments.find((s) => s.contains_focal)?.revenue_usd || 0)
-      : 0;
+    const focalSeg = parentAnchor && Array.isArray(parentAnchor.segments)
+      ? parentAnchor.segments.find((s) => s.contains_focal) : null;
+    const focalSegmentRev = focalSeg?.revenue_usd || 0;
+    const focalSegName = (focalSeg?.name || '').toLowerCase();
+
+    // Exclude siblings already consolidated inside the focal's reported segment
+    // (e.g. a segment named "Zara (including Zara Home and Lefties)") so they are
+    // not double-counted against the parent total.
+    const consolidated_siblings = [];
+    let sumChildren = rawFocalRev;
+    let countedSiblings = 0;
+    siblings.forEach((s, i) => {
+      const name = (s.company || '').toLowerCase().trim();
+      if (anchorTotal > 0 && focalSegName && name && focalSegName.includes(name)) {
+        consolidated_siblings.push(s.company);
+        return;
+      }
+      const c = sibCentrals[i];
+      sumChildren += c;
+      if (c > 0) countedSiblings++;
+    });
+    const sumChildCentralAdj = sumChildren;
+    const childrenCounted = countedSiblings + (rawFocalRev > 0 ? 1 : 0);
+
     const benchmark = anchorTotal > 0 ? anchorTotal : parentRev;
     const benchmarkLabel = anchorTotal > 0
       ? `${tree.parent.company} ${parentAnchor.fiscal_year || 'latest'} 10-K reported revenue`
       : `${tree.parent.company} estimated central revenue`;
 
     if (benchmark > 0) {
-      const ratio = sumChildCentral / benchmark;
+      const ratio = sumChildCentralAdj / benchmark;
       const pctDelta = Math.round((ratio - 1) * 100);
       reconciliation = {
-        sum_children_central: sumChildCentral,
+        sum_children_central: sumChildCentralAdj,
         parent_benchmark: benchmark,
         parent_benchmark_source: anchorTotal > 0 ? '10-K' : 'estimated',
         ratio: Number(ratio.toFixed(3)),
         pct_delta: pctDelta,
         focal_segment_revenue: focalSegmentRev || null,
-        children_counted: knownSibCount,
+        children_counted: childrenCounted,
+        consolidated_siblings: consolidated_siblings.length ? consolidated_siblings : undefined,
         anchor_adjustment: anchorAdjustment,
       };
+      if (consolidated_siblings.length) {
+        const verb = consolidated_siblings.length > 1 ? 'are' : 'is';
+        notes.push(`${consolidated_siblings.join(', ')} ${verb} consolidated within the ${tree.parent.company} "${focalSeg.name}" segment — excluded from the sum to avoid double-counting.`);
+      }
       // Bundle B: when the gap is material (>20% either way), attach a
       // deterministic explanation built from captured facts.
       if (Math.abs(pctDelta) > 20) {
         reconciliation.explanation = buildReconciliationExplanation({ ratio, tree, siblings, parentAnchor });
       }
-      const sumStr = formatUSD(sumChildCentral);
+      const sumStr = formatUSD(sumChildCentralAdj);
       const benchStr = formatUSD(benchmark);
       if (ratio > 1.5) {
         notes.push(`⚠ Reconciliation: sum of focal + ${siblings.length} sibling estimates (${sumStr}) is ${pctDelta > 0 ? '+' : ''}${pctDelta}% vs ${benchmarkLabel} (${benchStr}) — sibling estimates likely overstated or sibling set is over-broad.`);
