@@ -139,6 +139,50 @@ function confColor(conf) {
 
 // ─── Components ───
 
+function EmptyState() {
+  const examples = ['Nectar', 'Liberty Safe', 'Whole Foods', 'Beats Electronics'];
+
+  return (
+    <div style={{
+      textAlign: 'center',
+      padding: '60px 40px',
+      background: '#f9fafb',
+      border: '1px solid #e5e7eb',
+      borderRadius: '12px',
+      marginBottom: '32px',
+    }}>
+      <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔍</div>
+      <h2 style={{ fontSize: '20px', fontWeight: 600, color: '#111827', margin: '0 0 8px 0' }}>
+        Search any company or domain
+      </h2>
+      <p style={{ fontSize: '14px', color: '#6b7280', margin: '0 0 24px 0', maxWidth: '400px', marginLeft: 'auto', marginRight: 'auto' }}>
+        Explore corporate ownership chains with verified sources. Identify parent companies, subsidiaries, and strategic relationships.
+      </p>
+      <div style={{ marginBottom: '16px' }}>
+        <span style={{ fontSize: '12px', color: '#9ca3af', fontWeight: 500 }}>Try these examples:</span>
+      </div>
+      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
+        {examples.map((ex) => (
+          <span
+            key={ex}
+            style={{
+              fontSize: '13px',
+              color: '#3b82f6',
+              background: '#ffffff',
+              border: '1px solid #bfdbfe',
+              borderRadius: '6px',
+              padding: '6px 12px',
+              fontWeight: 500,
+            }}
+          >
+            {ex}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function LoadingStepper({ currentStage }) {
   const stages = [
     { key: 'searching', label: 'Searching web' },
