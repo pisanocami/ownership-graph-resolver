@@ -3,6 +3,15 @@ import ReactFlow, { Background, Controls, MiniMap, Handle, Position } from 'reac
 import 'reactflow/dist/style.css';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import {
+  synthesize,
+  collectEntities,
+  formatUSD,
+  keyOf,
+  safeExtractJSON,
+  deriveStatus,
+  deriveRevenueStatus,
+} from './synth.js';
 
 const MODEL = 'claude-sonnet-4-20250514';
 
@@ -20,14 +29,19 @@ Step 3 — Parent search. Queries in order: "[company] parent company" → "[com
 
 Step 4 — Recurse to root. Stop conditions: ultimate parent identifiable, PE firm (mark terminal_layer:"private_equity" and stop), or no evidence.
 
-Step 5 — Siblings. For each intermediate node, list brands at the same layer, ONLY with verifiable source.
+Step 5 — Siblings. For each intermediate node, list brands at the same layer, ONLY with verifiable source. For EACH sibling capture: a free-text "category" describing what it sells (e.g. "premium hybrid mattress", "rugs", "B2B billing SaaS" — whatever the sources say; "" if unknown), and presence signals: in_current_sources (true if it appears in a PRIMARY/current source), in_historical_sources (true if it appears in a SECONDARY/older source), and last_mention_date (most recent date you saw it referenced, or null). Do NOT label a sibling active/legacy/discontinued — only report the raw flags and date; classification happens downstream.
+
+SOURCE PRIORITIZATION (apply when listing siblings and children):
+PRIMARY (current state, last ~24 months): the aggregator's official brand portfolio / "our brands" page, press releases dated within the last 24 months, and communications about the most recent acquisition. These reflect the CURRENT lineup.
+SECONDARY (historical, may be stale): FTC/SEC filings, press releases older than 2 years, Wikipedia/Wikidata.
+RULE: a brand present in a PRIMARY source but ABSENT from SECONDARY ones is CURRENT, not invalid — capture it (e.g. a brand launched in the last 1–2 years). NEVER drop a brand solely because older/secondary sources omit it.
 
 Step 6 — Children. If the input is a parent, list direct subsidiaries.
 
-Step 7 — Strategic control. Capture control/governance relationships that are NOT formal ownership: board members, investors/VCs, PE backers, major shareholders, founders. Include ONLY with clear evidence (funding press release, SEC 13D/13G, official board page, M&A announcement).
+Step 7 — Strategic control. Capture control/governance relationships that are NOT formal ownership: founders, the last pre-acquisition funding round, the current executive leader (CEO/President), board members, investors/VCs, PE backers, major shareholders. Include ONLY with clear evidence (funding press release, SEC 13D/13G, official board page, M&A announcement). Describe each relationship as a FREE-TEXT role_description (e.g. "lead Series B investor", "co-founder & CEO", "PE sponsor") — do NOT pick from a fixed list. POPULATE strategic_control for EVERY node in the chain (root, each parent, and the focal), not just the focal. Aggregator layers especially tend to have independent founders and prior funding rounds. For acquired companies, capture BOTH the historical pre-acquisition investors AND the current post-acquisition executives. If a layer genuinely has no evidenced control info, set strategic_control:[] and strategic_control_note:"no_data_found: <reason>".
 
 DEPTH/FAN-OUT CAP
-Limit ownership recursion to 2–3 generations. Cap siblings to the 6 most material brands. Cap children to 6 direct subsidiaries.
+Limit ownership recursion to 2–3 generations. Cap siblings to the 8 most material brands, but ALWAYS include every brand with in_current_sources:true before any historical-only brand — only drop historical-only brands when over the cap. Cap children to 6 direct subsidiaries.
 
 ANTI-HALLUCINATION
 Without parent evidence → standalone:true. Without evidence → don't emit. Internal memory loses to search.
@@ -43,12 +57,16 @@ STRICT JSON OUTPUT, NO PROSE, NO MARKDOWN FENCES:
   "layer": "brand"|"aggregator"|"parent"|"root",
   "standalone": bool,
   "terminal_layer": "root"|"private_equity"|null,
-  "status": "active"|"defunct"|"acquired"|"spun_off",
+  "in_current_sources": bool,          // appears in a PRIMARY/current source
+  "in_historical_sources": bool,       // appears in a SECONDARY/older source
+  "last_mention_date": str|null,       // most recent date referenced (ISO-ish) or null
+  "category": str,                     // free text from sources; "" if unknown. NOT an enum.
   "parent": {recursive} | null,
-  "siblings": [{"company": str, "domain": str, "node_type": str}],
+  "siblings": [{"company": str, "domain": str, "node_type": str, "category": str, "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}],
   "children": [{recursive}],
   "acquisition": {"acquired_by": str, "year": int, "source_url": str} | null,
-  "strategic_control": [{"entity": str, "relationship": "board_member"|"investor"|"pe_backer"|"major_shareholder"|"founder", "details": str, "source_url": str}],
+  "strategic_control": [{"entity": str, "role_description": str, "evidence": str, "source_url": str}],
+  "strategic_control_note": str|null,  // when strategic_control is []: "no_data_found: <reason>"
   "confidence": "high"|"medium"|"low",
   "sources": [url],
   "notes": str,
@@ -75,6 +93,8 @@ Goal: estimate the annual revenue of a brand by gathering behavioral signals fro
    - Marketplace presence (Amazon BSR, app rank)
 3. Cross-reference at least 2 sources per critical signal.
 4. Be skeptical of any single revenue figure quoted online.
+5. If you find evidence the brand was historically LARGER (a revenue peak, layoffs, declining traffic, "down from"), capture it as a "press" signal and state the peak in the value — this matters for reconciliation downstream.
+6. If revenue flows through wholesale / B2B / white-label / marketplace channels rather than the brand's own DTC site, say so explicitly in reasoning_summary — it explains gaps between brand-site signals and reported revenue.
 
 Aim for 4+ distinct signals. Stop earlier if more searches will not help. You have a HARD CAP of 4 web searches.
 
@@ -90,6 +110,8 @@ Produce a final JSON block in this EXACT format, wrapped in \`\`\`json ... \`\`\
     "central": <USD integer>
   },
   "confidence": "low" | "medium" | "high",
+  "signals_attempted": <int>,         // how many signal types you tried to find
+  "signals_found_count": <int>,       // how many yielded usable data (== signals_found.length)
   "signals_found": [
     {
       "type": "web_traffic" | "hiring" | "reviews" | "pricing" | "funding" | "customers" | "press" | "marketplace" | "other",
@@ -99,11 +121,12 @@ Produce a final JSON block in this EXACT format, wrapped in \`\`\`json ... \`\`\
       "weight": "low" | "medium" | "high"
     }
   ],
-  "reasoning_summary": "<2-4 sentences explaining how the signals triangulate to the estimate>"
+  "reasoning_summary": "<2-4 sentences explaining how the signals triangulate to the estimate>",
+  "reason_for_null": str|null         // when the estimate is 0/unknown, a FREE-TEXT reason (e.g. "brand launched <12mo ago, no traffic or funding data yet"). NOT a code like "n/a".
 }
 \`\`\`
 
-Weak/contradictory signals → wider range, "low" confidence. If you genuinely cannot estimate, set numbers to 0 and confidence "low" with a reasoning_summary explaining why.`;
+Weak/contradictory signals → wider range, "low" confidence. If you genuinely cannot estimate, set the numbers to 0, confidence "low", and write a descriptive reason_for_null explaining why (never the string "n/a").`;
 
 const PARENT_ANCHOR_PROMPT = `You are a filings agent. Given a PARENT company and a FOCAL subsidiary, determine if PARENT is publicly traded and, if so, extract the latest annual-report (10-K / 20-F / annual filing) segment revenue.
 
@@ -111,6 +134,7 @@ Rules:
 - Search authoritative sources only: SEC EDGAR, the company's IR site, the actual 10-K/20-F PDF, or a reputable financial press summary of the filing.
 - If the filing breaks revenue by segment, list each segment with USD revenue. Mark "contains_focal":true on the segment that most plausibly contains FOCAL (by brand list, business description, or geography).
 - If PARENT is private or no filing is locatable, return is_public:false and null fields.
+- In "notes", mention if a segment mixes wholesale vs DTC revenue, or includes discontinued/legacy brands — this helps explain reconciliation gaps downstream.
 - HARD CAP: 2 web searches. Be decisive.
 
 Return STRICT JSON in a \`\`\`json ... \`\`\` block:
@@ -177,34 +201,6 @@ async function decodeShareable(token) {
   return JSON.parse(new TextDecoder().decode(jsonBytes));
 }
 
-function safeExtractJSON(text) {
-  if (!text) return null;
-  const fence = text.match(/```json\s*([\s\S]+?)\s*```/);
-  const candidate = fence ? fence[1] : text;
-  const cleaned = candidate.replace(/```json|```/g, '').trim();
-  const firstBrace = cleaned.indexOf('{');
-  if (firstBrace === -1) return null;
-  let attempt = cleaned.slice(firstBrace);
-  try {
-    return JSON.parse(attempt);
-  } catch {
-    for (let i = 0; i < 15; i++) {
-      attempt += '}';
-      try { return JSON.parse(attempt); } catch { /* keep trying */ }
-    }
-  }
-  return null;
-}
-
-function formatUSD(n) {
-  if (n == null || isNaN(n)) return '—';
-  if (n === 0) return '$0';
-  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
-  if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
-  return `$${n}`;
-}
-
 function isSafeUrl(url) {
   if (!url || typeof url !== 'string') return false;
   try {
@@ -213,10 +209,6 @@ function isSafeUrl(url) {
   } catch {
     return false;
   }
-}
-
-function keyOf(node) {
-  return (node?.company || '').toLowerCase().trim();
 }
 
 // Pool executor: limits max concurrent tasks. Prevents rate-limit 429s and cost spikes.
@@ -298,249 +290,6 @@ function parseAnthropicResponse(data) {
     }
   }
   return { text, trace, raw: data };
-}
-
-function collectEntities(ownership) {
-  if (!ownership) return [];
-  const out = [];
-  const seen = new Set();
-  const push = (entity, role) => {
-    if (!entity || !entity.company) return;
-    const key = entity.company.toLowerCase().trim();
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push({ company: entity.company, domain: entity.domain || null, role, layer: entity.layer || null });
-  };
-  push(ownership, 'focal');
-  let p = ownership.parent;
-  let depth = 0;
-  while (p && depth < 2) {
-    push(p, depth === 0 ? 'parent' : 'grandparent');
-    p = p.parent;
-    depth++;
-  }
-  (ownership.siblings || []).slice(0, 4).forEach((s) => push(s, 'sibling'));
-  (ownership.children || []).slice(0, 3).forEach((c) => push(c, 'child'));
-  return out;
-}
-
-function attachRevenue(ownership, revenueByCompany) {
-  if (!ownership) return ownership;
-  const clone = JSON.parse(JSON.stringify(ownership));
-  const visit = (node) => {
-    if (!node) return;
-    const key = (node.company || '').toLowerCase().trim();
-    const rev = revenueByCompany[key];
-    if (rev) {
-      node.revenue_estimate = {
-        low: rev.revenue_estimate?.low ?? 0,
-        high: rev.revenue_estimate?.high ?? 0,
-        central: rev.revenue_estimate?.central ?? 0,
-        confidence: rev.confidence || 'low',
-      };
-      node.signals_found = rev.signals_found || [];
-      node.reasoning_summary = rev.reasoning_summary || '';
-      if (rev.error) node.revenue_error = rev.error;
-    }
-    if (node.parent) visit(node.parent);
-    (node.siblings || []).forEach((s) => {
-      const sk = (s.company || '').toLowerCase().trim();
-      const sr = revenueByCompany[sk];
-      if (sr) {
-        s.revenue_estimate = {
-          low: sr.revenue_estimate?.low ?? 0,
-          high: sr.revenue_estimate?.high ?? 0,
-          central: sr.revenue_estimate?.central ?? 0,
-          confidence: sr.confidence || 'low',
-        };
-      }
-    });
-    (node.children || []).forEach(visit);
-  };
-  visit(clone);
-  return clone;
-}
-
-// Rescale focal + sibling central estimates so they sum to the parent's
-// reported 10-K total. Each adjustment is clamped to the entity's own
-// [low, high] band, the raw estimate is preserved on `revenue_estimate_raw`,
-// and `anchor_adjusted: true` is flagged so the UI and reconciliation can
-// distinguish corrected values from raw model output.
-function applyAnchorAdjustment(tree, parentAnchor) {
-  if (!tree || !parentAnchor || !parentAnchor.is_public) return null;
-  const anchorTotal = parentAnchor.total_revenue_usd || 0;
-  if (anchorTotal <= 0) return null;
-
-  const targets = [tree, ...(tree.siblings || [])].filter(
-    (n) => n && n.revenue_estimate && (n.revenue_estimate.central || 0) > 0
-  );
-  if (targets.length < 2) return null;
-
-  const sumRaw = targets.reduce((a, n) => a + (n.revenue_estimate.central || 0), 0);
-  if (sumRaw <= 0) return null;
-  const scale = anchorTotal / sumRaw;
-  // Skip if already within 5% — no meaningful correction to make.
-  if (Math.abs(scale - 1) < 0.05) return null;
-
-  let adjustedSum = 0;
-  targets.forEach((n) => {
-    const rev = n.revenue_estimate;
-    const rawCentral = rev.central || 0;
-    const scaled = rawCentral * scale;
-    const clamped = Math.max(rev.low || 0, Math.min(rev.high || Infinity, scaled));
-    n.revenue_estimate_raw = { low: rev.low, high: rev.high, central: rawCentral, confidence: rev.confidence };
-    n.revenue_estimate = {
-      ...rev,
-      central: Math.round(clamped),
-      anchor_adjusted: true,
-      anchor_scale: Number(scale.toFixed(3)),
-      anchor_clamped: clamped !== scaled,
-    };
-    adjustedSum += clamped;
-  });
-
-  return {
-    scale: Number(scale.toFixed(3)),
-    anchor_total: anchorTotal,
-    sum_raw: Math.round(sumRaw),
-    sum_adjusted: Math.round(adjustedSum),
-    adjusted_count: targets.length,
-    residual_pct: Math.round(((adjustedSum - anchorTotal) / anchorTotal) * 100),
-  };
-}
-
-// Deterministic local synthesis. Chosen over a 3rd LLM call because (a) the
-// positioning math is mechanical (ratios, ranking) and (b) it avoids token cost
-// and JSON-parse risk of a synthesis call given two large prior outputs.
-function synthesize(ownership, revenueByCompany, parentAnchor = null) {
-  const tree = attachRevenue(ownership, revenueByCompany);
-  const anchorAdjustment = applyAnchorAdjustment(tree, parentAnchor);
-  const focalRev = tree.revenue_estimate?.central || 0;
-  const parentRev = tree.parent?.revenue_estimate?.central || 0;
-  if (parentAnchor) tree.parent_anchor = parentAnchor;
-
-  let focal_vs_parent_ratio = 'N/A (standalone)';
-  if (tree.parent && parentRev > 0) {
-    const pct = ((focalRev / parentRev) * 100).toFixed(1);
-    focal_vs_parent_ratio = `${pct}% of ${tree.parent.company} central revenue`;
-  } else if (tree.parent && parentRev === 0) {
-    focal_vs_parent_ratio = `${tree.parent.company} revenue unknown`;
-  }
-
-  const siblings = tree.siblings || [];
-  let focal_vs_siblings = 'No siblings';
-  if (siblings.length > 0) {
-    const ranked = [
-      { company: tree.company, central: focalRev, focal: true },
-      ...siblings.map((s) => ({
-        company: s.company,
-        central: s.revenue_estimate?.central || 0,
-        focal: false,
-      })),
-    ].sort((a, b) => b.central - a.central);
-    const rank = ranked.findIndex((r) => r.focal) + 1;
-    focal_vs_siblings = `Ranked ${rank} of ${ranked.length} in family — ${ranked
-      .map((r) => `${r.focal ? '★ ' : ''}${r.company} ${formatUSD(r.central)}`)
-      .join(' · ')}`;
-  }
-
-  const focalSignals = tree.signals_found || [];
-  const growthHits = focalSignals
-    .filter((s) => ['press', 'hiring', 'funding'].includes(s.type))
-    .slice(0, 3)
-    .map((s) => `${s.label} (${s.source})`);
-  const growth_signals = growthHits.length > 0 ? growthHits.join('; ') : 'No explicit YoY growth signals captured.';
-
-  const notes = [];
-  if (tree.terminal_layer === 'private_equity') notes.push('Family is PE-owned — expect optimization for EBITDA and exit timing.');
-  if ((tree.strategic_control || []).some((s) => s.relationship === 'investor' || s.relationship === 'pe_backer')) {
-    notes.push('Investor governance is material to strategic direction.');
-  }
-  if (focalRev && parentRev && focalRev / parentRev > 0.4) notes.push('Focal is a major contributor to parent revenue.');
-  if (focalRev && parentRev && focalRev / parentRev < 0.05) notes.push('Focal is a small line within the parent — likely lower strategic attention.');
-  if (siblings.length >= 3 && focalRev) {
-    const sibRevs = siblings.map((s) => s.revenue_estimate?.central || 0);
-    const maxSib = Math.max(...sibRevs);
-    if (focalRev > maxSib) notes.push('Focal leads the sibling cohort by revenue — likely cash cow of the family.');
-    else if (focalRev < Math.min(...sibRevs.filter((x) => x > 0))) notes.push('Focal trails siblings — may be a growth bet or underperforming.');
-  }
-
-  // ── Reconciliation: sum(focal + siblings) vs parent reported total ─────────
-  // Prefer the 10-K anchor when available; otherwise fall back to the parent's
-  // estimated central. Large gaps surface as an explicit warning. When an
-  // anchor adjustment was applied, diagnose against the raw (pre-adjustment)
-  // values so the warning reflects the original model gap, not the corrected one.
-  const rawFocalRev = tree.revenue_estimate_raw?.central ?? focalRev;
-  const sibCentrals = siblings.map((s) => s.revenue_estimate_raw?.central ?? s.revenue_estimate?.central ?? 0);
-  const sumChildCentral = rawFocalRev + sibCentrals.reduce((a, b) => a + b, 0);
-  const knownSibCount = sibCentrals.filter((x) => x > 0).length + (rawFocalRev > 0 ? 1 : 0);
-
-  let reconciliation = null;
-  if (tree.parent && knownSibCount >= 2) {
-    const anchorTotal = parentAnchor && parentAnchor.is_public ? (parentAnchor.total_revenue_usd || 0) : 0;
-    const focalSegmentRev = parentAnchor && Array.isArray(parentAnchor.segments)
-      ? (parentAnchor.segments.find((s) => s.contains_focal)?.revenue_usd || 0)
-      : 0;
-    const benchmark = anchorTotal > 0 ? anchorTotal : parentRev;
-    const benchmarkLabel = anchorTotal > 0
-      ? `${tree.parent.company} ${parentAnchor.fiscal_year || 'latest'} 10-K reported revenue`
-      : `${tree.parent.company} estimated central revenue`;
-
-    if (benchmark > 0) {
-      const ratio = sumChildCentral / benchmark;
-      const pctDelta = Math.round((ratio - 1) * 100);
-      reconciliation = {
-        sum_children_central: sumChildCentral,
-        parent_benchmark: benchmark,
-        parent_benchmark_source: anchorTotal > 0 ? '10-K' : 'estimated',
-        ratio: Number(ratio.toFixed(3)),
-        pct_delta: pctDelta,
-        focal_segment_revenue: focalSegmentRev || null,
-        children_counted: knownSibCount,
-        anchor_adjustment: anchorAdjustment,
-      };
-      const sumStr = formatUSD(sumChildCentral);
-      const benchStr = formatUSD(benchmark);
-      if (ratio > 1.5) {
-        notes.push(`⚠ Reconciliation: sum of focal + ${siblings.length} sibling estimates (${sumStr}) is ${pctDelta > 0 ? '+' : ''}${pctDelta}% vs ${benchmarkLabel} (${benchStr}) — sibling estimates likely overstated or sibling set is over-broad.`);
-      } else if (ratio < 0.5) {
-        notes.push(`⚠ Reconciliation: sum of focal + ${siblings.length} sibling estimates (${sumStr}) covers only ${Math.round(ratio * 100)}% of ${benchmarkLabel} (${benchStr}) — likely missing siblings or underestimated revenues.`);
-      } else if (anchorTotal > 0) {
-        notes.push(`Reconciliation: focal + siblings (${sumStr}) reconciles within ${Math.abs(pctDelta)}% of ${benchmarkLabel} (${benchStr}).`);
-      }
-      if (focalSegmentRev > 0 && rawFocalRev > 0) {
-        const segRatio = rawFocalRev / focalSegmentRev;
-        if (segRatio > 1.3 || segRatio < 0.7) {
-          notes.push(`⚠ Focal estimate (${formatUSD(rawFocalRev)}) diverges from its parent 10-K segment revenue (${formatUSD(focalSegmentRev)}, ${Math.round(segRatio * 100)}%).`);
-        }
-      }
-      if (anchorAdjustment) {
-        const direction = anchorAdjustment.scale > 1 ? 'scaled up' : 'scaled down';
-        const residualClause = Math.abs(anchorAdjustment.residual_pct) >= 5
-          ? ` Residual gap after band-clamping: ${anchorAdjustment.residual_pct > 0 ? '+' : ''}${anchorAdjustment.residual_pct}%.`
-          : '';
-        notes.push(`Auto-corrected: ${anchorAdjustment.adjusted_count} central estimates ${direction} by ${anchorAdjustment.scale}× to reconcile with ${benchmarkLabel} (${formatUSD(anchorAdjustment.anchor_total)}); raw values preserved.${residualClause}`);
-      }
-    }
-  }
-  if (parentAnchor && parentAnchor.is_public === false) {
-    notes.push(`${tree.parent?.company || 'Parent'} is not publicly traded — no 10-K anchor available; reconciliation uses estimates only.`);
-  }
-
-  const strategic_notes = notes.length > 0 ? notes : ['No distinctive structural signals captured.'];
-
-  return {
-    focal_company: tree.company,
-    ownership_tree: tree,
-    positioning_analysis: {
-      focal_vs_parent_ratio,
-      focal_vs_siblings,
-      growth_signals,
-      strategic_notes,
-      reconciliation,
-      parent_anchor: parentAnchor || null,
-    },
-  };
 }
 
 // ─── App ─────────────────────────────────────────────────────────────────────
@@ -714,7 +463,7 @@ export default function App() {
         system: OWNERSHIP_PROMPT,
         user: ownershipUser,
         maxSearches: 8,
-        maxTokens: 4096,
+        maxTokens: 6144,
       });
       appendTrace(ownershipResp.trace.map((t) => ({ ...t, tag: 'ownership' })));
       const ownership = safeExtractJSON(ownershipResp.text);
@@ -1090,28 +839,8 @@ function ResultView({ result, showRaw, setShowRaw, selectedKey, setSelectedKey, 
             <GraphView tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} theme={theme} />
           )}
 
-          {/* Strategic control + non-warning notes (under tree on desktop) */}
-          {(tree.strategic_control || []).length > 0 && (
-            <section className="section">
-              <div className="section-head"><span className="section-title">Strategic control</span></div>
-              <div className="card">
-                {tree.strategic_control.map((s, i) => (
-                  <div key={i} className="strategic-item">
-                    <div className="strategic-head">
-                      <span className="strategic-rel">{s.relationship}</span>
-                      <span className="strategic-entity">{s.entity}</span>
-                    </div>
-                    {s.details && <div className="strategic-details">{s.details}</div>}
-                    {s.source_url && isSafeUrl(s.source_url) && (
-                      <div className="strategic-source">
-                        <a href={s.source_url} target="_blank" rel="noopener noreferrer">{s.source_url}</a>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
+          {/* Strategic control per layer + non-warning notes (under tree on desktop) */}
+          <StrategicControlSection tree={tree} />
 
           {strategicNotes.filter((n) => n && !n.startsWith('⚠') && n !== 'No distinctive structural signals captured.').length > 0 && (
             <section className="section">
@@ -1262,6 +991,32 @@ function ReconciliationBanner({ recon, parent, anchor, focal }) {
         </div>
       </div>
 
+      {/* Likely causes of the gap (Bundle B) — only when a material gap was diagnosed */}
+      {recon.explanation && Array.isArray(recon.explanation.likely_causes) && recon.explanation.likely_causes.length > 0 && (
+        <div style={{ width: '100%' }}>
+          <div
+            style={{
+              fontSize: 11, color: 'var(--text-muted)', letterSpacing: '0.04em',
+              textTransform: 'uppercase', fontWeight: 600, marginBottom: 6,
+            }}
+          >
+            Likely causes of the gap
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {recon.explanation.likely_causes.map((cause, i) => (
+              <div key={i} style={{ fontSize: 12 }}>
+                <div style={{ fontWeight: 600, color: 'var(--text)' }}>· {cause}</div>
+                {recon.explanation.evidence_for_each?.[i] && (
+                  <div style={{ color: 'var(--text-muted)', marginLeft: 12 }}>
+                    {recon.explanation.evidence_for_each[i]}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Segments table — when parent is public and segment data is present */}
       {hasSegments && (
         <div style={{ width: '100%' }}>
@@ -1349,6 +1104,82 @@ function ReconciliationBanner({ recon, parent, anchor, focal }) {
   );
 }
 
+// ─── Strategic control (per layer) ───────────────────────────────────────────
+
+function StrategicControlSection({ tree }) {
+  // Build root → focal chain so control is shown for every layer, not just focal.
+  const chain = [];
+  let p = tree.parent;
+  while (p) { chain.unshift(p); p = p.parent; }
+  const layers = [...chain, tree];
+
+  const hasAny = layers.some(
+    (n) => (n.strategic_control || []).length > 0 || n.strategic_control_note
+  );
+  if (!hasAny) return null;
+
+  return (
+    <section className="section">
+      <div className="section-head"><span className="section-title">Strategic control</span></div>
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {layers.map((node, i) => (
+          <StrategicControlLayer key={keyOf(node) || i} node={node} isFocal={node === tree} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function StrategicControlLayer({ node, isFocal }) {
+  const items = node.strategic_control || [];
+  const [open, setOpen] = useState(isFocal);
+  if (items.length === 0 && !node.strategic_control_note) return null;
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+          padding: '8px 10px', background: 'var(--bg-elevated)', border: 'none',
+          cursor: 'pointer', textAlign: 'left', color: 'var(--text)',
+        }}
+      >
+        <span style={{ color: 'var(--text-subtle)', fontSize: 11 }}>{open ? '▾' : '▸'}</span>
+        <span style={{ fontWeight: 600, fontSize: 13 }}>{node.company}</span>
+        {isFocal && <span className="chip chip-accent">focal</span>}
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-subtle)' }}>
+          {items.length > 0 ? `${items.length} relationship${items.length === 1 ? '' : 's'}` : 'no data'}
+        </span>
+      </button>
+      {open && (
+        <div style={{ padding: '4px 10px 8px' }}>
+          {items.length === 0 ? (
+            <div style={{ fontSize: 12, fontStyle: 'italic', color: 'var(--text-muted)', padding: '6px 0' }}>
+              {node.strategic_control_note || 'no_data_found'}
+            </div>
+          ) : (
+            items.map((s, i) => (
+              <div key={i} className="strategic-item">
+                <div className="strategic-head">
+                  <span className="strategic-rel">{s.role_description || s.relationship}</span>
+                  <span className="strategic-entity">{s.entity}</span>
+                </div>
+                {(s.evidence || s.details) && <div className="strategic-details">{s.evidence || s.details}</div>}
+                {s.source_url && isSafeUrl(s.source_url) && (
+                  <div className="strategic-source">
+                    <a href={s.source_url} target="_blank" rel="noopener noreferrer">{s.source_url}</a>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Tree view ───────────────────────────────────────────────────────────────
 
 function TreeView({ tree, selectedKey, onSelect }) {
@@ -1388,6 +1219,15 @@ function TreeView({ tree, selectedKey, onSelect }) {
   );
 }
 
+// Derived status chip (F11: label computed from presence flags, never captured).
+// active → no chip; legacy → warning; discontinued → danger; unknown → neutral.
+function StatusBadge({ node }) {
+  const { label } = node._derived_status || deriveStatus(node);
+  if (label === 'active') return null;
+  const cls = label === 'discontinued' ? 'chip-danger' : label === 'legacy' ? 'chip-warning' : '';
+  return <span className={`chip ${cls}`}>{label}</span>;
+}
+
 function TreeNode({ node, role, selectedKey, onSelect }) {
   const isFocal = role === 'focal';
   const isSelected = keyOf(node) === selectedKey;
@@ -1403,17 +1243,18 @@ function TreeNode({ node, role, selectedKey, onSelect }) {
         <div className="tree-node-meta">
           <span className={`chip ${isFocal ? 'chip-accent' : ''}`}>{role}</span>
           {node.layer && <span className="chip">{node.layer}</span>}
+          {node.category && <span className="chip">{node.category}</span>}
           {node.terminal_layer === 'private_equity' && <span className="chip chip-warning">PE</span>}
-          {node.status && node.status !== 'active' && <span className="chip chip-danger">{node.status}</span>}
+          <StatusBadge node={node} />
         </div>
       </div>
-      <div className={`tree-node-rev ${rev ? '' : 'empty'}`}>
-        {rev ? (
+      <div className={`tree-node-rev ${rev && rev.central > 0 ? '' : 'empty'}`}>
+        {rev && rev.central > 0 ? (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span className={`confidence-dot confidence-${rev.confidence || 'unknown'}`} />
             {formatUSD(rev.central)}
           </span>
-        ) : 'n/a'}
+        ) : '—'}
       </div>
     </button>
   );
@@ -1438,7 +1279,9 @@ function FlowNode({ data }) {
       {node.domain && <div className="flow-node-domain">{node.domain}</div>}
       <div className="flow-node-meta">
         <span className={`chip ${isFocal ? 'chip-accent' : ''}`}>{role}</span>
-        {rev && (
+        {node.category && <span className="chip">{node.category}</span>}
+        <StatusBadge node={node} />
+        {rev && rev.central > 0 && (
           <>
             <span className={`confidence-dot confidence-${rev.confidence || 'unknown'}`} />
             <span className="flow-node-rev">{formatUSD(rev.central)}</span>
@@ -1642,9 +1485,10 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
       <div className="detail-chips">
         {node.layer && <span className="chip">{node.layer}</span>}
         {node.node_type && <span className="chip">{node.node_type.replace('_', ' ')}</span>}
+        {node.category && <span className="chip">{node.category}</span>}
         {node.terminal_layer === 'private_equity' && <span className="chip chip-warning">PE-owned</span>}
         {node.standalone && <span className="chip chip-accent">standalone</span>}
-        {node.status && node.status !== 'active' && <span className="chip chip-danger">{node.status}</span>}
+        <StatusBadge node={node} />
       </div>
 
       {node.acquisition?.acquired_by && (
@@ -1657,7 +1501,7 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
         </div>
       )}
 
-      {rev ? (
+      {rev && rev.central > 0 ? (
         <div className="rev-card">
           <div className="card-title">Annual revenue estimate</div>
           <div className="rev-big">{formatUSD(rev.central)}</div>
@@ -1683,6 +1527,9 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
       ) : (
         <div className="rev-card" style={{ color: 'var(--text-muted)', fontSize: 13 }}>
           No revenue estimated for this entity.
+          {deriveRevenueStatus(node).reason && (
+            <div style={{ marginTop: 6, fontStyle: 'italic' }}>{deriveRevenueStatus(node).reason}</div>
+          )}
         </div>
       )}
 
@@ -1995,12 +1842,26 @@ async function generatePDF(result) {
     yPos += 2;
   }
 
-  // ─── Strategic Control ───
-  if ((tree.strategic_control || []).length > 0) {
+  // ─── Strategic Control (per layer) ───
+  const scChain = [];
+  let scP = tree.parent;
+  while (scP) { scChain.unshift(scP); scP = scP.parent; }
+  const scLayers = [...scChain, tree];
+  if (scLayers.some((n) => (n.strategic_control || []).length > 0 || n.strategic_control_note)) {
     addSection('Strategic Control');
-    tree.strategic_control.slice(0, 10).forEach((s) => {
-      addText(`${s.entity} · ${s.relationship.replace(/_/g, ' ')}`, { size: 10, bold: true });
-      if (s.details) addText(s.details, { size: 9 });
+    scLayers.forEach((node) => {
+      const items = node.strategic_control || [];
+      if (items.length === 0 && !node.strategic_control_note) return;
+      addText(node.company, { size: 10, bold: true });
+      if (items.length === 0) {
+        addText(node.strategic_control_note || 'no_data_found', { size: 9 });
+      } else {
+        items.slice(0, 10).forEach((s) => {
+          addText(`${s.entity} · ${s.role_description || s.relationship || ''}`, { size: 10 });
+          const detail = s.evidence || s.details;
+          if (detail) addText(detail, { size: 9 });
+        });
+      }
     });
     yPos += 2;
   }
