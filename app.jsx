@@ -1,69 +1,49 @@
-import React, { useState, useMemo } from 'react';
-import {
-  Search,
-  Loader2,
-  AlertCircle,
-  ChevronRight,
-  ChevronDown,
-  ExternalLink,
-  Crown,
-  Briefcase,
-  Building2,
-  Star,
-  Code,
-  GitBranch,
-  List,
-  Network,
-} from 'lucide-react';
-import ReactFlow, { Background, Controls, MiniMap, Handle, Position, useReactFlow } from 'reactflow';
-import 'reactflow/dist/style.css';
+import React, { useState, useEffect, useMemo } from 'react';
 
-// ─── System Prompts ───
+const MODEL = 'claude-sonnet-4-20250514';
 
-const SYSTEM_PROMPT = `Sos un research agent que resuelve corporate ownership graphs. Tu output es un árbol jerárquico verificable. Cada nodo está respaldado por una fuente concreta. Si no podés respaldarlo, no lo emitís. Mejor árbol incompleto que árbol falso.
+// ─── System prompts ──────────────────────────────────────────────────────────
 
-PROCESO
+const OWNERSHIP_PROMPT = `You are a research agent that resolves corporate ownership graphs. Your output is a hierarchical, verifiable tree. Every node is backed by a concrete source. If you cannot back it, you do not emit it. An incomplete tree beats a false tree.
 
-Paso 1 — Verificación de identidad. Antes de resolver ownership, confirmás CUÁL entidad es (dominio canónico, sector, país). Si el input devuelve más de un match plausible, devolvés disambiguation_required:true con candidatos y parás.
+PROCESS
 
-Paso 2 — Distinción legal entity vs operating brand. Marcás node_type: "legal_entity" | "operating_brand" en cada nodo.
+Step 1 — Identity verification. Before resolving ownership, confirm WHICH entity it is (canonical domain, sector, country). If the input has more than one plausible match, return disambiguation_required:true with candidates and stop.
 
-Paso 3 — Búsqueda de parent. Queries en orden: "[empresa] parent company" → "[empresa] acquired by" → "[empresa] subsidiary of" → SEC EDGAR si es US-público → press financiera.
+Step 2 — Distinguish legal entity vs operating brand. Mark node_type: "legal_entity" | "operating_brand" on each node.
 
-Paso 4 — Recursión hasta root. Stop conditions: ultimate parent identificable, PE firm (marcás terminal_layer:"private_equity" y parás), o no hay evidencia.
+Step 3 — Parent search. Queries in order: "[company] parent company" → "[company] acquired by" → "[company] subsidiary of" → SEC EDGAR if US-public → financial press.
 
-Paso 5 — Siblings. Para cada nodo intermedio, listás brands al mismo layer, SOLO con fuente verificable.
+Step 4 — Recurse to root. Stop conditions: ultimate parent identifiable, PE firm (mark terminal_layer:"private_equity" and stop), or no evidence.
 
-Paso 6 — Children. Si el input es parent, listás subsidiaries directas.
+Step 5 — Siblings. For each intermediate node, list brands at the same layer, ONLY with verifiable source.
 
-Paso 7 — Strategic control. Capturás relaciones de control/governance que NO son ownership formal: board members, investors/VCs, PE backers, major shareholders, founders. Distinto de parent/subsidiary. Incluís SOLO con evidencia clara (press release de funding, SEC filing 13D/13G, página oficial de board, M&A announcement). Si el input es una compañía con inversores o board members relevantes, capturálos.
+Step 6 — Children. If the input is a parent, list direct subsidiaries.
 
-JERARQUÍA DE FUENTES
-Tier A: SEC filings, M&A press releases, court filings.
-Tier B: Crunchbase/CB Insights citados, WSJ/Bloomberg/Reuters.
-Tier C: Trade press, company press releases.
-NO aceptables solo: blogs, foros, social media.
+Step 7 — Strategic control. Capture control/governance relationships that are NOT formal ownership: board members, investors/VCs, PE backers, major shareholders, founders. Include ONLY with clear evidence (funding press release, SEC 13D/13G, official board page, M&A announcement).
+
+DEPTH/FAN-OUT CAP
+Limit ownership recursion to 2–3 generations. Cap siblings to the 6 most material brands. Cap children to 6 direct subsidiaries.
 
 ANTI-HALLUCINATION
-Sin evidencia de parent → standalone:true. Sin evidence → no emitir. Memoria interna pierde contra search.
+Without parent evidence → standalone:true. Without evidence → don't emit. Internal memory loses to search.
 
 CONFIDENCE
-high: ≥2 fuentes Tier A/B, <3 años.
-medium: 1 Tier A/B o ≥2 Tier C.
-low: solo Tier C o >3 años sin reconfirmar.
+high: ≥2 Tier A/B sources, <3 years.
+medium: 1 Tier A/B or ≥2 Tier C.
+low: only Tier C or >3 years without reconfirmation.
 
-SALIDA JSON ESTRICTA, SIN PROSA:
+STRICT JSON OUTPUT, NO PROSE, NO MARKDOWN FENCES:
 {
   "company": str, "domain": str, "node_type": "legal_entity"|"operating_brand",
   "layer": "brand"|"aggregator"|"parent"|"root",
-  "operational": bool, "standalone": bool,
+  "standalone": bool,
   "terminal_layer": "root"|"private_equity"|null,
   "status": "active"|"defunct"|"acquired"|"spun_off",
-  "parent": {recursivo} | null,
+  "parent": {recursive} | null,
   "siblings": [{"company": str, "domain": str, "node_type": str}],
-  "children": [{recursivo}],
+  "children": [{recursive}],
   "acquisition": {"acquired_by": str, "year": int, "source_url": str} | null,
-  "non_ownership_relationships": [{"entity": str, "type": str}],
   "strategic_control": [{"entity": str, "relationship": "board_member"|"investor"|"pe_backer"|"major_shareholder"|"founder", "details": str, "source_url": str}],
   "confidence": "high"|"medium"|"low",
   "sources": [url],
@@ -72,284 +52,882 @@ SALIDA JSON ESTRICTA, SIN PROSA:
   "disambiguation_candidates": [{"company": str, "sector": str, "country": str}]
 }`;
 
-const SYSTEM_PROMPT_COMPACT = `Resuelve corporate ownership rápido. JSON estricto, sin prosa, sin markdown.
+const REVENUE_PROMPT = `You are a Revenue Inference Agent investigating private companies.
 
-1. Verificar identidad (si ambiguo, pedir)
-2. Buscar parent: "[empresa] parent company" → "[empresa] acquired by" → SEC
-3. Recursionar hasta root
-4. Listar siblings y children, SOLO con fuentes Tier A/B
-5. Strategic control: board members, investors/VCs, PE backers, founders, major shareholders con fuente verificable
+Goal: estimate the annual revenue of a brand by gathering behavioral signals from the web. The user gives you a brand name; you investigate and produce a revenue range with confidence.
 
-SALIDA COMPACTA (omite notes, non_ownership):
+## Search strategy
+
+1. Disambiguate first: confirm which entity you are investigating.
+2. Gather behavioral signals — proxies for revenue:
+   - Web traffic estimates (SimilarWeb / Semrush mentions)
+   - Hiring velocity (LinkedIn count, careers postings)
+   - Customer base size (G2, Trustpilot, Capterra, App Store)
+   - Public pricing pages (ACV / deal size)
+   - Funding history (total raised, valuation)
+   - Press coverage and YoY growth quotes
+   - Customer logos / case studies
+   - Geographic footprint
+   - Marketplace presence (Amazon BSR, app rank)
+3. Cross-reference at least 2 sources per critical signal.
+4. Be skeptical of any single revenue figure quoted online.
+
+Aim for 4+ distinct signals. Stop earlier if more searches will not help. You have a HARD CAP of 4 web searches.
+
+## Output
+
+Produce a final JSON block in this EXACT format, wrapped in \`\`\`json ... \`\`\`:
+
+\`\`\`json
 {
-  "company": str, "domain": str, "node_type": "legal_entity"|"operating_brand",
-  "layer": "brand"|"aggregator"|"parent"|"root",
-  "parent": {recursivo} | null,
-  "siblings": [{"company": str}],
-  "children": [{recursivo}],
-  "acquisition": {"acquired_by": str, "year": int} | null,
-  "strategic_control": [{"entity": str, "relationship": "board_member"|"investor"|"pe_backer"|"major_shareholder"|"founder", "details": str}],
-  "confidence": "high"|"medium"|"low",
-  "sources": [url1, url2],
-  "disambiguation_required": bool
-}`;
+  "revenue_estimate": {
+    "low": <USD integer>,
+    "high": <USD integer>,
+    "central": <USD integer>
+  },
+  "confidence": "low" | "medium" | "high",
+  "signals_found": [
+    {
+      "type": "web_traffic" | "hiring" | "reviews" | "pricing" | "funding" | "customers" | "press" | "marketplace" | "other",
+      "label": "<short signal name, max 5 words>",
+      "value": "<the actual data point found>",
+      "source": "<source name or short URL>",
+      "weight": "low" | "medium" | "high"
+    }
+  ],
+  "reasoning_summary": "<2-4 sentences explaining how the signals triangulate to the estimate>"
+}
+\`\`\`
 
-// ─── Helpers ───
+Weak/contradictory signals → wider range, "low" confidence. If you genuinely cannot estimate, set numbers to 0 and confidence "low" with a reasoning_summary explaining why.`;
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function safeExtractJSON(text) {
   if (!text) return null;
-  const cleaned = text.replace(/```json|```/g, '').trim();
+  const fence = text.match(/```json\s*([\s\S]+?)\s*```/);
+  const candidate = fence ? fence[1] : text;
+  const cleaned = candidate.replace(/```json|```/g, '').trim();
   const firstBrace = cleaned.indexOf('{');
   if (firstBrace === -1) return null;
-  
-  let candidate = cleaned.slice(firstBrace);
-  
+  let attempt = cleaned.slice(firstBrace);
   try {
-    return JSON.parse(candidate);
+    return JSON.parse(attempt);
   } catch {
-    let closeAttempt = candidate;
     for (let i = 0; i < 15; i++) {
-      closeAttempt += '}';
-      try {
-        return JSON.parse(closeAttempt);
-      } catch {
-        // Keep trying
-      }
+      attempt += '}';
+      try { return JSON.parse(attempt); } catch { /* keep trying */ }
     }
   }
-  
   return null;
 }
 
-function buildChain(focal) {
-  const chain = [focal];
-  let current = focal;
-  while (current?.parent) {
-    current = current.parent;
-    chain.unshift(current);
+function formatUSD(n) {
+  if (n == null || isNaN(n)) return '—';
+  if (n === 0) return '$0';
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
+  return `$${n}`;
+}
+
+function confidenceColor(c) {
+  if (c === 'high') return '#40BECC';
+  if (c === 'medium') return '#c4a85a';
+  return '#a07a7a';
+}
+
+function weightColor(w) {
+  if (w === 'high') return '#40BECC';
+  if (w === 'medium') return '#a8a59c';
+  return '#5a5853';
+}
+
+// Call the existing Express proxy → Anthropic.
+async function callAnthropic({ system, user, maxSearches = 4, maxTokens = 4096 }) {
+  const res = await fetch('/api/anthropic', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: maxTokens,
+      system,
+      messages: [{ role: 'user', content: user }],
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: maxSearches }],
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`API ${res.status}: ${errText.slice(0, 240)}`);
   }
-  return chain;
+  const data = await res.json();
+  return parseAnthropicResponse(data);
 }
 
-function confColor(conf) {
-  if (conf === 'high') return '#10b981';
-  if (conf === 'medium') return '#f59e0b';
-  return '#ef4444';
+function parseAnthropicResponse(data) {
+  const trace = [];
+  let text = '';
+  for (const block of data.content || []) {
+    if (block.type === 'text') {
+      if (block.text && block.text.trim()) {
+        trace.push({ kind: 'thought', text: block.text.trim() });
+        text += block.text + '\n';
+      }
+    } else if (block.type === 'server_tool_use' && block.name === 'web_search') {
+      trace.push({ kind: 'search', query: (block.input && block.input.query) || '...' });
+    } else if (block.type === 'web_search_tool_result') {
+      const results = Array.isArray(block.content) ? block.content : [];
+      const sources = results.slice(0, 4).map((r) => r.title || r.url || '').filter(Boolean);
+      trace.push({ kind: 'results', count: results.length, sources });
+    }
+  }
+  return { text, trace, raw: data };
 }
 
-// ─── Components ───
-
-function EmptyState() {
-  const examples = ['Nectar', 'Liberty Safe', 'Whole Foods', 'Beats Electronics'];
-
-  return (
-    <div style={{
-      textAlign: 'center',
-      padding: '60px 40px',
-      background: '#f9fafb',
-      border: '1px solid #e5e7eb',
-      borderRadius: '12px',
-      marginBottom: '32px',
-    }}>
-      <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔍</div>
-      <h2 style={{ fontSize: '20px', fontWeight: 600, color: '#111827', margin: '0 0 8px 0' }}>
-        Search any company or domain
-      </h2>
-      <p style={{ fontSize: '14px', color: '#6b7280', margin: '0 0 24px 0', maxWidth: '400px', marginLeft: 'auto', marginRight: 'auto' }}>
-        Explore corporate ownership chains with verified sources. Identify parent companies, subsidiaries, and strategic relationships.
-      </p>
-      <div style={{ marginBottom: '16px' }}>
-        <span style={{ fontSize: '12px', color: '#9ca3af', fontWeight: 500 }}>Try these examples:</span>
-      </div>
-      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
-        {examples.map((ex) => (
-          <span
-            key={ex}
-            style={{
-              fontSize: '13px',
-              color: '#3b82f6',
-              background: '#ffffff',
-              border: '1px solid #bfdbfe',
-              borderRadius: '6px',
-              padding: '6px 12px',
-              fontWeight: 500,
-            }}
-          >
-            {ex}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
+// Collect entities to enrich with revenue. Caps depth/fan-out to keep cost bounded.
+function collectEntities(ownership) {
+  if (!ownership) return [];
+  const out = [];
+  const seen = new Set();
+  const push = (entity, role) => {
+    if (!entity || !entity.company) return;
+    const key = entity.company.toLowerCase().trim();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ company: entity.company, domain: entity.domain || null, role, layer: entity.layer || null });
+  };
+  // focal first
+  push(ownership, 'focal');
+  // parent chain (max 2 levels up)
+  let p = ownership.parent;
+  let depth = 0;
+  while (p && depth < 2) {
+    push(p, depth === 0 ? 'parent' : 'grandparent');
+    p = p.parent;
+    depth++;
+  }
+  // siblings (cap 4)
+  (ownership.siblings || []).slice(0, 4).forEach((s) => push(s, 'sibling'));
+  // children (cap 3)
+  (ownership.children || []).slice(0, 3).forEach((c) => push(c, 'child'));
+  return out;
 }
 
-function LoadingStepper({ currentStage }) {
-  const stages = [
-    { key: 'searching', label: 'Searching web' },
-    { key: 'extracting', label: 'Extracting entities' },
-    { key: 'validating', label: 'Validating ownership' },
-    { key: 'rendering', label: 'Rendering graph' },
-  ];
-
-  const stageIndex = stages.findIndex(s => s.key === currentStage);
-
-  return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: '8px',
-      padding: '16px 20px',
-      background: '#f9fafb',
-      border: '1px solid #e5e7eb',
-      borderRadius: '8px',
-      marginBottom: '24px',
-    }}>
-      <Loader2 className="w-5 h-5 animate-spin" style={{ color: '#3b82f6' }} />
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: '14px', fontWeight: 500, color: '#111827', marginBottom: '4px' }}>
-          {stages[stageIndex]?.label || 'Processing...'}
-        </div>
-        <div style={{ display: 'flex', gap: '4px' }}>
-          {stages.map((stage, idx) => (
-            <div
-              key={stage.key}
-              style={{
-                flex: 1,
-                height: '3px',
-                borderRadius: '2px',
-                background: idx <= stageIndex ? '#3b82f6' : '#e5e7eb',
-                transition: 'background 0.3s ease',
-              }}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
+// Attach revenue estimates back onto the ownership tree by entity name match.
+function attachRevenue(ownership, revenueByCompany) {
+  if (!ownership) return ownership;
+  const clone = JSON.parse(JSON.stringify(ownership));
+  const visit = (node) => {
+    if (!node) return;
+    const key = (node.company || '').toLowerCase().trim();
+    const rev = revenueByCompany[key];
+    if (rev) {
+      node.revenue_estimate = {
+        low: rev.revenue_estimate?.low ?? 0,
+        high: rev.revenue_estimate?.high ?? 0,
+        central: rev.revenue_estimate?.central ?? 0,
+        confidence: rev.confidence || 'low',
+      };
+      node.signals_found = rev.signals_found || [];
+      node.reasoning_summary = rev.reasoning_summary || '';
+      if (rev.error) node.revenue_error = rev.error;
+    }
+    if (node.parent) visit(node.parent);
+    (node.siblings || []).forEach((s) => {
+      const sk = (s.company || '').toLowerCase().trim();
+      const sr = revenueByCompany[sk];
+      if (sr) {
+        s.revenue_estimate = {
+          low: sr.revenue_estimate?.low ?? 0,
+          high: sr.revenue_estimate?.high ?? 0,
+          central: sr.revenue_estimate?.central ?? 0,
+          confidence: sr.confidence || 'low',
+        };
+      }
+    });
+    (node.children || []).forEach(visit);
+  };
+  visit(clone);
+  return clone;
 }
 
-function SummaryRow({ result, resolvedAt }) {
-  if (!result || result.error || result.disambiguation_required) return null;
+// Deterministic local synthesis. Chosen over a 3rd LLM call because (a) the
+// positioning math is mechanical (ratios, ranking) and (b) it avoids token cost
+// and JSON-parse risk of a synthesis call given two large prior outputs.
+function synthesize(ownership, revenueByCompany) {
+  const tree = attachRevenue(ownership, revenueByCompany);
+  const focalRev = tree.revenue_estimate?.central || 0;
+  const parentRev = tree.parent?.revenue_estimate?.central || 0;
 
-  const chain = buildChain(result);
-  const strategicCount = result.strategic_control?.length || 0;
-  const sourceCount = result.sources?.length || 0;
+  let focal_vs_parent_ratio = 'N/A (standalone)';
+  if (tree.parent && parentRev > 0) {
+    const pct = ((focalRev / parentRev) * 100).toFixed(1);
+    focal_vs_parent_ratio = `${pct}% of ${tree.parent.company} central revenue`;
+  } else if (tree.parent && parentRev === 0) {
+    focal_vs_parent_ratio = `${tree.parent.company} revenue unknown`;
+  }
 
-  const formatTime = (date) => {
-    if (!date) return null;
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return date.toLocaleDateString();
+  const siblings = tree.siblings || [];
+  let focal_vs_siblings = 'No siblings';
+  if (siblings.length > 0) {
+    const ranked = [
+      { company: tree.company, central: focalRev, focal: true },
+      ...siblings.map((s) => ({
+        company: s.company,
+        central: s.revenue_estimate?.central || 0,
+        focal: false,
+      })),
+    ].sort((a, b) => b.central - a.central);
+    const rank = ranked.findIndex((r) => r.focal) + 1;
+    focal_vs_siblings = `Ranked ${rank} of ${ranked.length} in family — ${ranked
+      .map((r) => `${r.focal ? '★ ' : ''}${r.company} ${formatUSD(r.central)}`)
+      .join(' · ')}`;
+  }
+
+  // Pull press / hiring / funding signals across the focal entity for growth narrative.
+  const focalSignals = tree.signals_found || [];
+  const growthHits = focalSignals
+    .filter((s) => ['press', 'hiring', 'funding'].includes(s.type))
+    .slice(0, 3)
+    .map((s) => `${s.label} (${s.source})`);
+  const growth_signals = growthHits.length > 0 ? growthHits.join('; ') : 'No explicit YoY growth signals captured.';
+
+  const notes = [];
+  if (tree.terminal_layer === 'private_equity') notes.push('Family is PE-owned — expect optimization for EBITDA and exit timing.');
+  if ((tree.strategic_control || []).some((s) => s.relationship === 'investor' || s.relationship === 'pe_backer')) {
+    notes.push('Investor governance is material to strategic direction.');
+  }
+  if (focalRev && parentRev && focalRev / parentRev > 0.4) notes.push('Focal is a major contributor to parent revenue.');
+  if (focalRev && parentRev && focalRev / parentRev < 0.05) notes.push('Focal is a small line within the parent — likely lower strategic attention.');
+  if (siblings.length >= 3 && focalRev) {
+    const sibRevs = siblings.map((s) => s.revenue_estimate?.central || 0);
+    const maxSib = Math.max(...sibRevs);
+    if (focalRev > maxSib) notes.push('Focal leads the sibling cohort by revenue — likely cash cow of the family.');
+    else if (focalRev < Math.min(...sibRevs.filter((x) => x > 0))) notes.push('Focal trails siblings — may be a growth bet or underperforming.');
+  }
+  const strategic_notes = notes.length > 0 ? notes.join(' ') : 'No distinctive structural signals captured.';
+
+  return {
+    focal_company: tree.company,
+    ownership_tree: tree,
+    positioning_analysis: {
+      focal_vs_parent_ratio,
+      focal_vs_siblings,
+      growth_signals,
+      strategic_notes,
+    },
+  };
+}
+
+// ─── App ─────────────────────────────────────────────────────────────────────
+
+export default function App() {
+  const [brand, setBrand] = useState('');
+  const [hint, setHint] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [phase, setPhase] = useState(null);
+  const [trace, setTrace] = useState([]);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+  const [showRaw, setShowRaw] = useState(false);
+
+  useEffect(() => {
+    const link = document.createElement('link');
+    link.href = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=JetBrains+Mono:wght@400;500&family=Inter:wght@300;400;500;600&display=swap';
+    link.rel = 'stylesheet';
+    document.head.appendChild(link);
+  }, []);
+
+  function appendTrace(items) {
+    setTrace((prev) => [...prev, ...items]);
+  }
+
+  async function investigate() {
+    if (!brand.trim()) return;
+    setLoading(true);
+    setTrace([]);
+    setResult(null);
+    setError(null);
+    setPhase('ownership');
+
+    try {
+      // Phase 1 — ownership
+      appendTrace([{ kind: 'phase', phase: 'ownership', label: `resolving ownership of ${brand.trim()}` }]);
+      const ownershipUser = `Resolve the corporate ownership of: "${brand.trim()}"${hint.trim() ? `\n\nContext: ${hint.trim()}` : ''}`;
+      const ownershipResp = await callAnthropic({
+        system: OWNERSHIP_PROMPT,
+        user: ownershipUser,
+        maxSearches: 8,
+        maxTokens: 4096,
+      });
+      appendTrace(ownershipResp.trace.map((t) => ({ ...t, tag: 'ownership' })));
+      const ownership = safeExtractJSON(ownershipResp.text);
+      if (!ownership) {
+        throw new Error('Ownership phase did not return parseable JSON.');
+      }
+      if (ownership.disambiguation_required) {
+        setResult({ disambiguation: ownership, raw: ownershipResp.text });
+        setError('Disambiguation required — please re-run with a more specific context hint.');
+        setLoading(false);
+        setPhase(null);
+        return;
+      }
+
+      // Phase 2 — revenue (parallel)
+      setPhase('revenue');
+      const entities = collectEntities(ownership);
+      appendTrace([{ kind: 'phase', phase: 'revenue', label: `estimating revenue for ${entities.length} entit${entities.length === 1 ? 'y' : 'ies'}` }]);
+      const revenueResults = await Promise.all(
+        entities.map(async (ent) => {
+          const tag = `revenue:${ent.company}`;
+          appendTrace([{ kind: 'phase', phase: tag, label: `→ ${ent.company} (${ent.role})` }]);
+          try {
+            const user = `Investigate the annual revenue of: "${ent.company}"${ent.domain ? ` (domain: ${ent.domain})` : ''}. Role in corporate family: ${ent.role}.`;
+            const resp = await callAnthropic({
+              system: REVENUE_PROMPT,
+              user,
+              maxSearches: 4,
+              maxTokens: 3072,
+            });
+            appendTrace(resp.trace.map((t) => ({ ...t, tag })));
+            const parsed = safeExtractJSON(resp.text);
+            if (!parsed) {
+              return { company: ent.company, role: ent.role, error: 'parse_failed', confidence: 'low' };
+            }
+            return { company: ent.company, role: ent.role, ...parsed };
+          } catch (e) {
+            appendTrace([{ kind: 'error', tag, message: e.message }]);
+            return { company: ent.company, role: ent.role, error: e.message, confidence: 'low' };
+          }
+        })
+      );
+
+      // Phase 3 — synthesis (local merge)
+      setPhase('synthesis');
+      appendTrace([{ kind: 'phase', phase: 'synthesis', label: 'merging ownership + revenue → positioning' }]);
+      const byCompany = {};
+      revenueResults.forEach((r) => { byCompany[r.company.toLowerCase().trim()] = r; });
+      const synthesized = synthesize(ownership, byCompany);
+      setResult({ ...synthesized, _entities: entities, _revenueResults: revenueResults });
+      appendTrace([{ kind: 'phase', phase: 'done', label: 'investigation complete' }]);
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
+      setLoading(false);
+      setPhase(null);
+    }
+  }
+
+  const inputStyle = {
+    width: '100%',
+    background: 'transparent',
+    border: 'none',
+    borderBottom: '1px solid #2a2a2e',
+    color: '#f4f2eb',
+    padding: '12px 0',
+    fontSize: '15px',
+    fontFamily: '"Inter", -apple-system, sans-serif',
+    outline: 'none',
+    boxSizing: 'border-box',
   };
 
-  const statusBadge = result.standalone ? (
-    <span style={{
-      fontSize: '12px',
-      color: '#059669',
-      background: '#ecfdf5',
-      border: '1px solid #a7f3d0',
-      padding: '4px 10px',
-      borderRadius: '6px',
-      fontWeight: 600,
-    }}>
-      Standalone company
-    </span>
-  ) : result.parent ? (
-    <span style={{
-      fontSize: '12px',
-      color: '#0369a1',
-      background: '#f0f9ff',
-      border: '1px solid #bfdbfe',
-      padding: '4px 10px',
-      borderRadius: '6px',
-      fontWeight: 600,
-    }}>
-      Subsidiary
-    </span>
-  ) : null;
-
   return (
-    <div style={{
-      background: '#f9fafb',
-      border: '1px solid #e5e7eb',
-      borderRadius: '8px',
-      padding: '16px 20px',
-      marginBottom: '24px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '20px',
-      flexWrap: 'wrap',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '200px' }}>
-        <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0, color: '#111827' }}>
-          {result.company}
-        </h2>
-        {statusBadge}
-      </div>
+    <div
+      style={{
+        minHeight: '100vh',
+        background: '#0a0a0c',
+        backgroundImage: 'radial-gradient(ellipse 60% 40% at top, #14141822 0%, transparent 60%)',
+        color: '#e8e6df',
+        fontFamily: '"Inter", -apple-system, sans-serif',
+        padding: '56px 24px 96px',
+        fontSize: '14px',
+        lineHeight: 1.6,
+      }}
+    >
+      <div style={{ maxWidth: '820px', margin: '0 auto' }}>
+        {/* HEADER */}
+        <header style={{ marginBottom: '56px', borderBottom: '1px solid #1c1c20', paddingBottom: '36px' }}>
+          <div
+            style={{
+              fontFamily: '"JetBrains Mono", monospace',
+              fontSize: '10px',
+              letterSpacing: '0.25em',
+              color: '#40BECC',
+              marginBottom: '14px',
+              textTransform: 'uppercase',
+            }}
+          >
+            module · signal.ownership_revenue · v0
+          </div>
+          <h1
+            style={{
+              fontFamily: '"Cormorant Garamond", serif',
+              fontSize: '48px',
+              fontWeight: 500,
+              margin: 0,
+              letterSpacing: '-0.02em',
+              color: '#f4f2eb',
+              lineHeight: 1.05,
+            }}
+          >
+            Ownership &amp; Revenue Agent
+          </h1>
+          <p
+            style={{
+              fontFamily: '"Cormorant Garamond", serif',
+              fontStyle: 'italic',
+              fontSize: '19px',
+              color: '#8a8780',
+              margin: '12px 0 0',
+              fontWeight: 400,
+            }}
+          >
+            From brand to full corporate family — with a revenue estimate on every node and a positioning read on the focal entity.
+          </p>
+        </header>
 
-      <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <GitBranch className="w-4 h-4" style={{ color: '#6b7280' }} />
-          <span style={{ fontSize: '13px', color: '#6b7280' }}>
-            {chain.length} layer{chain.length !== 1 ? 's' : ''}
-          </span>
-        </div>
+        {/* INPUT */}
+        <section style={{ marginBottom: '56px' }}>
+          <Label>Target brand</Label>
+          <input
+            type="text"
+            value={brand}
+            onChange={(e) => setBrand(e.target.value)}
+            placeholder="e.g. Mercury, MUD\WTR, Whole Foods"
+            disabled={loading}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !loading) investigate(); }}
+            style={inputStyle}
+          />
+          <div style={{ marginTop: '28px' }}>
+            <Label>Context (optional)</Label>
+            <input
+              type="text"
+              value={hint}
+              onChange={(e) => setHint(e.target.value)}
+              placeholder="domain, industry, geography, founding year…"
+              disabled={loading}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !loading) investigate(); }}
+              style={inputStyle}
+            />
+          </div>
+          <button
+            onClick={investigate}
+            disabled={loading || !brand.trim()}
+            style={{
+              marginTop: '32px',
+              background: loading || !brand.trim() ? 'transparent' : '#40BECC',
+              color: loading || !brand.trim() ? '#5a5853' : '#0a0a0c',
+              border: loading || !brand.trim() ? '1px solid #2a2a2e' : '1px solid #40BECC',
+              padding: '14px 36px',
+              fontFamily: '"JetBrains Mono", monospace',
+              fontSize: '11px',
+              letterSpacing: '0.18em',
+              textTransform: 'uppercase',
+              fontWeight: 500,
+              cursor: loading || !brand.trim() ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            {loading ? `· · · ${phase || 'working'}` : '→ investigate'}
+          </button>
+        </section>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{
-            width: '6px',
-            height: '6px',
-            borderRadius: '50%',
-            background: confColor(result.confidence),
-          }} />
-          <span style={{ fontSize: '13px', color: '#6b7280' }}>
-            {result.confidence || 'unknown'} confidence
-          </span>
-        </div>
+        {/* TRACE */}
+        {(loading || trace.length > 0) && (
+          <section style={{ marginBottom: '56px' }}>
+            <SectionHead>Investigation log</SectionHead>
+            <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '12px', color: '#a8a59c' }}>
+              {trace.map((item, i) => (
+                <TraceItem key={i} index={i + 1} item={item} />
+              ))}
+              {loading && (
+                <div style={{ color: '#40BECC', padding: '14px 0', fontStyle: 'italic', fontSize: '12px', letterSpacing: '0.05em' }}>
+                  · · · agent working — phase: {phase}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{ fontSize: '13px', color: '#6b7280' }}>
-            {sourceCount} source{sourceCount !== 1 ? 's' : ''}
-          </span>
-        </div>
-
-        {strategicCount > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Star className="w-4 h-4" style={{ color: '#6b7280' }} />
-            <span style={{ fontSize: '13px', color: '#6b7280' }}>
-              {strategicCount} relationship{strategicCount !== 1 ? 's' : ''}
-            </span>
+        {/* ERROR */}
+        {error && (
+          <div
+            style={{
+              background: '#1a1212',
+              border: '1px solid #3a2222',
+              padding: '16px 20px',
+              fontFamily: '"JetBrains Mono", monospace',
+              fontSize: '12px',
+              color: '#d4a8a8',
+              marginBottom: '36px',
+            }}
+          >
+            ⚠ {error}
           </div>
         )}
 
-        {formatTime(resolvedAt) && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '13px', color: '#9ca3af' }}>
-              Resolved {formatTime(resolvedAt)}
-            </span>
-          </div>
+        {/* DISAMBIGUATION */}
+        {result?.disambiguation && (
+          <section>
+            <SectionHead>Disambiguation candidates</SectionHead>
+            {(result.disambiguation.disambiguation_candidates || []).map((c, i) => (
+              <div key={i} style={{ padding: '12px 0', borderBottom: '1px solid #18181c' }}>
+                <div style={{ color: '#f4f2eb', fontWeight: 500 }}>{c.company}</div>
+                <div style={{ color: '#8a8780', fontSize: '12px', marginTop: 4 }}>
+                  {c.sector} · {c.country}
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {/* RESULT */}
+        {result?.ownership_tree && (
+          <ResultView result={result} showRaw={showRaw} setShowRaw={setShowRaw} />
         )}
       </div>
     </div>
   );
 }
 
-function Badge({ children, dim }) {
+// ─── Result view ─────────────────────────────────────────────────────────────
+
+function ResultView({ result, showRaw, setShowRaw }) {
+  const tree = result.ownership_tree;
+  const positioning = result.positioning_analysis || {};
+  const rev = tree.revenue_estimate || {};
+
+  return (
+    <section>
+      <SectionHead>Estimate · {tree.company}</SectionHead>
+      <div
+        style={{
+          border: '1px solid #2a2a2e',
+          padding: '36px',
+          marginBottom: '40px',
+          background: 'linear-gradient(180deg, #0e0e12 0%, #0a0a0c 100%)',
+        }}
+      >
+        <div
+          style={{
+            fontFamily: '"JetBrains Mono", monospace',
+            fontSize: '10px',
+            color: '#7a7770',
+            letterSpacing: '0.22em',
+            textTransform: 'uppercase',
+            marginBottom: '16px',
+          }}
+        >
+          annual revenue range · focal entity
+        </div>
+        <div
+          style={{
+            fontFamily: '"Cormorant Garamond", serif',
+            fontSize: '46px',
+            color: '#f4f2eb',
+            fontWeight: 500,
+            letterSpacing: '-0.02em',
+            lineHeight: 1.1,
+          }}
+        >
+          {formatUSD(rev.low)}
+          <span style={{ color: '#40BECC', margin: '0 18px', fontSize: '32px', verticalAlign: 'middle' }}>—</span>
+          {formatUSD(rev.high)}
+        </div>
+        <div
+          style={{
+            fontFamily: '"JetBrains Mono", monospace',
+            fontSize: '12px',
+            color: '#a8a59c',
+            marginTop: '20px',
+            display: 'flex',
+            gap: '32px',
+            flexWrap: 'wrap',
+          }}
+        >
+          <span>central · <span style={{ color: '#f4f2eb' }}>{formatUSD(rev.central)}</span></span>
+          <span>confidence · <span style={{ color: confidenceColor(rev.confidence) }}>{rev.confidence || 'unknown'}</span></span>
+          <span>layer · <span style={{ color: '#f4f2eb' }}>{tree.layer || '—'}</span></span>
+          {tree.standalone && <span style={{ color: '#40BECC' }}>standalone</span>}
+        </div>
+      </div>
+
+      <SectionHead>Ownership tree</SectionHead>
+      <div style={{ marginBottom: '40px' }}>
+        <OwnershipTree tree={tree} />
+      </div>
+
+      {(tree.strategic_control || []).length > 0 && (
+        <>
+          <SectionHead>Strategic control</SectionHead>
+          <div style={{ marginBottom: '40px' }}>
+            {tree.strategic_control.map((s, i) => (
+              <div
+                key={i}
+                style={{
+                  padding: '14px 0',
+                  borderBottom: '1px solid #18181c',
+                  fontFamily: '"JetBrains Mono", monospace',
+                  fontSize: '12px',
+                }}
+              >
+                <div style={{ display: 'flex', gap: '14px', alignItems: 'baseline' }}>
+                  <span style={{ color: '#40BECC', width: 130, flexShrink: 0 }}>{s.relationship}</span>
+                  <span style={{ color: '#f4f2eb', fontWeight: 500 }}>{s.entity}</span>
+                </div>
+                {s.details && (
+                  <div style={{ color: '#a8a59c', marginTop: 6, paddingLeft: 144, fontSize: '11px' }}>{s.details}</div>
+                )}
+                {s.source_url && (
+                  <div style={{ paddingLeft: 144, marginTop: 4 }}>
+                    <a href={s.source_url} target="_blank" rel="noopener noreferrer" style={{ color: '#5a5853', fontSize: '10px', fontStyle: 'italic' }}>
+                      {s.source_url}
+                    </a>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      <SectionHead>Positioning analysis</SectionHead>
+      <div style={{ marginBottom: '40px' }}>
+        <PositioningRow label="Focal vs parent" body={positioning.focal_vs_parent_ratio} />
+        <PositioningRow label="Focal vs siblings" body={positioning.focal_vs_siblings} />
+        <PositioningRow label="Growth signals" body={positioning.growth_signals} />
+        <PositioningRow label="Strategic notes" body={positioning.strategic_notes} italic />
+      </div>
+
+      <SectionHead>Signals captured</SectionHead>
+      <div style={{ marginBottom: '40px' }}>
+        {(result._revenueResults || []).map((r, i) => (
+          <EntitySignals key={i} entry={r} />
+        ))}
+      </div>
+
+      <section style={{ marginTop: '24px', borderTop: '1px solid #1c1c20', paddingTop: '24px' }}>
+        <button
+          onClick={() => setShowRaw(!showRaw)}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: '#5a5853',
+            fontFamily: '"JetBrains Mono", monospace',
+            fontSize: '10px',
+            letterSpacing: '0.2em',
+            textTransform: 'uppercase',
+            cursor: 'pointer',
+            padding: 0,
+          }}
+        >
+          {showRaw ? '▾ hide raw JSON' : '▸ show raw JSON'}
+        </button>
+        {showRaw && (
+          <pre
+            style={{
+              marginTop: '16px',
+              padding: '16px',
+              background: '#0e0e12',
+              border: '1px solid #1c1c20',
+              fontFamily: '"JetBrains Mono", monospace',
+              fontSize: '11px',
+              color: '#8a8780',
+              whiteSpace: 'pre-wrap',
+              lineHeight: 1.5,
+              maxHeight: '480px',
+              overflowY: 'auto',
+            }}
+          >
+            {JSON.stringify({ focal_company: result.focal_company, ownership_tree: result.ownership_tree, positioning_analysis: result.positioning_analysis }, null, 2)}
+          </pre>
+        )}
+      </section>
+    </section>
+  );
+}
+
+function PositioningRow({ label, body, italic }) {
+  return (
+    <div style={{ padding: '16px 0', borderBottom: '1px solid #18181c' }}>
+      <div
+        style={{
+          fontFamily: '"JetBrains Mono", monospace',
+          fontSize: '10px',
+          color: '#7a7770',
+          letterSpacing: '0.2em',
+          textTransform: 'uppercase',
+          marginBottom: 8,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontFamily: italic ? '"Cormorant Garamond", serif' : '"Inter", -apple-system, sans-serif',
+          fontStyle: italic ? 'italic' : 'normal',
+          fontSize: italic ? '18px' : '14px',
+          color: '#e8e6df',
+          lineHeight: 1.55,
+        }}
+      >
+        {body || '—'}
+      </div>
+    </div>
+  );
+}
+
+// Ownership tree — nested cards (parent chain rendered above focal, siblings + children below).
+function OwnershipTree({ tree }) {
+  // Build parent chain top-down.
+  const parents = [];
+  let p = tree.parent;
+  while (p) {
+    parents.unshift(p);
+    p = p.parent;
+  }
+  return (
+    <div>
+      {parents.map((node, i) => (
+        <div key={`p${i}`} style={{ marginBottom: 8 }}>
+          <EntityCard node={node} role={i === 0 && parents.length > 1 ? 'root' : 'parent'} />
+          <Connector />
+        </div>
+      ))}
+      <EntityCard node={tree} role="focal" />
+      {(tree.siblings || []).length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <SubLabel>Siblings</SubLabel>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 8 }}>
+            {tree.siblings.map((s, i) => <EntityCard key={i} node={s} role="sibling" compact />)}
+          </div>
+        </div>
+      )}
+      {(tree.children || []).length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <SubLabel>Children</SubLabel>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 8 }}>
+            {tree.children.map((c, i) => <EntityCard key={i} node={c} role="child" compact />)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SubLabel({ children }) {
+  return (
+    <div
+      style={{
+        fontFamily: '"JetBrains Mono", monospace',
+        fontSize: '10px',
+        letterSpacing: '0.2em',
+        color: '#7a7770',
+        textTransform: 'uppercase',
+        marginBottom: 10,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function Connector() {
+  return <div style={{ width: 1, height: 18, background: '#2a2a2e', marginLeft: 24 }} />;
+}
+
+function EntityCard({ node, role, compact }) {
+  if (!node) return null;
+  const rev = node.revenue_estimate;
+  const isFocal = role === 'focal';
+  return (
+    <div
+      style={{
+        border: `1px solid ${isFocal ? '#40BECC' : '#2a2a2e'}`,
+        background: isFocal ? 'linear-gradient(180deg, #0e1518 0%, #0a0a0c 100%)' : '#0e0e12',
+        padding: compact ? '14px 16px' : '18px 20px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <div
+            style={{
+              fontFamily: '"Cormorant Garamond", serif',
+              fontSize: compact ? '20px' : '24px',
+              color: '#f4f2eb',
+              fontWeight: 500,
+              letterSpacing: '-0.01em',
+              lineHeight: 1.1,
+            }}
+          >
+            {node.company}
+          </div>
+          {node.domain && (
+            <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: '11px', color: '#7a7770', marginTop: 4 }}>
+              {node.domain}
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Chip color="#40BECC">{role}</Chip>
+          {node.layer && <Chip>{node.layer}</Chip>}
+          {node.terminal_layer === 'private_equity' && <Chip color="#c4a85a">PE</Chip>}
+          {node.status && node.status !== 'active' && <Chip color="#a07a7a">{node.status}</Chip>}
+        </div>
+      </div>
+      <div
+        style={{
+          fontFamily: '"JetBrains Mono", monospace',
+          fontSize: '12px',
+          color: '#a8a59c',
+          display: 'flex',
+          gap: 18,
+          flexWrap: 'wrap',
+          marginTop: 6,
+        }}
+      >
+        {rev ? (
+          <>
+            <span>
+              revenue · <span style={{ color: '#f4f2eb' }}>{formatUSD(rev.low)} — {formatUSD(rev.high)}</span>
+            </span>
+            <span>
+              central · <span style={{ color: '#f4f2eb' }}>{formatUSD(rev.central)}</span>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: confidenceColor(rev.confidence) }} />
+              <span>{rev.confidence}</span>
+            </span>
+          </>
+        ) : (
+          <span style={{ color: '#5a5853', fontStyle: 'italic' }}>revenue not estimated</span>
+        )}
+        {node.revenue_error && <span style={{ color: '#a07a7a' }}>err · {node.revenue_error}</span>}
+      </div>
+      {node.acquisition?.acquired_by && (
+        <div style={{ fontFamily: '"Cormorant Garamond", serif', fontStyle: 'italic', fontSize: 14, color: '#8a8780', marginTop: 4 }}>
+          Acquired by {node.acquisition.acquired_by}{node.acquisition.year ? ` · ${node.acquisition.year}` : ''}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Chip({ children, color }) {
+  const c = color || '#7a7770';
   return (
     <span
       style={{
-        fontSize: '11px',
-        color: dim ? '#6b7280' : '#0369a1',
-        background: dim ? '#f3f4f6' : '#f0f9ff',
-        border: `1px solid ${dim ? '#e5e7eb' : '#bfdbfe'}`,
-        padding: '2px 6px',
-        borderRadius: '4px',
-        fontWeight: 500,
+        fontFamily: '"JetBrains Mono", monospace',
+        fontSize: '9px',
+        color: c,
+        letterSpacing: '0.18em',
+        textTransform: 'uppercase',
+        padding: '3px 8px',
+        border: `1px solid ${c}44`,
       }}
     >
       {children}
@@ -357,1126 +935,212 @@ function Badge({ children, dim }) {
   );
 }
 
-function LayerIcon({ layer, focal }) {
-  const color = focal ? '#3b82f6' : '#6b7280';
-  const props = { className: 'w-3.5 h-3.5', style: { color, strokeWidth: 2 } };
-  if (focal) return <Star {...props} style={{ ...props.style, fill: '#3b82f6' }} />;
-  if (layer === 'root' || layer === 'parent') return <Crown {...props} />;
-  if (layer === 'aggregator') return <Briefcase {...props} />;
-  return <Building2 {...props} />;
-}
-
-function ConfidencePill({ conf, sources, verification }) {
+function EntitySignals({ entry }) {
+  const [open, setOpen] = useState(false);
+  const signals = entry.signals_found || [];
+  const hasContent = signals.length > 0 || entry.reasoning_summary || entry.error;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-        <span
-          style={{
-            width: '5px',
-            height: '5px',
-            borderRadius: '50%',
-            background: confColor(conf),
-          }}
-        />
-        <span style={{ fontSize: '11px', color: '#6b7280' }}>
-          {conf || 'unknown'} confidence
-        </span>
-      </div>
-      {sources?.length > 0 && (
-        <span style={{ fontSize: '11px', color: '#9ca3af' }}>
-          · {sources.length} {sources.length === 1 ? 'source' : 'sources'}
-        </span>
-      )}
-      {verification === 'needs_recent_confirmation' && (
-        <span style={{ fontSize: '11px', color: '#f59e0b' }}>· stale</span>
-      )}
-    </div>
-  );
-}
-
-function NodeCard({ node, isFocal, compact }) {
-  const [showSources, setShowSources] = useState(false);
-  if (!node) return null;
-
-  return (
-    <div
-      style={{
-        background: isFocal ? '#f0f9ff' : '#f9fafb',
-        border: `1px solid ${isFocal ? '#bfdbfe' : '#e5e7eb'}`,
-        padding: compact ? '12px 14px' : '14px 16px',
-        borderRadius: '6px',
-      }}
-    >
-      <div style={{ display: 'flex', gap: '10px' }}>
-        <div style={{ marginTop: '2px' }}>
-          <LayerIcon layer={node.layer} focal={isFocal} />
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'baseline', flexWrap: 'wrap' }}>
-            <h3
-              style={{
-                fontSize: compact ? '15px' : '16px',
-                fontWeight: 600,
-                color: '#111827',
-                margin: 0,
-              }}
-            >
-              {node.company}
-            </h3>
-            {isFocal && <Badge>subject</Badge>}
-          </div>
-
-          {node.domain && (
-            <p style={{ fontSize: '12px', color: '#6b7280', margin: '3px 0 0 0' }}>
-              {node.domain}
-            </p>
-          )}
-
-          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '8px' }}>
-            {node.layer && <Badge>{node.layer}</Badge>}
-            {node.node_type && (
-              <Badge dim>
-                {node.node_type === 'operating_brand' ? 'brand' : 'entity'}
-              </Badge>
-            )}
-            {node.terminal_layer === 'private_equity' && <Badge>PE</Badge>}
-            {node.status && node.status !== 'active' && <Badge>{node.status}</Badge>}
-            {node.standalone && <Badge dim>standalone</Badge>}
-          </div>
-
-          {node.acquisition?.acquired_by && (
-            <p style={{ fontSize: '12px', color: '#6b7280', margin: '8px 0 0 0', fontStyle: 'italic' }}>
-              Acquired by <span style={{ color: '#111827', fontStyle: 'normal' }}>{node.acquisition.acquired_by}</span>
-              {node.acquisition.year && ` · ${node.acquisition.year}`}
-            </p>
-          )}
-
-          <div style={{ marginTop: '8px' }}>
-            <ConfidencePill conf={node.confidence} sources={node.sources} verification={node.verification_status} />
-          </div>
-
-          {node.sources?.length > 0 && (
-            <div style={{ marginTop: '8px' }}>
-              <button
-                onClick={() => setShowSources(!showSources)}
-                style={{
-                  fontSize: '11px',
-                  color: '#3b82f6',
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                }}
-              >
-                {showSources ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                {showSources ? 'hide' : 'show'} sources
-              </button>
-              {showSources && (
-                <ul style={{ marginTop: '6px', paddingLeft: '18px', margin: '6px 0 0 0' }}>
-                  {node.sources.map((src, i) => (
-                    <li key={i} style={{ fontSize: '11px', lineHeight: 1.5 }}>
-                      <a
-                        href={src}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          color: '#3b82f6',
-                          textDecoration: 'none',
-                          display: 'inline-flex',
-                          gap: '4px',
-                          wordBreak: 'break-all',
-                        }}
-                      >
-                        <ExternalLink className="w-3 h-3" style={{ flexShrink: 0, marginTop: '1px' }} />
-                        <span>{src}</span>
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function LogPanel({ logs, isOpen, onToggle }) {
-  const logEndRef = React.useRef(null);
-
-  React.useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
-
-  const levelColors = {
-    INIT: '#6b7280',
-    SYSTEM: '#6b7280',
-    TOOL_CALL: '#0284c7',
-    TOOL_RESULT: '#d97706',
-    TEXT: '#9ca3af',
-    JSON_PARSE: '#d97706',
-    SUCCESS: '#059669',
-    ERROR: '#dc2626',
-    COMPLETE: '#059669',
-  };
-
-  return (
-    <div style={{ marginTop: '32px', borderTop: '1px solid #e5e7eb', paddingTop: '16px' }}>
+    <div style={{ borderBottom: '1px solid #18181c', padding: '12px 0' }}>
       <button
-        onClick={onToggle}
+        onClick={() => setOpen(!open)}
         style={{
-          fontSize: '12px',
-          color: logs.length > 0 ? '#3b82f6' : '#9ca3af',
           background: 'transparent',
           border: 'none',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
+          color: '#e8e6df',
           padding: 0,
-          fontWeight: 500,
+          cursor: hasContent ? 'pointer' : 'default',
+          width: '100%',
+          textAlign: 'left',
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 12,
+          fontFamily: '"JetBrains Mono", monospace',
+          fontSize: '12px',
         }}
       >
-        {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-        Agent logs · {logs.length} {logs.length === 1 ? 'event' : 'events'}
+        <span style={{ color: '#5a5853' }}>{open ? '▾' : '▸'}</span>
+        <span style={{ color: '#f4f2eb', flex: 1 }}>{entry.company}</span>
+        <span style={{ color: '#7a7770' }}>{entry.role}</span>
+        {entry.revenue_estimate?.central != null && (
+          <span style={{ color: '#a8a59c' }}>{formatUSD(entry.revenue_estimate.central)}</span>
+        )}
+        <span style={{ color: confidenceColor(entry.confidence) }}>{entry.confidence || '—'}</span>
       </button>
-
-      {isOpen && (
-        <div
-          style={{
-            marginTop: '12px',
-            border: '1px solid #e5e7eb',
-            background: '#f9fafb',
-            borderRadius: '6px',
-            maxHeight: '400px',
-            overflow: 'auto',
-            padding: '12px',
-          }}
-        >
-          {logs.length === 0 ? (
-            <div style={{ fontSize: '12px', color: '#9ca3af', padding: '20px 0', textAlign: 'center' }}>
-              — no logs yet —
-            </div>
-          ) : (
-            <div>
-              {logs.map((log, i) => (
-                <div
-                  key={i}
-                  style={{
-                    fontSize: '11px',
-                    lineHeight: 1.5,
-                    marginBottom: '4px',
-                    color: levelColors[log.level] || '#9ca3af',
-                    display: 'flex',
-                    gap: '10px',
-                  }}
-                >
-                  <span style={{ color: '#d1d5db', minWidth: '60px', flexShrink: 0 }}>
-                    {log.timestamp}
-                  </span>
-                  <span
-                    style={{
-                      color: levelColors[log.level],
-                      fontWeight: log.level === 'ERROR' ? 600 : 500,
-                      minWidth: '95px',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {log.level}
-                  </span>
-                  <span style={{ color: '#6b7280', wordBreak: 'break-word' }}>
-                    {log.message}
-                  </span>
-                </div>
-              ))}
-              <div ref={logEndRef} />
+      {open && (
+        <div style={{ marginTop: 12, paddingLeft: 24 }}>
+          {entry.error && (
+            <div style={{ color: '#d4a8a8', fontFamily: '"JetBrains Mono", monospace', fontSize: '11px', marginBottom: 10 }}>
+              error · {entry.error}
             </div>
           )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function OwnershipNode({ data }) {
-  const { node, isFocal, role } = data;
-  const borderColor = isFocal ? '#3b82f6' : '#e5e7eb';
-  const bg = isFocal ? '#f0f9ff' : '#ffffff';
-  return (
-    <div
-      style={{
-        background: bg,
-        border: `2px solid ${borderColor}`,
-        borderRadius: '8px',
-        padding: '10px 14px',
-        minWidth: '180px',
-        boxShadow: isFocal ? '0 2px 8px rgba(59,130,246,0.15)' : '0 1px 3px rgba(0,0,0,0.05)',
-      }}
-    >
-      <Handle type="target" position={Position.Top} style={{ background: '#9ca3af' }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-        <LayerIcon layer={node.layer} focal={isFocal} />
-        <span style={{ fontSize: '13px', fontWeight: 600, color: '#111827' }}>
-          {node.company || '(unknown)'}
-        </span>
-      </div>
-      {node.domain && (
-        <div style={{ fontSize: '10px', color: '#6b7280', marginBottom: '4px' }}>{node.domain}</div>
-      )}
-      <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
-        {node.layer && (
-          <span style={{ fontSize: '9px', color: '#0369a1', background: '#f0f9ff', border: '1px solid #bfdbfe', padding: '1px 5px', borderRadius: '3px', fontWeight: 500 }}>
-            {node.layer}
-          </span>
-        )}
-        {role && (
-          <span style={{ fontSize: '9px', color: '#6b7280', background: '#f3f4f6', padding: '1px 5px', borderRadius: '3px' }}>
-            {role}
-          </span>
-        )}
-        {node.confidence && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '9px', color: '#6b7280' }}>
-            <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: confColor(node.confidence) }} />
-            {node.confidence}
-          </span>
-        )}
-      </div>
-      <Handle type="source" position={Position.Bottom} style={{ background: '#9ca3af' }} />
-    </div>
-  );
-}
-
-const nodeTypes = { ownership: OwnershipNode };
-
-function GraphToolbar({ viewMode, setViewMode, onFitView, onZoomIn, onZoomOut, onToggleMiniMap, showMiniMap }) {
-  const toolbarBtn = (mode, label, Icon) => (
-    <button
-      onClick={() => setViewMode(mode)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '6px',
-        padding: '8px 12px',
-        fontSize: '12px',
-        fontWeight: 500,
-        background: viewMode === mode ? '#3b82f6' : '#ffffff',
-        color: viewMode === mode ? '#ffffff' : '#6b7280',
-        border: `1px solid ${viewMode === mode ? '#3b82f6' : '#e5e7eb'}`,
-        borderRadius: '6px',
-        cursor: 'pointer',
-      }}
-    >
-      <Icon className="w-4 h-4" />
-      {label}
-    </button>
-  );
-
-  const iconBtn = (onClick, Icon, label) => (
-    <button
-      onClick={onClick}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '8px',
-        background: '#ffffff',
-        border: '1px solid #e5e7eb',
-        borderRadius: '6px',
-        cursor: 'pointer',
-      }}
-      title={label}
-    >
-      <Icon className="w-4 h-4" style={{ color: '#6b7280' }} />
-    </button>
-  );
-
-  return (
-    <div style={{
-      position: 'absolute',
-      top: '12px',
-      right: '12px',
-      zIndex: 10,
-      display: 'flex',
-      gap: '8px',
-      background: '#ffffff',
-      padding: '8px',
-      borderRadius: '8px',
-      border: '1px solid #e5e7eb',
-      boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-    }}>
-      <div style={{ display: 'flex', gap: '4px', paddingRight: '8px', borderRight: '1px solid #e5e7eb' }}>
-        {toolbarBtn('list', 'List', List)}
-        {toolbarBtn('graph', 'Graph', Network)}
-      </div>
-      <div style={{ display: 'flex', gap: '4px' }}>
-        {iconBtn(onZoomIn, () => <span style={{ fontSize: '16px', fontWeight: 600 }}>+</span>, 'Zoom in')}
-        {iconBtn(onZoomOut, () => <span style={{ fontSize: '16px', fontWeight: 600 }}>−</span>, 'Zoom out')}
-        {iconBtn(onFitView, () => <span style={{ fontSize: '12px' }}>⤢</span>, 'Fit to view')}
-        {iconBtn(onToggleMiniMap, showMiniMap ? () => <span style={{ fontSize: '12px' }}>🗺</span> : () => <span style={{ fontSize: '12px' }}>🗺</span>, 'Toggle minimap')}
-      </div>
-    </div>
-  );
-}
-
-function GraphView({ result, viewMode, setViewMode }) {
-  const { nodes, edges } = useMemo(() => {
-    const chain = buildChain(result);
-    const nodes = [];
-    const edges = [];
-    const NODE_W = 220;
-    const Y_STEP = 130;
-
-    // Parent chain (vertical, focal at bottom of chain)
-    chain.forEach((n, idx) => {
-      const isFocal = idx === chain.length - 1;
-      nodes.push({
-        id: `chain-${idx}`,
-        type: 'ownership',
-        position: { x: 0, y: idx * Y_STEP },
-        data: { node: n, isFocal, role: isFocal ? 'subject' : idx === 0 ? 'root' : 'parent' },
-      });
-      if (idx > 0) {
-        edges.push({
-          id: `e-chain-${idx}`,
-          source: `chain-${idx - 1}`,
-          target: `chain-${idx}`,
-          label: 'owns',
-          labelStyle: { fontSize: 10, fill: '#6b7280' },
-          style: { stroke: '#9ca3af' },
-        });
-      }
-    });
-
-    const focalIdx = chain.length - 1;
-    const focalY = focalIdx * Y_STEP;
-    const parentIdx = chain.length - 2;
-
-    // Siblings — to the right of focal, connected to parent
-    const siblings = result.siblings || [];
-    siblings.forEach((sib, i) => {
-      const id = `sib-${i}`;
-      nodes.push({
-        id,
-        type: 'ownership',
-        position: { x: NODE_W + 120 + (i % 2) * (NODE_W + 40), y: focalY + Math.floor(i / 2) * 100 },
-        data: { node: sib, isFocal: false, role: 'sibling' },
-      });
-      if (parentIdx >= 0) {
-        edges.push({
-          id: `e-sib-${i}`,
-          source: `chain-${parentIdx}`,
-          target: id,
-          style: { stroke: '#d1d5db', strokeDasharray: '4 4' },
-        });
-      }
-    });
-
-    // Children — below focal
-    const children = result.children || [];
-    const childY = focalY + Y_STEP;
-    const totalW = children.length * (NODE_W + 30);
-    const startX = -(totalW / 2) + NODE_W / 2;
-    children.forEach((child, i) => {
-      const id = `child-${i}`;
-      nodes.push({
-        id,
-        type: 'ownership',
-        position: { x: startX + i * (NODE_W + 30), y: childY },
-        data: { node: child, isFocal: false, role: 'child' },
-      });
-      edges.push({
-        id: `e-child-${i}`,
-        source: `chain-${focalIdx}`,
-        target: id,
-        style: { stroke: '#9ca3af' },
-      });
-    });
-
-    return { nodes, edges };
-  }, [result]);
-
-  const [showMiniMap, setShowMiniMap] = React.useState(true);
-
-  return (
-    <div style={{
-      height: '550px',
-      border: '1px solid #e5e7eb',
-      borderRadius: '8px',
-      background: '#f9fafb',
-      position: 'relative',
-    }}>
-      <GraphViewInner
-        nodes={nodes}
-        edges={edges}
-        viewMode={viewMode}
-        setViewMode={setViewMode}
-        showMiniMap={showMiniMap}
-        setShowMiniMap={setShowMiniMap}
-      />
-    </div>
-  );
-}
-
-function GraphViewInner({ nodes, edges, viewMode, setViewMode, showMiniMap, setShowMiniMap }) {
-  const { zoomIn, zoomOut, fitView } = useReactFlow();
-
-  return (
-    <>
-      <GraphToolbar
-        viewMode={viewMode}
-        setViewMode={setViewMode}
-        onFitView={() => fitView({ padding: 0.2 })}
-        onZoomIn={() => zoomIn({ duration: 200 })}
-        onZoomOut={() => zoomOut({ duration: 200 })}
-        onToggleMiniMap={() => setShowMiniMap(!showMiniMap)}
-        showMiniMap={showMiniMap}
-      />
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background color="#e5e7eb" gap={16} />
-        {showMiniMap && <MiniMap nodeColor={(n) => (n.data?.isFocal ? '#3b82f6' : '#d1d5db')} pannable zoomable />}
-      </ReactFlow>
-    </>
-  );
-}
-
-function StrategicControlSection({ items }) {
-  const [activeFilter, setActiveFilter] = useState('all');
-
-  const groups = useMemo(() => {
-    const g = { board_member: [], investor: [], pe_backer: [], major_shareholder: [], founder: [] };
-    items.forEach((it) => {
-      const key = g[it.relationship] ? it.relationship : null;
-      if (key) g[key].push(it);
-    });
-    return g;
-  }, [items]);
-
-  const filters = [
-    { key: 'all', label: 'All', count: items.length },
-    { key: 'investors', label: 'Investors', keys: ['investor', 'pe_backer'] },
-    { key: 'board', label: 'Board', keys: ['board_member'] },
-    { key: 'founders', label: 'Founders', keys: ['founder'] },
-    { key: 'shareholders', label: 'Shareholders', keys: ['major_shareholder'] },
-  ];
-
-  const relLabel = {
-    board_member: 'Board Member',
-    investor: 'Investor',
-    pe_backer: 'PE Backer',
-    major_shareholder: 'Shareholder',
-    founder: 'Founder',
-  };
-
-  const relColor = {
-    board_member: '#8b5cf6',
-    investor: '#3b82f6',
-    pe_backer: '#f59e0b',
-    major_shareholder: '#10b981',
-    founder: '#ec4899',
-  };
-
-  const filteredItems = activeFilter === 'all'
-    ? items
-    : filters.find(f => f.key === activeFilter)?.keys.flatMap(k => groups[k] || []) || [];
-
-  const renderItem = (it, i) => (
-    <div
-      key={i}
-      style={{
-        border: '1px solid #e5e7eb',
-        borderRadius: '8px',
-        padding: '14px 16px',
-        background: '#fff',
-        transition: 'all 0.15s ease',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginBottom: '8px' }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: '14px', fontWeight: 600, color: '#111827' }}>{it.entity}</span>
-        </div>
-        <span style={{
-          fontSize: '11px',
-          color: relColor[it.relationship] || '#6b7280',
-          background: `${relColor[it.relationship] || '#f3f4f6'}15`,
-          border: `1px solid ${relColor[it.relationship] || '#e5e7eb'}40`,
-          padding: '3px 8px',
-          borderRadius: '4px',
-          fontWeight: 500,
-          whiteSpace: 'nowrap',
-        }}>
-          {relLabel[it.relationship] || it.relationship}
-        </span>
-      </div>
-      {it.details && (
-        <p style={{ fontSize: '12px', color: '#4b5563', margin: '0 0 10px 0', lineHeight: 1.5 }}>
-          {it.details}
-        </p>
-      )}
-      {it.source_url && (
-        <a
-          href={it.source_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            fontSize: '11px',
-            color: '#3b82f6',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '4px',
-            textDecoration: 'none',
-            fontWeight: 500,
-          }}
-        >
-          <ExternalLink className="w-3 h-3" />
-          View source
-        </a>
-      )}
-    </div>
-  );
-
-  return (
-    <div style={{ marginTop: '32px', paddingTop: '20px', borderTop: '1px solid #e5e7eb' }}>
-      <div style={{ marginBottom: '16px' }}>
-        <h3 style={{ fontSize: '14px', fontWeight: 600, color: '#111827', margin: '0 0 12px 0' }}>
-          Strategic Relationships
-        </h3>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          {filters.map((filter) => {
-            const count = filter.key === 'all' ? filter.count : filter.keys.flatMap(k => groups[k] || []).length;
-            if (count === 0 && filter.key !== 'all') return null;
-            return (
-              <button
-                key={filter.key}
-                onClick={() => setActiveFilter(filter.key)}
-                disabled={count === 0}
+          {signals.map((s, i) => (
+            <div
+              key={i}
+              style={{
+                display: 'flex',
+                padding: '10px 0',
+                borderBottom: '1px solid #14141a',
+                alignItems: 'flex-start',
+                gap: 14,
+                fontFamily: '"JetBrains Mono", monospace',
+                fontSize: '11px',
+              }}
+            >
+              <div style={{ width: 90, flexShrink: 0, color: '#7a7770' }}>{s.type}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: '#f4f2eb', fontWeight: 500 }}>{s.label}</div>
+                <div style={{ color: '#a8a59c', marginTop: 3, wordBreak: 'break-word' }}>{s.value}</div>
+                {s.source && (
+                  <div style={{ color: '#5a5853', marginTop: 3, fontSize: '10px', fontStyle: 'italic' }}>via {s.source}</div>
+                )}
+              </div>
+              <div
                 style={{
-                  padding: '6px 12px',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  background: activeFilter === filter.key ? '#3b82f6' : '#ffffff',
-                  color: activeFilter === filter.key ? '#ffffff' : '#6b7280',
-                  border: `1px solid ${activeFilter === filter.key ? '#3b82f6' : '#e5e7eb'}`,
-                  borderRadius: '6px',
-                  cursor: count === 0 ? 'not-allowed' : 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-                onMouseEnter={(e) => {
-                  if (count > 0 && activeFilter !== filter.key) {
-                    e.currentTarget.style.background = '#f3f4f6';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (count > 0 && activeFilter !== filter.key) {
-                    e.currentTarget.style.background = '#ffffff';
-                  }
+                  flexShrink: 0,
+                  color: weightColor(s.weight),
+                  fontSize: '9px',
+                  letterSpacing: '0.15em',
+                  textTransform: 'uppercase',
+                  padding: '2px 7px',
+                  border: `1px solid ${weightColor(s.weight)}44`,
                 }}
               >
-                {filter.label} ({count})
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
-        {filteredItems.map(renderItem)}
-      </div>
-
-      {filteredItems.length === 0 && (
-        <div style={{ padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>
-          No relationships in this category
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ResultDisplay({ result, rawResponse }) {
-  const [showRaw, setShowRaw] = useState(false);
-  const [viewMode, setViewMode] = useState('list');
-
-  if (result.error) {
-    return (
-      <div style={{ border: '1px solid #fed7aa', background: '#fffbeb', padding: '14px', borderRadius: '6px' }}>
-        <h3 style={{ fontSize: '14px', fontWeight: 600, color: '#92400e', margin: 0 }}>Unable to resolve</h3>
-        <p style={{ fontSize: '12px', color: '#b45309', margin: '4px 0 0 0' }}>{result.reason}</p>
-        {result.candidates?.length > 0 && (
-          <div style={{ marginTop: '10px' }}>
-            <p style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 500, margin: 0 }}>Candidates:</p>
-            <ul style={{ margin: '6px 0 0 0', paddingLeft: '20px' }}>
-              {result.candidates.map((c, i) => (
-                <li key={i} style={{ fontSize: '12px', color: '#374151' }}>
-                  {c.company} <span style={{ color: '#6b7280' }}>— {c.sector}, {c.country}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  if (result.disambiguation_required) {
-    return (
-      <div style={{ border: '1px solid #fed7aa', background: '#fffbeb', padding: '14px', borderRadius: '6px' }}>
-        <h3 style={{ fontSize: '14px', fontWeight: 600, color: '#92400e', margin: 0 }}>Multiple entities found</h3>
-        <p style={{ fontSize: '12px', color: '#b45309', margin: '4px 0 0 0' }}>Specify which entity:</p>
-        <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          {result.disambiguation_candidates?.map((c, i) => (
-            <div key={i} style={{ background: '#ffffff', border: '1px solid #e5e7eb', padding: '10px', borderRadius: '4px' }}>
-              <div style={{ fontSize: '12px', fontWeight: 600, color: '#111827' }}>{c.company}</div>
-              <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>
-                {c.sector} · {c.country}
+                {s.weight}
               </div>
             </div>
           ))}
-        </div>
-      </div>
-    );
-  }
-
-  const chain = buildChain(result);
-
-  return (
-    <div>
-      {viewMode === 'graph' ? (
-        <GraphView result={result} viewMode={viewMode} setViewMode={setViewMode} />
-      ) : (
-      <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid #e5e7eb' }}>
-        <GitBranch className="w-4 h-4" style={{ color: '#9ca3af' }} />
-        <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 500 }}>
-          Ownership chain · {chain.length} {chain.length === 1 ? 'layer' : 'layers'}
-        </span>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {chain.map((node, idx) => {
-          const isFocal = idx === chain.length - 1;
-          return (
-            <div key={idx}>
-              <NodeCard node={node} isFocal={isFocal} />
-              {idx < chain.length - 1 && (
-                <div
-                  style={{
-                    height: '24px',
-                    marginLeft: '18px',
-                    borderLeft: '1px dashed #d1d5db',
-                  }}
-                />
-              )}
+          {entry.reasoning_summary && (
+            <div
+              style={{
+                marginTop: 14,
+                fontFamily: '"Cormorant Garamond", serif',
+                fontStyle: 'italic',
+                fontSize: 16,
+                color: '#c8c5bc',
+                lineHeight: 1.55,
+              }}
+            >
+              "{entry.reasoning_summary}"
             </div>
-          );
-        })}
-      </div>
-
-      {result.siblings?.length > 0 && (
-        <div style={{ marginTop: '24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-            <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 500 }}>
-              Siblings ({result.siblings.length})
-            </span>
-            <div style={{ flex: 1, borderTop: '1px solid #e5e7eb' }} />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {result.siblings.map((sib, i) => (
-              <NodeCard key={i} node={sib} compact />
-            ))}
-          </div>
+          )}
         </div>
       )}
-
-      {result.children?.length > 0 && (
-        <div style={{ marginTop: '24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-            <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 500 }}>
-              Children ({result.children.length})
-            </span>
-            <div style={{ flex: 1, borderTop: '1px solid #e5e7eb' }} />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {result.children.map((child, i) => (
-              <NodeCard key={i} node={child} compact />
-            ))}
-          </div>
-        </div>
-      )}
-      </>
-      )}
-
-      {result.strategic_control?.length > 0 && (
-        <StrategicControlSection items={result.strategic_control} />
-      )}
-
-      {result.notes && (
-        <div style={{ marginTop: '32px', paddingTop: '20px', borderTop: '1px solid #e5e7eb' }}>
-          <h3 style={{ fontSize: '14px', fontWeight: 600, color: '#111827', margin: '0 0 16px 0' }}>
-            Key Facts
-          </h3>
-          <div style={{
-            background: '#f9fafb',
-            border: '1px solid #e5e7eb',
-            borderRadius: '8px',
-            padding: '16px',
-          }}>
-            <p style={{ fontSize: '13px', color: '#4b5563', margin: 0, lineHeight: 1.6, whiteSpace: 'pre-line' }}>
-              {result.notes}
-            </p>
-          </div>
-        </div>
-      )}
-
-      <div style={{ marginTop: '24px' }}>
-        <button
-          onClick={() => setShowRaw(!showRaw)}
-          style={{
-            fontSize: '11px',
-            color: '#6b7280',
-            background: 'transparent',
-            border: 'none',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            padding: 0,
-          }}
-        >
-          <Code className="w-3 h-3" />
-          {showRaw ? 'hide' : 'show'} raw response
-        </button>
-        {showRaw && (
-          <pre
-            style={{
-              marginTop: '10px',
-              padding: '12px',
-              background: '#f9fafb',
-              fontSize: '11px',
-              color: '#374151',
-              overflow: 'auto',
-              maxHeight: '400px',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-              border: '1px solid #e5e7eb',
-              borderRadius: '4px',
-              margin: '10px 0 0 0',
-            }}
-          >
-            {rawResponse || JSON.stringify(result, null, 2)}
-          </pre>
-        )}
-      </div>
     </div>
   );
 }
 
-// ─── Main Component ───
+// ─── Shared small components ─────────────────────────────────────────────────
 
-export default function OwnershipResolver() {
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [loadingStage, setLoadingStage] = useState('searching');
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
-  const [rawResponse, setRawResponse] = useState(null);
-  const [logs, setLogs] = useState([]);
-  const [showLogs, setShowLogs] = useState(false);
-  const [resolvedAt, setResolvedAt] = useState(null);
-
-  const addLog = (level, message) => {
-    const now = new Date();
-    const timestamp =
-      now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) +
-      `.${String(now.getMilliseconds()).padStart(3, '0')}`;
-    setLogs(prev => [...prev.slice(-99), { timestamp, level, message }]);
-  };
-
-  const resolve = async () => {
-    if (!input.trim() || loading) return;
-    setLoading(true);
-    setLoadingStage('searching');
-    setError(null);
-    setResult(null);
-    setRawResponse(null);
-    setLogs([]);
-    setShowLogs(false);
-
-    const attemptResolve = async (isRetry = false) => {
-      const promptToUse = isRetry ? SYSTEM_PROMPT_COMPACT : SYSTEM_PROMPT;
-      const promptLabel = isRetry ? 'COMPACT' : 'FULL';
-
-      if (isRetry) {
-        addLog('SYSTEM', '━━ RETRY ATTEMPT ━━ Using compact prompt');
-      } else {
-        addLog('INIT', `Starting resolution for: "${input.trim()}"`);
-        addLog('SYSTEM', 'Initializing Claude API call with web_search');
-      }
-
-      try {
-        setLoadingStage('extracting');
-        addLog('SYSTEM', 'Building request payload');
-        const response = await fetch('/api/anthropic', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 4000,
-            system: promptToUse,
-            messages: [
-              {
-                role: 'user',
-                content: `Resolvé el ownership tree para: "${input.trim()}"\n\nDevolvé SOLO JSON válido, sin prosa, sin markdown fences.`,
-              },
-            ],
-            tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-          }),
-        });
-
-        if (!response.ok) {
-          const errText = await response.text();
-          addLog('ERROR', `HTTP ${response.status}`);
-          throw new Error(`API error: ${response.status}`);
-        }
-
-        addLog('SYSTEM', 'Response received from Claude');
-
-        const data = await response.json();
-        addLog('SYSTEM', `Response has ${data.content.length} content blocks`);
-
-        data.content.forEach((block, idx) => {
-          if (block.type === 'text') {
-            const preview = block.text.slice(0, 60).replace(/\n/g, ' ');
-            addLog('TEXT', `Block ${idx}: ${preview}${block.text.length > 60 ? '...' : ''}`);
-          } else if (block.type === 'mcp_tool_use') {
-            addLog('TOOL_CALL', `${block.name}`);
-          } else if (block.type === 'mcp_tool_result') {
-            const resultText = block.content?.[0]?.text || '(empty)';
-            addLog('TOOL_RESULT', `Found ${resultText.length} chars`);
-          }
-        });
-
-        const textBlocks = (data.content || [])
-          .filter((b) => b.type === 'text')
-          .map((b) => b.text || '')
-          .join('\n');
-
-        setRawResponse(textBlocks);
-        addLog('SYSTEM', `Combined ${textBlocks.length} chars`);
-
-        setLoadingStage('validating');
-        addLog('JSON_PARSE', 'Attempting to parse JSON');
-        const parsed = safeExtractJSON(textBlocks);
-
-        if (!parsed) {
-          if (isRetry) {
-            addLog('ERROR', 'JSON parsing failed on retry');
-            throw new Error('JSON parsing failed even with compact prompt.');
-          } else {
-            addLog('ERROR', 'JSON parsing failed - retrying with compact');
-            return { retry: true };
-          }
-        }
-
-        addLog('JSON_PARSE', 'Successfully parsed');
-
-        if (!parsed.error) {
-          const company = parsed.company || '(unknown)';
-          addLog('SUCCESS', `Resolved: ${company}`);
-          if (parsed.strategic_control?.length > 0) {
-            const names = parsed.strategic_control.map((s) => s.entity).join(', ');
-            addLog('STRATEGIC_CONTROL', `Found ${parsed.strategic_control.length} control holders (${names})`);
-          }
-        }
-
-        setLoadingStage('rendering');
-        setResult(parsed);
-        setResolvedAt(new Date());
-        addLog('COMPLETE', 'Done');
-        return { retry: false, result: parsed };
-      } catch (err) {
-        addLog('ERROR', err.message);
-        setError(err.message || 'Unknown error');
-        return { retry: false, result: null };
-      }
-    };
-
-    const firstAttempt = await attemptResolve(false);
-    if (firstAttempt.retry) {
-      const retryAttempt = await attemptResolve(true);
-      if (!retryAttempt.retry && retryAttempt.result) {
-        setResult(retryAttempt.result);
-      }
-    }
-
-    setLoading(false);
-    setLoadingStage('searching');
-  };
-
-  const examples = ['Nectar', 'Liberty Safe', 'Whole Foods', 'Beats Electronics'];
-
+function Label({ children }) {
   return (
     <div
       style={{
-        minHeight: '100vh',
-        background: '#ffffff',
-        color: '#111827',
-        padding: '40px 24px 60px',
+        fontFamily: '"JetBrains Mono", monospace',
+        fontSize: '10px',
+        letterSpacing: '0.2em',
+        color: '#7a7770',
+        textTransform: 'uppercase',
+        marginBottom: '6px',
       }}
     >
-      <div style={{ maxWidth: '900px', margin: '0 auto' }}>
-        {/* Header - Zone 1: Compact Branding */}
-        <header style={{ marginBottom: '24px' }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', marginBottom: '8px' }}>
-            <div style={{ fontSize: '10px', color: '#9ca3af', fontWeight: 500, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-              Growth Signal
-            </div>
-            <h1 style={{ fontSize: '24px', fontWeight: 600, margin: 0, color: '#111827' }}>
-              Ownership Graph Resolver
-            </h1>
-          </div>
-          <p style={{ fontSize: '13px', color: '#6b7280', margin: 0, lineHeight: 1.5, maxWidth: '600px' }}>
-            Resolve corporate ownership chains with verified sources
-          </p>
-        </header>
+      {children}
+    </div>
+  );
+}
 
-        {/* Zone 2: Dominant Search Input */}
-        <div style={{ marginBottom: '20px' }}>
-          <div style={{ display: 'flex', gap: '12px' }}>
-            <div style={{ position: 'relative', flex: 1 }}>
-              <Search className="w-5 h-5" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && resolve()}
-                placeholder="Enter company or domain, e.g. mercury.com"
-                disabled={loading}
-                style={{
-                  width: '100%',
-                  background: '#ffffff',
-                  border: '2px solid #d1d5db',
-                  borderRadius: '8px',
-                  padding: '14px 16px 14px 44px',
-                  fontSize: '16px',
-                  outline: 'none',
-                  fontWeight: 500,
-                }}
-                onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
-                onBlur={(e) => (e.target.style.borderColor = '#d1d5db')}
-              />
-            </div>
-            <button
-              onClick={resolve}
-              disabled={loading || !input.trim()}
-              style={{
-                padding: '14px 28px',
-                background: loading || !input.trim() ? '#f3f4f6' : '#3b82f6',
-                color: loading || !input.trim() ? '#9ca3af' : '#ffffff',
-                border: 'none',
-                borderRadius: '8px',
-                fontSize: '15px',
-                fontWeight: 600,
-                cursor: loading || !input.trim() ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                whiteSpace: 'nowrap',
-              }}
-              onMouseEnter={(e) => {
-                if (!loading && input.trim()) e.currentTarget.style.background = '#2563eb';
-              }}
-              onMouseLeave={(e) => {
-                if (!loading && input.trim()) e.currentTarget.style.background = '#3b82f6';
-              }}
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Resolving
-                </>
-              ) : (
-                'Resolve'
-              )}
-            </button>
-          </div>
-        </div>
+function SectionHead({ children }) {
+  return (
+    <div
+      style={{
+        fontFamily: '"JetBrains Mono", monospace',
+        fontSize: '10px',
+        letterSpacing: '0.25em',
+        color: '#40BECC',
+        textTransform: 'uppercase',
+        marginBottom: '20px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
+      }}
+    >
+      <span>{children}</span>
+      <span style={{ flex: 1, height: '1px', background: '#1c1c20' }}></span>
+    </div>
+  );
+}
 
-        {/* Zone 3: Example Chips (Secondary) */}
-        <div style={{ marginBottom: '32px' }}>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '12px', color: '#9ca3af', fontWeight: 500 }}>Examples:</span>
-            {examples.map((ex) => (
-              <button
-                key={ex}
-                onClick={() => setInput(ex)}
-                disabled={loading}
-                style={{
-                  fontSize: '13px',
-                  color: '#3b82f6',
-                  background: '#f0f9ff',
-                  border: '1px solid #bfdbfe',
-                  borderRadius: '6px',
-                  padding: '6px 14px',
-                  cursor: 'pointer',
-                  fontWeight: 500,
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#e0f2fe';
-                  e.currentTarget.style.borderColor = '#3b82f6';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#f0f9ff';
-                  e.currentTarget.style.borderColor = '#bfdbfe';
-                }}
-              >
-                {ex}
-              </button>
-            ))}
-          </div>
-        </div>
+function TraceItem({ index, item }) {
+  const indexStyle = { color: '#5a5853', width: 40, flexShrink: 0, fontSize: 11 };
+  const rowStyle = { display: 'flex', padding: '6px 0', gap: 4, alignItems: 'baseline' };
+  const tag = item.tag ? <span style={{ color: '#5a5853', marginRight: 8 }}>[{item.tag}]</span> : null;
 
-        {/* Loading */}
-        {loading && <LoadingStepper currentStage={loadingStage} />}
-
-        {/* Empty State */}
-        {!loading && !result && !error && <EmptyState />}
-
-        {/* Error */}
-        {error && (
-          <div style={{ border: '1px solid #fee2e2', background: '#fef2f2', padding: '14px', borderRadius: '8px', display: 'flex', gap: '12px', marginBottom: '24px' }}>
-            <AlertCircle className="w-4 h-4" style={{ color: '#dc2626', flexShrink: 0, marginTop: '2px' }} />
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 500, color: '#7f1d1d' }}>Error</div>
-              <div style={{ fontSize: '12px', color: '#991b1b', margin: '4px 0 0 0' }}>{error}</div>
-            </div>
-          </div>
-        )}
-
-        {/* Summary Row */}
-        {result && <SummaryRow result={result} resolvedAt={resolvedAt} />}
-
-        {/* Result */}
-        {result && <ResultDisplay result={result} rawResponse={rawResponse} />}
-
-        {/* Logs */}
-        <LogPanel logs={logs} isOpen={showLogs} onToggle={() => setShowLogs(!showLogs)} />
-
-        {/* Footer */}
-        <div style={{ marginTop: '48px', paddingTop: '16px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#9ca3af' }}>
-          <span>Growth Signal · Ownership Resolution</span>
-          <span>Claude 3.5 Sonnet · Web Search · 4k tokens</span>
-        </div>
+  if (item.kind === 'phase') {
+    return (
+      <div style={{ ...rowStyle, padding: '14px 0 6px', borderTop: '1px solid #14141a', marginTop: 6 }}>
+        <span style={indexStyle}>[{String(index).padStart(2, '0')}]</span>
+        <span style={{ color: '#40BECC', letterSpacing: '0.15em', textTransform: 'uppercase', fontSize: 10 }}>
+          phase · {item.phase}
+        </span>
+        <span style={{ color: '#5a5853', margin: '0 6px' }}>›</span>
+        <span style={{ color: '#e8e6df' }}>{item.label}</span>
       </div>
+    );
+  }
+  if (item.kind === 'search') {
+    return (
+      <div style={rowStyle}>
+        <span style={indexStyle}>[{String(index).padStart(2, '0')}]</span>
+        {tag}
+        <span style={{ color: '#40BECC' }}>search</span>
+        <span style={{ color: '#5a5853', margin: '0 6px' }}>›</span>
+        <span style={{ color: '#e8e6df' }}>"{item.query}"</span>
+      </div>
+    );
+  }
+  if (item.kind === 'results') {
+    return (
+      <div style={rowStyle}>
+        <span style={indexStyle}>[{String(index).padStart(2, '0')}]</span>
+        {tag}
+        <span style={{ color: '#8a8780' }}>fetched</span>
+        <span style={{ color: '#5a5853', margin: '0 6px' }}>›</span>
+        <span style={{ color: '#a8a59c' }}>
+          {item.count} result{item.count === 1 ? '' : 's'}
+          {item.sources && item.sources.length > 0 && (
+            <span style={{ color: '#5a5853', marginLeft: 8, fontStyle: 'italic' }}>
+              ({item.sources.slice(0, 2).join(' · ').slice(0, 90)})
+            </span>
+          )}
+        </span>
+      </div>
+    );
+  }
+  if (item.kind === 'error') {
+    return (
+      <div style={rowStyle}>
+        <span style={indexStyle}>[{String(index).padStart(2, '0')}]</span>
+        {tag}
+        <span style={{ color: '#d4a8a8' }}>error › {item.message}</span>
+      </div>
+    );
+  }
+  // thought
+  const text = item.text && item.text.length > 320 ? item.text.slice(0, 320) + '…' : item.text;
+  return (
+    <div style={{ ...rowStyle, padding: '12px 0' }}>
+      <span style={indexStyle}>[{String(index).padStart(2, '0')}]</span>
+      {tag}
+      <span
+        style={{
+          color: '#c8c5bc',
+          fontFamily: '"Inter", -apple-system, sans-serif',
+          fontSize: 13,
+          fontStyle: 'italic',
+          lineHeight: 1.6,
+        }}
+      >
+        {text}
+      </span>
     </div>
   );
 }
