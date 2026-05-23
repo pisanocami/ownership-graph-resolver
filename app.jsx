@@ -139,6 +139,97 @@ function confColor(conf) {
 
 // ─── Components ───
 
+function SummaryRow({ result }) {
+  if (!result || result.error || result.disambiguation_required) return null;
+
+  const chain = buildChain(result);
+  const strategicCount = result.strategic_control?.length || 0;
+  const sourceCount = result.sources?.length || 0;
+
+  const statusBadge = result.standalone ? (
+    <span style={{
+      fontSize: '12px',
+      color: '#059669',
+      background: '#ecfdf5',
+      border: '1px solid #a7f3d0',
+      padding: '4px 10px',
+      borderRadius: '6px',
+      fontWeight: 600,
+    }}>
+      Standalone company
+    </span>
+  ) : result.parent ? (
+    <span style={{
+      fontSize: '12px',
+      color: '#0369a1',
+      background: '#f0f9ff',
+      border: '1px solid #bfdbfe',
+      padding: '4px 10px',
+      borderRadius: '6px',
+      fontWeight: 600,
+    }}>
+      Subsidiary
+    </span>
+  ) : null;
+
+  return (
+    <div style={{
+      background: '#f9fafb',
+      border: '1px solid #e5e7eb',
+      borderRadius: '8px',
+      padding: '16px 20px',
+      marginBottom: '24px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '20px',
+      flexWrap: 'wrap',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '200px' }}>
+        <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0, color: '#111827' }}>
+          {result.company}
+        </h2>
+        {statusBadge}
+      </div>
+
+      <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <GitBranch className="w-4 h-4" style={{ color: '#6b7280' }} />
+          <span style={{ fontSize: '13px', color: '#6b7280' }}>
+            {chain.length} layer{chain.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{
+            width: '6px',
+            height: '6px',
+            borderRadius: '50%',
+            background: confColor(result.confidence),
+          }} />
+          <span style={{ fontSize: '13px', color: '#6b7280' }}>
+            {result.confidence || 'unknown'} confidence
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: '13px', color: '#6b7280' }}>
+            {sourceCount} source{sourceCount !== 1 ? 's' : ''}
+          </span>
+        </div>
+
+        {strategicCount > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Star className="w-4 h-4" style={{ color: '#6b7280' }} />
+            <span style={{ fontSize: '13px', color: '#6b7280' }}>
+              {strategicCount} relationship{strategicCount !== 1 ? 's' : ''}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Badge({ children, dim }) {
   return (
     <span
@@ -1003,103 +1094,114 @@ export default function OwnershipResolver() {
       }}
     >
       <div style={{ maxWidth: '900px', margin: '0 auto' }}>
-        {/* Header */}
-        <header style={{ marginBottom: '32px', borderBottom: '1px solid #e5e7eb', paddingBottom: '24px' }}>
-          <div style={{ fontSize: '11px', color: '#6b7280', fontWeight: 500, letterSpacing: '0.05em', marginBottom: '12px', textTransform: 'uppercase' }}>
-            Growth Signal
+        {/* Header - Zone 1: Compact Branding */}
+        <header style={{ marginBottom: '24px' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', marginBottom: '8px' }}>
+            <div style={{ fontSize: '10px', color: '#9ca3af', fontWeight: 500, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+              Growth Signal
+            </div>
+            <h1 style={{ fontSize: '24px', fontWeight: 600, margin: 0, color: '#111827' }}>
+              Ownership Graph Resolver
+            </h1>
           </div>
-          <h1 style={{ fontSize: '32px', fontWeight: 600, margin: 0, marginBottom: '8px' }}>
-            Ownership Graph Resolver
-          </h1>
-          <p style={{ fontSize: '14px', color: '#6b7280', margin: 0, lineHeight: 1.6, maxWidth: '680px' }}>
-            Resolve corporate ownership chains via Claude AI with live web search. Identifies parent companies, subsidiaries, and brand relationships with verified sources.
+          <p style={{ fontSize: '13px', color: '#6b7280', margin: 0, lineHeight: 1.5, maxWidth: '600px' }}>
+            Resolve corporate ownership chains with verified sources
           </p>
         </header>
 
-        {/* Input */}
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
-          <div style={{ position: 'relative', flex: 1 }}>
-            <Search className="w-4 h-4" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && resolve()}
-              placeholder="Company name or domain"
-              disabled={loading}
-              style={{
-                width: '100%',
-                background: '#ffffff',
-                border: '1px solid #d1d5db',
-                borderRadius: '6px',
-                padding: '10px 12px 10px 36px',
-                fontSize: '14px',
-                outline: 'none',
-              }}
-              onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
-              onBlur={(e) => (e.target.style.borderColor = '#d1d5db')}
-            />
-          </div>
-          <button
-            onClick={resolve}
-            disabled={loading || !input.trim()}
-            style={{
-              padding: '10px 20px',
-              background: loading || !input.trim() ? '#f3f4f6' : '#3b82f6',
-              color: loading || !input.trim() ? '#9ca3af' : '#ffffff',
-              border: 'none',
-              borderRadius: '6px',
-              fontSize: '14px',
-              fontWeight: 500,
-              cursor: loading || !input.trim() ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-            }}
-            onMouseEnter={(e) => {
-              if (!loading && input.trim()) e.currentTarget.style.background = '#2563eb';
-            }}
-            onMouseLeave={(e) => {
-              if (!loading && input.trim()) e.currentTarget.style.background = '#3b82f6';
-            }}
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Resolving
-              </>
-            ) : (
-              'Resolve'
-            )}
-          </button>
-        </div>
-
-        {/* Examples */}
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '28px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '11px', color: '#9ca3af' }}>Try:</span>
-          {examples.map((ex) => (
+        {/* Zone 2: Dominant Search Input */}
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <Search className="w-5 h-5" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && resolve()}
+                placeholder="Enter company or domain, e.g. mercury.com"
+                disabled={loading}
+                style={{
+                  width: '100%',
+                  background: '#ffffff',
+                  border: '2px solid #d1d5db',
+                  borderRadius: '8px',
+                  padding: '14px 16px 14px 44px',
+                  fontSize: '16px',
+                  outline: 'none',
+                  fontWeight: 500,
+                }}
+                onFocus={(e) => (e.target.style.borderColor = '#3b82f6')}
+                onBlur={(e) => (e.target.style.borderColor = '#d1d5db')}
+              />
+            </div>
             <button
-              key={ex}
-              onClick={() => setInput(ex)}
-              disabled={loading}
+              onClick={resolve}
+              disabled={loading || !input.trim()}
               style={{
-                fontSize: '12px',
-                color: '#3b82f6',
-                background: '#f0f9ff',
-                border: '1px solid #e0f2fe',
-                borderRadius: '4px',
-                padding: '4px 10px',
-                cursor: 'pointer',
+                padding: '14px 28px',
+                background: loading || !input.trim() ? '#f3f4f6' : '#3b82f6',
+                color: loading || !input.trim() ? '#9ca3af' : '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '15px',
+                fontWeight: 600,
+                cursor: loading || !input.trim() ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                whiteSpace: 'nowrap',
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#e0f2fe';
+                if (!loading && input.trim()) e.currentTarget.style.background = '#2563eb';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = '#f0f9ff';
+                if (!loading && input.trim()) e.currentTarget.style.background = '#3b82f6';
               }}
             >
-              {ex}
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Resolving
+                </>
+              ) : (
+                'Resolve'
+              )}
             </button>
-          ))}
+          </div>
+        </div>
+
+        {/* Zone 3: Example Chips (Secondary) */}
+        <div style={{ marginBottom: '32px' }}>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '12px', color: '#9ca3af', fontWeight: 500 }}>Examples:</span>
+            {examples.map((ex) => (
+              <button
+                key={ex}
+                onClick={() => setInput(ex)}
+                disabled={loading}
+                style={{
+                  fontSize: '13px',
+                  color: '#3b82f6',
+                  background: '#f0f9ff',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: '6px',
+                  padding: '6px 14px',
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#e0f2fe';
+                  e.currentTarget.style.borderColor = '#3b82f6';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#f0f9ff';
+                  e.currentTarget.style.borderColor = '#bfdbfe';
+                }}
+              >
+                {ex}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Loading */}
