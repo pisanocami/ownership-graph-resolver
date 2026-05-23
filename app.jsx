@@ -15,7 +15,7 @@ import {
   List,
   Network,
 } from 'lucide-react';
-import ReactFlow, { Background, Controls, MiniMap, Handle, Position } from 'reactflow';
+import ReactFlow, { Background, Controls, MiniMap, Handle, Position, useReactFlow } from 'reactflow';
 import 'reactflow/dist/style.css';
 
 // ─── System Prompts ───
@@ -138,6 +138,51 @@ function confColor(conf) {
 }
 
 // ─── Components ───
+
+function LoadingStepper({ currentStage }) {
+  const stages = [
+    { key: 'searching', label: 'Searching web' },
+    { key: 'extracting', label: 'Extracting entities' },
+    { key: 'validating', label: 'Validating ownership' },
+    { key: 'rendering', label: 'Rendering graph' },
+  ];
+
+  const stageIndex = stages.findIndex(s => s.key === currentStage);
+
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: '8px',
+      padding: '16px 20px',
+      background: '#f9fafb',
+      border: '1px solid #e5e7eb',
+      borderRadius: '8px',
+      marginBottom: '24px',
+    }}>
+      <Loader2 className="w-5 h-5 animate-spin" style={{ color: '#3b82f6' }} />
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: '14px', fontWeight: 500, color: '#111827', marginBottom: '4px' }}>
+          {stages[stageIndex]?.label || 'Processing...'}
+        </div>
+        <div style={{ display: 'flex', gap: '4px' }}>
+          {stages.map((stage, idx) => (
+            <div
+              key={stage.key}
+              style={{
+                flex: 1,
+                height: '3px',
+                borderRadius: '2px',
+                background: idx <= stageIndex ? '#3b82f6' : '#e5e7eb',
+                transition: 'background 0.3s ease',
+              }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function SummaryRow({ result }) {
   if (!result || result.error || result.disambiguation_required) return null;
@@ -543,7 +588,77 @@ function OwnershipNode({ data }) {
 
 const nodeTypes = { ownership: OwnershipNode };
 
-function GraphView({ result }) {
+function GraphToolbar({ viewMode, setViewMode, onFitView, onZoomIn, onZoomOut, onToggleMiniMap, showMiniMap }) {
+  const toolbarBtn = (mode, label, Icon) => (
+    <button
+      onClick={() => setViewMode(mode)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '8px 12px',
+        fontSize: '12px',
+        fontWeight: 500,
+        background: viewMode === mode ? '#3b82f6' : '#ffffff',
+        color: viewMode === mode ? '#ffffff' : '#6b7280',
+        border: `1px solid ${viewMode === mode ? '#3b82f6' : '#e5e7eb'}`,
+        borderRadius: '6px',
+        cursor: 'pointer',
+      }}
+    >
+      <Icon className="w-4 h-4" />
+      {label}
+    </button>
+  );
+
+  const iconBtn = (onClick, Icon, label) => (
+    <button
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '8px',
+        background: '#ffffff',
+        border: '1px solid #e5e7eb',
+        borderRadius: '6px',
+        cursor: 'pointer',
+      }}
+      title={label}
+    >
+      <Icon className="w-4 h-4" style={{ color: '#6b7280' }} />
+    </button>
+  );
+
+  return (
+    <div style={{
+      position: 'absolute',
+      top: '12px',
+      right: '12px',
+      zIndex: 10,
+      display: 'flex',
+      gap: '8px',
+      background: '#ffffff',
+      padding: '8px',
+      borderRadius: '8px',
+      border: '1px solid #e5e7eb',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+    }}>
+      <div style={{ display: 'flex', gap: '4px', paddingRight: '8px', borderRight: '1px solid #e5e7eb' }}>
+        {toolbarBtn('list', 'List', List)}
+        {toolbarBtn('graph', 'Graph', Network)}
+      </div>
+      <div style={{ display: 'flex', gap: '4px' }}>
+        {iconBtn(onZoomIn, () => <span style={{ fontSize: '16px', fontWeight: 600 }}>+</span>, 'Zoom in')}
+        {iconBtn(onZoomOut, () => <span style={{ fontSize: '16px', fontWeight: 600 }}>−</span>, 'Zoom out')}
+        {iconBtn(onFitView, () => <span style={{ fontSize: '12px' }}>⤢</span>, 'Fit to view')}
+        {iconBtn(onToggleMiniMap, showMiniMap ? () => <span style={{ fontSize: '12px' }}>🗺</span> : () => <span style={{ fontSize: '12px' }}>🗺</span>, 'Toggle minimap')}
+      </div>
+    </div>
+  );
+}
+
+function GraphView({ result, viewMode, setViewMode }) {
   const { nodes, edges } = useMemo(() => {
     const chain = buildChain(result);
     const nodes = [];
@@ -620,13 +735,42 @@ function GraphView({ result }) {
     return { nodes, edges };
   }, [result]);
 
+  const [showMiniMap, setShowMiniMap] = React.useState(true);
+
   return (
     <div style={{
       height: '550px',
       border: '1px solid #e5e7eb',
-      borderRadius: '6px',
+      borderRadius: '8px',
       background: '#f9fafb',
+      position: 'relative',
     }}>
+      <GraphViewInner
+        nodes={nodes}
+        edges={edges}
+        viewMode={viewMode}
+        setViewMode={setViewMode}
+        showMiniMap={showMiniMap}
+        setShowMiniMap={setShowMiniMap}
+      />
+    </div>
+  );
+}
+
+function GraphViewInner({ nodes, edges, viewMode, setViewMode, showMiniMap, setShowMiniMap }) {
+  const { zoomIn, zoomOut, fitView } = useReactFlow();
+
+  return (
+    <>
+      <GraphToolbar
+        viewMode={viewMode}
+        setViewMode={setViewMode}
+        onFitView={() => fitView({ padding: 0.2 })}
+        onZoomIn={() => zoomIn({ duration: 200 })}
+        onZoomOut={() => zoomOut({ duration: 200 })}
+        onToggleMiniMap={() => setShowMiniMap(!showMiniMap)}
+        showMiniMap={showMiniMap}
+      />
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -636,15 +780,15 @@ function GraphView({ result }) {
         proOptions={{ hideAttribution: true }}
       >
         <Background color="#e5e7eb" gap={16} />
-        <Controls />
-        <MiniMap nodeColor={(n) => (n.data?.isFocal ? '#3b82f6' : '#d1d5db')} pannable zoomable />
+        {showMiniMap && <MiniMap nodeColor={(n) => (n.data?.isFocal ? '#3b82f6' : '#d1d5db')} pannable zoomable />}
       </ReactFlow>
-    </div>
+    </>
   );
 }
 
 function StrategicControlSection({ items }) {
-  const [open, setOpen] = useState(true);
+  const [activeFilter, setActiveFilter] = useState('all');
+
   const groups = useMemo(() => {
     const g = { board_member: [], investor: [], pe_backer: [], major_shareholder: [], founder: [] };
     items.forEach((it) => {
@@ -654,39 +798,64 @@ function StrategicControlSection({ items }) {
     return g;
   }, [items]);
 
-  const groupMeta = [
-    { key: 'board_member', label: 'Board Members', keys: ['board_member'] },
-    { key: 'investors', label: 'Investors / VCs', keys: ['investor', 'pe_backer'] },
-    { key: 'major_shareholder', label: 'Major Shareholders', keys: ['major_shareholder'] },
-    { key: 'founder', label: 'Founders', keys: ['founder'] },
+  const filters = [
+    { key: 'all', label: 'All', count: items.length },
+    { key: 'investors', label: 'Investors', keys: ['investor', 'pe_backer'] },
+    { key: 'board', label: 'Board', keys: ['board_member'] },
+    { key: 'founders', label: 'Founders', keys: ['founder'] },
+    { key: 'shareholders', label: 'Shareholders', keys: ['major_shareholder'] },
   ];
 
   const relLabel = {
-    board_member: 'board member',
-    investor: 'investor',
-    pe_backer: 'PE backer',
-    major_shareholder: 'major shareholder',
-    founder: 'founder',
+    board_member: 'Board Member',
+    investor: 'Investor',
+    pe_backer: 'PE Backer',
+    major_shareholder: 'Shareholder',
+    founder: 'Founder',
   };
+
+  const relColor = {
+    board_member: '#8b5cf6',
+    investor: '#3b82f6',
+    pe_backer: '#f59e0b',
+    major_shareholder: '#10b981',
+    founder: '#ec4899',
+  };
+
+  const filteredItems = activeFilter === 'all'
+    ? items
+    : filters.find(f => f.key === activeFilter)?.keys.flatMap(k => groups[k] || []) || [];
 
   const renderItem = (it, i) => (
     <div
       key={i}
       style={{
         border: '1px solid #e5e7eb',
-        borderRadius: '6px',
-        padding: '10px 12px',
+        borderRadius: '8px',
+        padding: '14px 16px',
         background: '#fff',
+        transition: 'all 0.15s ease',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '8px' }}>
-        <span style={{ fontSize: '13px', fontWeight: 600, color: '#111827' }}>{it.entity}</span>
-        <span style={{ fontSize: '10px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginBottom: '8px' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ fontSize: '14px', fontWeight: 600, color: '#111827' }}>{it.entity}</span>
+        </div>
+        <span style={{
+          fontSize: '11px',
+          color: relColor[it.relationship] || '#6b7280',
+          background: `${relColor[it.relationship] || '#f3f4f6'}15`,
+          border: `1px solid ${relColor[it.relationship] || '#e5e7eb'}40`,
+          padding: '3px 8px',
+          borderRadius: '4px',
+          fontWeight: 500,
+          whiteSpace: 'nowrap',
+        }}>
           {relLabel[it.relationship] || it.relationship}
         </span>
       </div>
       {it.details && (
-        <p style={{ fontSize: '12px', color: '#4b5563', margin: '4px 0 0 0', lineHeight: 1.4 }}>
+        <p style={{ fontSize: '12px', color: '#4b5563', margin: '0 0 10px 0', lineHeight: 1.5 }}>
           {it.details}
         </p>
       )}
@@ -695,54 +864,74 @@ function StrategicControlSection({ items }) {
           href={it.source_url}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ fontSize: '11px', color: '#3b82f6', marginTop: '4px', display: 'inline-block', textDecoration: 'none' }}
+          style={{
+            fontSize: '11px',
+            color: '#3b82f6',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            textDecoration: 'none',
+            fontWeight: 500,
+          }}
         >
-          source ↗
+          <ExternalLink className="w-3 h-3" />
+          View source
         </a>
       )}
     </div>
   );
 
   return (
-    <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #e5e7eb' }}>
-      <button
-        onClick={() => setOpen(!open)}
-        style={{
-          background: 'transparent',
-          border: 'none',
-          padding: 0,
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          color: '#374151',
-          fontSize: '12px',
-          fontWeight: 600,
-        }}
-      >
-        <span style={{ fontSize: '10px' }}>{open ? '▾' : '▸'}</span>
-        Strategic Relationships ({items.length})
-      </button>
-
-      {open && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '12px' }}>
-          {groupMeta.map((gm) => {
-            const list = gm.keys.flatMap((k) => groups[k] || []);
-            if (list.length === 0) return null;
+    <div style={{ marginTop: '32px', paddingTop: '20px', borderTop: '1px solid #e5e7eb' }}>
+      <div style={{ marginBottom: '16px' }}>
+        <h3 style={{ fontSize: '14px', fontWeight: 600, color: '#111827', margin: '0 0 12px 0' }}>
+          Strategic Relationships
+        </h3>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {filters.map((filter) => {
+            const count = filter.key === 'all' ? filter.count : filter.keys.flatMap(k => groups[k] || []).length;
+            if (count === 0 && filter.key !== 'all') return null;
             return (
-              <div key={gm.key}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 500 }}>
-                    {gm.label} ({list.length})
-                  </span>
-                  <div style={{ flex: 1, borderTop: '1px solid #e5e7eb' }} />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {list.map(renderItem)}
-                </div>
-              </div>
+              <button
+                key={filter.key}
+                onClick={() => setActiveFilter(filter.key)}
+                disabled={count === 0}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  background: activeFilter === filter.key ? '#3b82f6' : '#ffffff',
+                  color: activeFilter === filter.key ? '#ffffff' : '#6b7280',
+                  border: `1px solid ${activeFilter === filter.key ? '#3b82f6' : '#e5e7eb'}`,
+                  borderRadius: '6px',
+                  cursor: count === 0 ? 'not-allowed' : 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+                onMouseEnter={(e) => {
+                  if (count > 0 && activeFilter !== filter.key) {
+                    e.currentTarget.style.background = '#f3f4f6';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (count > 0 && activeFilter !== filter.key) {
+                    e.currentTarget.style.background = '#ffffff';
+                  }
+                }}
+              >
+                {filter.label} ({count})
+              </button>
             );
           })}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
+        {filteredItems.map(renderItem)}
+      </div>
+
+      {filteredItems.length === 0 && (
+        <div style={{ padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>
+          No relationships in this category
         </div>
       )}
     </div>
@@ -795,47 +984,18 @@ function ResultDisplay({ result, rawResponse }) {
 
   const chain = buildChain(result);
 
-  const tabBtn = (mode, label, Icon) => (
-    <button
-      onClick={() => setViewMode(mode)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '6px',
-        padding: '6px 12px',
-        fontSize: '12px',
-        fontWeight: 500,
-        background: viewMode === mode ? '#3b82f6' : '#ffffff',
-        color: viewMode === mode ? '#ffffff' : '#6b7280',
-        border: `1px solid ${viewMode === mode ? '#3b82f6' : '#e5e7eb'}`,
-        borderRadius: '6px',
-        cursor: 'pointer',
-      }}
-    >
-      <Icon className="w-3.5 h-3.5" />
-      {label}
-    </button>
-  );
-
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid #e5e7eb' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <GitBranch className="w-4 h-4" style={{ color: '#9ca3af' }} />
-          <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 500 }}>
-            Ownership chain · {chain.length} {chain.length === 1 ? 'layer' : 'layers'}
-          </span>
-        </div>
-        <div style={{ display: 'flex', gap: '6px' }}>
-          {tabBtn('list', 'List', List)}
-          {tabBtn('graph', 'Graph', Network)}
-        </div>
-      </div>
-
       {viewMode === 'graph' ? (
-        <GraphView result={result} />
+        <GraphView result={result} viewMode={viewMode} setViewMode={setViewMode} />
       ) : (
       <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid #e5e7eb' }}>
+        <GitBranch className="w-4 h-4" style={{ color: '#9ca3af' }} />
+        <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 500 }}>
+          Ownership chain · {chain.length} {chain.length === 1 ? 'layer' : 'layers'}
+        </span>
+      </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {chain.map((node, idx) => {
           const isFocal = idx === chain.length - 1;
@@ -895,11 +1055,20 @@ function ResultDisplay({ result, rawResponse }) {
       )}
 
       {result.notes && (
-        <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #e5e7eb' }}>
-          <p style={{ fontSize: '11px', color: '#6b7280', fontWeight: 500, margin: 0 }}>Notes</p>
-          <p style={{ fontSize: '12px', color: '#6b7280', margin: '6px 0 0 0', fontStyle: 'italic' }}>
-            {result.notes}
-          </p>
+        <div style={{ marginTop: '32px', paddingTop: '20px', borderTop: '1px solid #e5e7eb' }}>
+          <h3 style={{ fontSize: '14px', fontWeight: 600, color: '#111827', margin: '0 0 16px 0' }}>
+            Key Facts
+          </h3>
+          <div style={{
+            background: '#f9fafb',
+            border: '1px solid #e5e7eb',
+            borderRadius: '8px',
+            padding: '16px',
+          }}>
+            <p style={{ fontSize: '13px', color: '#4b5563', margin: 0, lineHeight: 1.6, whiteSpace: 'pre-line' }}>
+              {result.notes}
+            </p>
+          </div>
         </div>
       )}
 
@@ -951,6 +1120,7 @@ function ResultDisplay({ result, rawResponse }) {
 export default function OwnershipResolver() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingStage, setLoadingStage] = useState('searching');
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [rawResponse, setRawResponse] = useState(null);
@@ -968,11 +1138,12 @@ export default function OwnershipResolver() {
   const resolve = async () => {
     if (!input.trim() || loading) return;
     setLoading(true);
+    setLoadingStage('searching');
     setError(null);
     setResult(null);
     setRawResponse(null);
     setLogs([]);
-    setShowLogs(true);
+    setShowLogs(false);
 
     const attemptResolve = async (isRetry = false) => {
       const promptToUse = isRetry ? SYSTEM_PROMPT_COMPACT : SYSTEM_PROMPT;
@@ -986,10 +1157,11 @@ export default function OwnershipResolver() {
       }
 
       try {
+        setLoadingStage('extracting');
         addLog('SYSTEM', 'Building request payload');
         const response = await fetch('http://localhost:3002/api/anthropic', {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -1037,6 +1209,7 @@ export default function OwnershipResolver() {
         setRawResponse(textBlocks);
         addLog('SYSTEM', `Combined ${textBlocks.length} chars`);
 
+        setLoadingStage('validating');
         addLog('JSON_PARSE', 'Attempting to parse JSON');
         const parsed = safeExtractJSON(textBlocks);
 
@@ -1061,6 +1234,7 @@ export default function OwnershipResolver() {
           }
         }
 
+        setLoadingStage('rendering');
         setResult(parsed);
         addLog('COMPLETE', 'Done');
         return { retry: false, result: parsed };
@@ -1080,6 +1254,7 @@ export default function OwnershipResolver() {
     }
 
     setLoading(false);
+    setLoadingStage('searching');
   };
 
   const examples = ['Nectar', 'Liberty Safe', 'Whole Foods', 'Beats Electronics'];
@@ -1205,15 +1380,7 @@ export default function OwnershipResolver() {
         </div>
 
         {/* Loading */}
-        {loading && (
-          <div style={{ border: '1px solid #e5e7eb', background: '#f9fafb', padding: '16px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-            <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#3b82f6' }} />
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 500 }}>Investigating...</div>
-              <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>Searching · verifying · walking chain</div>
-            </div>
-          </div>
-        )}
+        {loading && <LoadingStepper currentStage={loadingStage} />}
 
         {/* Error */}
         {error && (
@@ -1225,6 +1392,9 @@ export default function OwnershipResolver() {
             </div>
           </div>
         )}
+
+        {/* Summary Row */}
+        {result && <SummaryRow result={result} />}
 
         {/* Result */}
         {result && <ResultDisplay result={result} rawResponse={rawResponse} />}
