@@ -1154,7 +1154,7 @@ function ReconciliationBanner({ recon, parent, anchor, focal }) {
             }}
           >
             <span>{parentName} reported segments{fiscalYear ? ` · FY${fiscalYear}` : ''}</span>
-            {anchor?.source_url && (
+            {anchor?.source_url && isSafeUrl(anchor.source_url) && (
               <a
                 href={anchor.source_url}
                 target="_blank"
