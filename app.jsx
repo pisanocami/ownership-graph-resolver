@@ -886,7 +886,7 @@ function ResultView({ result, showRaw, setShowRaw, selectedKey, setSelectedKey, 
       </div>
 
       {/* Banners */}
-      {recon && <ReconciliationBanner recon={recon} parent={tree.parent} anchor={anchor} />}
+      {recon && <ReconciliationBanner recon={recon} parent={tree.parent} anchor={anchor} focal={tree} />}
       {strategicNotes.filter((n) => n && n.startsWith('⚠')).map((n, i) => (
         <div key={i} className="banner banner-warning" style={{ marginTop: 10 }}>
           <span className="banner-icon">⚠</span>
@@ -1000,25 +1000,189 @@ function roleLabel(node, tree) {
 
 // ─── Reconciliation banner ───────────────────────────────────────────────────
 
-function ReconciliationBanner({ recon, parent, anchor }) {
+function ReconciliationBanner({ recon, parent, anchor, focal }) {
   const ratio = recon.ratio;
-  const variant = ratio > 1.5 || ratio < 0.5 ? 'warning' : 'info';
+  const pctDelta = recon.pct_delta;
+  const absDelta = Math.abs(pctDelta);
+  const variant = ratio > 1.5 || ratio < 0.5
+    ? 'warning'
+    : absDelta <= 20
+    ? 'success'
+    : 'info';
+  const severityLabel = absDelta <= 20 ? 'reconciles' : absDelta <= 50 ? 'soft mismatch' : 'large gap';
+
   const sumStr = formatUSD(recon.sum_children_central);
   const benchStr = formatUSD(recon.parent_benchmark);
-  const source = recon.parent_benchmark_source === '10-K'
-    ? `${parent?.company || 'parent'} ${anchor?.fiscal_year || ''} 10-K`
-    : `${parent?.company || 'parent'} estimate`;
+  const isAnchored = recon.parent_benchmark_source === '10-K';
+  const fiscalYear = anchor?.fiscal_year;
+  const parentName = parent?.company || 'Parent';
+  const sourceLabel = isAnchored
+    ? `${parentName} ${fiscalYear ? `FY${fiscalYear} ` : ''}10-K`
+    : `${parentName} estimated central`;
+
+  const segments = Array.isArray(anchor?.segments) ? anchor.segments : [];
+  const hasSegments = anchor?.is_public && segments.length > 0;
+  const benchmark = recon.parent_benchmark;
+
+  // Coverage bar: ratio 1.0 sits at the 50% midpoint. Clamp display to [0, 2.0].
+  const clamped = Math.max(0, Math.min(2, ratio));
+  const barFill = (clamped / 2) * 100;
+  const barFillColor =
+    variant === 'warning' ? 'var(--warning)' : variant === 'success' ? 'var(--accent)' : 'var(--accent)';
+  const deltaColor =
+    variant === 'warning' ? 'var(--warning)' : variant === 'success' ? 'var(--accent-hover)' : 'var(--text)';
+
   return (
-    <div className={`banner banner-${variant}`} style={{ marginTop: 16 }}>
-      <span className="banner-icon">Σ</span>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontWeight: 600, marginBottom: 2 }}>
-          Reconciliation · focal + siblings = <span className="mono">{sumStr}</span> vs <span className="mono">{benchStr}</span> ({source})
-        </div>
-        <div style={{ fontSize: 12, opacity: 0.85 }}>
-          Ratio <span className="mono">{(ratio * 100).toFixed(0)}%</span> · delta <span className="mono">{recon.pct_delta > 0 ? '+' : ''}{recon.pct_delta}%</span> · {recon.children_counted} entit{recon.children_counted === 1 ? 'y' : 'ies'} included
+    <div className={`banner banner-${variant}`} style={{ marginTop: 16, flexDirection: 'column', gap: 14 }}>
+      {/* Headline row */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', width: '100%' }}>
+        <span className="banner-icon">Σ</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 600, marginBottom: 2 }}>
+            Reconciliation · focal + siblings = <span className="mono">{sumStr}</span> vs <span className="mono">{benchStr}</span> ({sourceLabel})
+          </div>
+          <div style={{ fontSize: 12, opacity: 0.85 }}>
+            Ratio <span className="mono">{(ratio * 100).toFixed(0)}%</span> · delta <span className="mono">{pctDelta > 0 ? '+' : ''}{pctDelta}%</span> · {recon.children_counted} entit{recon.children_counted === 1 ? 'y' : 'ies'} included · <span style={{ color: deltaColor, fontWeight: 600 }}>{severityLabel}</span>
+          </div>
         </div>
       </div>
+
+      {/* Coverage bar — center tick at 100% (= ratio 1.0×) */}
+      <div style={{ width: '100%' }}>
+        <div
+          style={{
+            position: 'relative',
+            height: 10,
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border)',
+            borderRadius: 4,
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              left: 0,
+              width: `${barFill}%`,
+              background: barFillColor,
+              opacity: 0.85,
+              transition: 'width 240ms ease',
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              top: -3,
+              bottom: -3,
+              left: '50%',
+              width: 1,
+              background: 'var(--text)',
+              opacity: 0.55,
+            }}
+          />
+        </div>
+        <div
+          className="mono"
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            fontSize: 10,
+            color: 'var(--text-subtle)',
+            letterSpacing: '0.06em',
+            marginTop: 4,
+          }}
+        >
+          <span>0×</span>
+          <span style={{ color: 'var(--text-muted)' }}>1.0× · parent</span>
+          <span>2.0×+</span>
+        </div>
+      </div>
+
+      {/* Segments table — when parent is public and segment data is present */}
+      {hasSegments && (
+        <div style={{ width: '100%' }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              fontSize: 11,
+              color: 'var(--text-muted)',
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              fontWeight: 600,
+              marginBottom: 6,
+            }}
+          >
+            <span>{parentName} reported segments{fiscalYear ? ` · FY${fiscalYear}` : ''}</span>
+            {anchor?.source_url && (
+              <a
+                href={anchor.source_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontSize: 11, textTransform: 'none', letterSpacing: 0 }}
+              >
+                view filing →
+              </a>
+            )}
+          </div>
+          <div style={{ border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden', background: 'var(--bg)' }}>
+            {segments.map((seg, i) => {
+              const isFocalSeg = !!seg.contains_focal;
+              const segRev = seg.revenue_usd || 0;
+              const pct = benchmark > 0 ? (segRev / benchmark) * 100 : 0;
+              return (
+                <div
+                  key={i}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: '8px 12px',
+                    borderBottom: i < segments.length - 1 ? '1px solid var(--border)' : 'none',
+                    background: isFocalSeg ? 'var(--accent-soft)' : 'transparent',
+                    fontSize: 12,
+                  }}
+                >
+                  <span style={{ width: 12, color: 'var(--accent)', fontSize: 11 }}>{isFocalSeg ? '★' : ''}</span>
+                  <span style={{ flex: 1, color: isFocalSeg ? 'var(--text)' : 'var(--text-muted)', fontWeight: isFocalSeg ? 600 : 400 }}>
+                    {seg.name}
+                    {isFocalSeg && focal?.company && (
+                      <span
+                        className="mono"
+                        style={{
+                          marginLeft: 8,
+                          color: 'var(--accent-hover)',
+                          fontSize: 10,
+                          letterSpacing: '0.04em',
+                          textTransform: 'uppercase',
+                          fontWeight: 600,
+                        }}
+                      >
+                        contains {focal.company}
+                      </span>
+                    )}
+                  </span>
+                  <span className="mono" style={{ color: 'var(--text-subtle)', fontSize: 11, minWidth: 48, textAlign: 'right' }}>
+                    {pct.toFixed(1)}%
+                  </span>
+                  <span className="mono" style={{ color: isFocalSeg ? 'var(--text)' : 'var(--text-muted)', minWidth: 96, textAlign: 'right' }}>
+                    {formatUSD(segRev)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {anchor && anchor.is_public === false && (
+        <div style={{ fontSize: 12, fontStyle: 'italic', color: 'var(--text-muted)' }}>
+          {parentName} is not publicly traded — no 10-K anchor available; benchmark uses estimates only.
+        </div>
+      )}
     </div>
   );
 }
