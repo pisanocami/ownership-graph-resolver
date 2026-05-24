@@ -193,30 +193,30 @@ export function buildAsciiTree(tree) {
   if (!tree) return '';
 
   const lines = [];
-  lines.push(`${tree.company} (${tree.type})`);
+  lines.push(`${tree.company} (${tree.type || tree.layer || 'Brand'})`);
 
   if (tree.parent) {
-    lines.push(`├── Parent: ${tree.parent.company}`);
+    lines.push(`|- Parent: ${tree.parent.company}`);
   }
 
   if (tree.co_owners && tree.co_owners.length > 0) {
     const coOwnerLabels = tree.co_owners.slice(0, 2).map((c) => c.company).join(', ');
-    lines.push(`├── Co-owners: ${coOwnerLabels}${tree.co_owners.length > 2 ? ` (+${tree.co_owners.length - 2})` : ''}`);
+    lines.push(`|- Co-owners: ${coOwnerLabels}${tree.co_owners.length > 2 ? ` (+${tree.co_owners.length - 2})` : ''}`);
   }
 
   if (tree.children && tree.children.length > 0) {
     const childLabels = tree.children.slice(0, 2).map((c) => c.company).join(', ');
-    lines.push(`├── Acquisitions: ${childLabels}${tree.children.length > 2 ? ` (+${tree.children.length - 2})` : ''}`);
+    lines.push(`|- Acquisitions: ${childLabels}${tree.children.length > 2 ? ` (+${tree.children.length - 2})` : ''}`);
   }
 
   const sibCount = (tree.siblings || []).length;
   if (sibCount > 0) {
-    lines.push(`├── Siblings: ${sibCount} brands`);
+    lines.push(`|- Siblings: ${sibCount} brand${sibCount === 1 ? '' : 's'}`);
   }
 
   if (tree.strategic_control && tree.strategic_control.length > 0) {
     const controlLabels = tree.strategic_control.slice(0, 2).map((s) => s.company || s.relationship).join(', ');
-    lines.push(`└── Key stakeholders: ${controlLabels}${tree.strategic_control.length > 2 ? ` (+${tree.strategic_control.length - 2})` : ''}`);
+    lines.push(`'- Key stakeholders: ${controlLabels}${tree.strategic_control.length > 2 ? ` (+${tree.strategic_control.length - 2})` : ''}`);
   }
 
   return lines.slice(0, 8).join('\n');

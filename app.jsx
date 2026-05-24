@@ -2872,7 +2872,9 @@ async function generateBriefPDF(result, svgImage = null) {
   if (!result || !result.intelligence_brief) return;
 
   const brief = result.intelligence_brief;
-  const focal = result.focal_company?.name || 'Unknown';
+  const focal = (typeof result.focal_company === 'string' ? result.focal_company : result.focal_company?.name)
+    || result.ownership_tree?.company
+    || 'Unknown';
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 
@@ -2926,14 +2928,25 @@ async function generateBriefPDF(result, svgImage = null) {
 
   y += 4;
   section('BEHAVIORAL SIGNALS');
+  const dirArrow = (d) => (d === 'positive' ? '+' : d === 'negative' ? '-' : '=');
   if (brief.behavioral_signals && brief.behavioral_signals.length > 0) {
-    brief.behavioral_signals.slice(0, 5).forEach((sig, i) => {
-      text(`${i + 1}. ${sig.signal_type || 'Unknown'} [${sig.weight || 'medium'}]`, { size: 10, style: 'bold' });
+    brief.behavioral_signals.slice(0, 8).forEach((sig, i) => {
+      const dir = sig.directional_implication ? ` (${dirArrow(sig.directional_implication)})` : '';
+      text(`${i + 1}. ${sig.signal_type || 'Unknown'} [${sig.weight || 'medium'}]${dir}`, { size: 10, style: 'bold' });
       if (sig.evidence) text(`   Evidence: ${sig.evidence}`, { size: 9 });
       if (sig.interpretation) text(`   Interpretation: ${sig.interpretation}`, { size: 9 });
     });
   } else {
     text('No signals captured', { size: 10 });
+  }
+
+  // Counter-signals (gaps where expected signals are missing)
+  if (brief.counter_signals && brief.counter_signals.length > 0) {
+    y += 2;
+    text('Expected but missing:', { size: 10, style: 'bold' });
+    brief.counter_signals.forEach((gap) => {
+      text(`   - ${gap.signal_type}${gap.fill_action ? ` -> ${gap.fill_action}` : ''}`, { size: 9, color: [180, 100, 20] });
+    });
   }
 
   y += 4;
@@ -2961,12 +2974,52 @@ async function generateBriefPDF(result, svgImage = null) {
   section('MISPRICING & M&A');
   text(`M&A Attention: ${brief.mispricing?.ma_attention || 'None'}`, { size: 10 });
   if (brief.mispricing?.hypothesis) text(`Hypothesis: ${brief.mispricing.hypothesis}`, { size: 10 });
+  if (brief.mispricing?.falsifying_signals && brief.mispricing.falsifying_signals.length > 0) {
+    text('Falsifying signals:', { size: 9, style: 'bold' });
+    brief.mispricing.falsifying_signals.forEach((fs) => {
+      text(`   - ${fs}`, { size: 9 });
+    });
+  }
+
+  // Competitive context (Phase 4 web-search; null when B2B-niche / no peer set)
+  y += 4;
+  section('COMPETITIVE CONTEXT');
+  if (Array.isArray(brief.competitive_context) && brief.competitive_context.length > 0) {
+    brief.competitive_context.forEach((c) => {
+      const rev = c.estimated_revenue_usd ? ` ~$${(c.estimated_revenue_usd / 1e6).toFixed(0)}M` : '';
+      const dist = c.competitive_distance ? ` [${c.competitive_distance}]` : '';
+      text(`${c.competitor}${c.parent ? ` (${c.parent})` : ''}${rev}${dist}`, { size: 10, style: 'bold' });
+      if (c.positioning) text(`   ${c.positioning}`, { size: 9 });
+    });
+  } else {
+    text('No identifiable peer set (B2B-niche or proprietary category).', { size: 10, color: [120, 120, 130] });
+  }
+
+  // Strategic notes by audience
+  const notes = brief.strategic_notes_by_audience || {};
+  const audienceRows = [
+    ['For investors', notes.for_investors],
+    ['For competitors', notes.for_competitors],
+    ['For M&A advisors', notes.for_ma_advisors],
+    ['For growth-signal users', notes.for_growth_signal_users],
+  ].filter(([, v]) => v && v !== 'Pending LLM enrichment');
+  if (audienceRows.length > 0) {
+    y += 4;
+    section('STRATEGIC NOTES');
+    audienceRows.forEach(([label, note]) => {
+      text(`${label}:`, { size: 10, style: 'bold' });
+      text(`   ${note}`, { size: 9 });
+    });
+  }
 
   y += 4;
-  section('METADATA');
+  section('DATA TRACE');
   text(`Report Date: ${dateStr}`, { size: 9 });
   if (brief.data_trace?.primary_sources && brief.data_trace.primary_sources.length > 0) {
     text(`Sources: ${brief.data_trace.primary_sources.join(', ')}`, { size: 9 });
+  }
+  if (brief.data_trace?.methodology_note) {
+    text(brief.data_trace.methodology_note, { size: 8, color: [120, 120, 130] });
   }
 
   const filename = `${focal}-intelligence-brief-${dateStr.replace(/\s+/g, '-')}.pdf`;
