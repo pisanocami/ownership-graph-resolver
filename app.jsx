@@ -1574,6 +1574,7 @@ Search for direct competitors and return the JSON result.`;
       <div className="app-container">
         {!sharedView && (
           <>
+            {mobileDrawerOpen && (
             <div className="mobile-drawer" onClick={() => setMobileDrawerOpen(false)}>
               <div className="sidebar" onClick={(e) => e.stopPropagation()}>
                 <Sidebar
@@ -1582,7 +1583,7 @@ Search for direct competitors and return the JSON result.`;
                   hint={hint}
                   setHint={setHint}
                   loading={loading}
-                  onInvestigate={() => investigate()}
+                  onInvestigate={() => { investigate(); setMobileDrawerOpen(false); }}
                   provider={provider}
                   onChangeProvider={changeProvider}
                   model={model}
@@ -1597,13 +1598,14 @@ Search for direct competitors and return the JSON result.`;
                   onHistorySearchChange={setHistorySearch}
                   historyFilters={historyFilters}
                   onHistoryFiltersChange={setHistoryFilters}
-                  onOpenFromHistory={openFromHistory}
+                  onOpenFromHistory={(id) => { openFromHistory(id); setMobileDrawerOpen(false); }}
                   onDeleteFromHistory={deleteFromHistory}
                   onKeyDown={onKeyDown}
-                  onForceRun={() => investigate({ force: true })}
+                  onForceRun={() => { investigate({ force: true }); setMobileDrawerOpen(false); }}
                 />
               </div>
             </div>
+            )}
             <div className="sidebar no-print">
               <Sidebar
                 brand={brand}
@@ -1679,6 +1681,7 @@ Search for direct competitors and return the JSON result.`;
               <EmptyState onExampleClick={(brandName) => {
                 setBrand(brandName);
                 setHint('');
+                setTimeout(() => investigate(), 100);
               }} />
             ) : (
               result?.ownership_tree && (
@@ -2030,12 +2033,13 @@ function ResultView({
   return (
     <>
       {/* Investigation header card with mode toggle */}
+      {tree && (
       <div className="investigation-header-card">
         <div className="investigation-header-top">
           <div>
-            <h2 className="investigation-header-title">{result.focal_company || tree.company}</h2>
+            <h2 className="investigation-header-title">{result?.focal_company || tree?.company}</h2>
             <p className="investigation-header-meta">
-              {tree.node_type} · {tree.status || 'operating'} · Owned by {tree.parent?.company || 'N/A'}
+              {tree?.node_type} · {tree?.status || 'operating'} · Owned by {tree?.parent?.company || 'N/A'}
             </p>
           </div>
           <div className="mode-toggle">
@@ -2118,6 +2122,7 @@ function ResultView({
           )}
         </div>
       </div>
+      )}
 
       {/* Export actions */}
       <div className="no-print" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12, marginBottom: 16 }}>
