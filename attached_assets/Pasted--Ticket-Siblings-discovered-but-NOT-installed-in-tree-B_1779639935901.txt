@@ -1,0 +1,212 @@
+# Ticket: Siblings discovered but NOT installed in tree
+
+**Bug ID:** ISSUE-AWARA-SIBLINGS-MISSING
+**Severity:** HIGH — silently corrupts brief output, makes runs non-reproducible
+**Component:** ownership phase → siblings slot population
+**Reproducible:** YES (run any small brand within Resident Home LLC as focal)
+
+-----
+
+## Bug summary
+
+The ownership phase **discovers siblings via search** but **fails to install them in the tree’s `siblings[]` slot**. The reasoning string of the focal entity mentions them, but the structured slot is empty.
+
+Downstream consequence: revenue phase only processes installed entities, so siblings never get revenue estimates, sibling ranking shows “No siblings”, brief generates with 0 siblings.
+
+-----
+
+## Reproduction case
+
+### Setup A — works correctly
+
+- Focal: **Nectar Sleep**
+- Parent: Resident Home LLC
+- Date: 2026-05-24
+- Result: 4 siblings captured (DreamCloud $300M, Awara $60M, Siena $65M, Cloverlane —)
+- Events count: 86
+- Revenue phase entities: 7
+
+### Setup B — fails
+
+- Focal: **Awara Sleep**
+- Parent: Resident Home LLC (same)
+- Date: 2026-05-24 (~3h later)
+- Result: “No siblings”
+- Events count: 57
+- Revenue phase entities: 3 (focal + parent + grandparent only)
+
+**Same parent. Different focal. Opposite sibling capture behavior.**
+
+-----
+
+## Evidence in T-Awara logs
+
+The agent KNEW about the siblings. Two explicit references:
+
+### Reference 1 — log line [31]
+
+```
+[31] [revenue:Resident Home LLC]
+search "Resident Home brands Nectar DreamCloud revenue"
+```
+
+Agent explicitly searched for Nectar + DreamCloud as known sibling brands of the parent.
+
+### Reference 2 — log line [37] (revenue:Awara Sleep reasoning)
+
+```json
+"reasoning_summary": "The revenue estimate for Awara Sleep is derived
+from the reported $400M annual revenue of its parent company, Resident
+Home LLC. As Resident owns several other major mattress brands like
+Nectar and DreamCloud, Awara is estimated to represent a fraction..."
+```
+
+Agent explicitly states the siblings exist (Nectar, DreamCloud) in its reasoning.
+
+### Reference 3 — log line [18]
+
+```
+[18] phase · revenue → estimating revenue for 3 entities
+```
+
+Only 3 entities scheduled for revenue estimation. Should be 6+ (focal + parent + grandparent + 3-4 siblings).
+
+### Reference 4 — log line [55]
+
+```
+[55] phase · brief → Warning: only 2 behavioral signals after filtering;
+deterministic fallback may apply
+```
+
+Brief module noticed the shortage but couldn’t compensate.
+
+-----
+
+## Comparison with T-Nectar run (working correctly)
+
+When Nectar is focal, the ownership phase output included siblings BEFORE the revenue phase started. Look at the equivalent log line:
+
+```
+[18] phase · revenue → estimating revenue for 7 entities
+```
+
+7 entities = focal + parent + grandparent + 4 siblings. Revenue phase then processed each.
+
+-----
+
+## Hypothesis: where the bug lives
+
+Most likely in the ownership phase, between:
+
+1. **Sibling discovery** (search queries — log evidence shows this works)
+1. **Sibling installation** (populating `tree.siblings[]` array — this fails)
+
+Possible causes (please investigate):
+
+### Hypothesis A — focal-size budget gate
+
+Code may have a heuristic like “if focal revenue estimated < $X, skip expensive sibling enumeration.” If true, the gate is wrong: sibling capture is needed REGARDLESS of focal size, because reconciliation and competitive context depend on it.
+
+### Hypothesis B — sibling enumeration phase gated by ownership_clarity
+
+Code may skip sibling enumeration when `ownership_clarity = "clean"` because chain is short. If true, the gate is wrong: clean chains still benefit from sibling enumeration.
+
+### Hypothesis C — sibling enumeration only runs for “high-attention” focals
+
+Code may have rank-based attention budget: focal with high rank/revenue gets full sibling pass, low-rank focal skips it. If true, the gate is wrong: low-rank focal NEEDS sibling context to be useful (lone $40M brand in conglomerate is meaningless without siblings).
+
+### Hypothesis D — sibling discovery results are computed but discarded
+
+Most likely: search results contain sibling names but the parser only extracts them when there’s an explicit prompt asking “what are the siblings”. When the run is short, that prompt is skipped.
+
+-----
+
+## Questions to ask the Replit agent
+
+1. **Where in the ownership phase code does sibling installation happen?**
+   File + function + line range.
+1. **Is sibling installation conditional on focal characteristics?**
+- Focal revenue size?
+- Focal node_type?
+- Time budget already consumed?
+- Number of search results returned?
+1. **Is there a `sibling_enumeration` step separate from `sibling_discovery`?**
+   If yes, what triggers the enumeration step?
+1. **When the agent searches “Resident Home brands Nectar DreamCloud revenue”, does the result get parsed for sibling names, or only for revenue?**
+   This is the critical parsing question. If only for revenue, that’s the bug.
+1. **Can sibling installation be forced via a flag, for testing?**
+   Need a way to verify the fix without re-running 50+ entities.
+1. **What’s the difference between T-Nectar (focal=Nectar) and T-Awara (focal=Awara) configuration?**
+   Same parent, same time of day, same model — what determines the divergent behavior?
+
+-----
+
+## Proposed fix direction
+
+If hypothesis D is correct (search results contain siblings but parser misses them):
+
+**Add explicit “sibling discovery” sub-step in ownership phase:**
+
+```
+After parent identification:
+  1. Search "[parent] portfolio brands" (1-2 queries)
+  2. Search "[parent] subsidiary brands [segment]" (1 query)
+  3. Parse all results for brand names + categorization
+  4. Install discovered brands into tree.siblings[] BEFORE proceeding to revenue phase
+  5. Minimum guarantee: if parent revenue > $100M and parent has multiple
+     brands in public references, install at least 3 siblings
+```
+
+Cost: 2-3 additional search queries per run when parent is conglomerate. Worth it.
+
+-----
+
+## Test cases for verification
+
+After fix, these runs should produce consistent sibling capture:
+
+|Run                            |Expected siblings count                  |
+|-------------------------------|-----------------------------------------|
+|T-Nectar (focal=Nectar)        |4 (DreamCloud, Awara, Siena, Cloverlane) |
+|T-Awara (focal=Awara)          |4 (DreamCloud, Nectar, Siena, Cloverlane)|
+|T-DreamCloud (focal=DreamCloud)|4 (Nectar, Awara, Siena, Cloverlane)     |
+|T-Siena (focal=Siena)          |4 (Nectar, Awara, DreamCloud, Cloverlane)|
+
+All four runs should produce identical sibling sets (excluding the focal). Currently only T-Nectar does.
+
+Additionally:
+
+|Run                                                    |Expected siblings count                |
+|-------------------------------------------------------|---------------------------------------|
+|T-Snickers (focal=Snickers, parent=Mars)               |≥3 (M&M’s, Twix, Skittles, Extra, etc.)|
+|T-MSC Cruceros (focal=MSC Cruceros, parent=MSC Cruises)|≥1 (Explora Journeys at minimum)       |
+
+Both currently fail to capture siblings despite the parent having clear sub-brand portfolio.
+
+-----
+
+## Out of scope for this ticket (separate issues)
+
+- The threshold for warning “Only N siblings captured under $X.XB parent — expected ≥M” — too aggressive for focused-business holdings (single-segment companies like PDD/MSC). Track separately.
+- Issue #8 (revenue inestable cross-runs) — sibling revenue varies between runs even when captured. Track separately.
+- Brief V2 rendering when siblings are 0 — should show “no siblings detected (capture incomplete)” instead of “No siblings” (which implies “no siblings exist”). Track separately.
+
+-----
+
+## Acceptance criteria
+
+Fix is complete when:
+
+1. Running T-Awara as focal produces ≥3 siblings in tree.siblings[]
+1. The 4 Resident Home pares (Nectar / Awara / DreamCloud / Siena focal) all produce mutually consistent sibling sets
+1. T-Snickers re-run captures ≥3 Mars Wrigley siblings
+1. Test suite includes a regression test: “given parent P with N children, focal F=child_1 should yield N-1 siblings in tree”
+
+-----
+
+## Files generated for context
+
+- T-Awara full output (this file)
+- T-Nectar full output (comparison, working case)
+- Sprint 3 issues document (Issue #11 was identified earlier)
+- MSC Cruceros perfect brief (separate bug, similar capture-depth issue)
