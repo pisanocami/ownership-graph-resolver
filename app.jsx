@@ -2535,7 +2535,8 @@ async function generatePDF(result) {
     }
     if (tree.parent && recon && recon.ratio) {
       const coverPct = Math.round(recon.ratio * 100);
-      insights.push(`${coverPct}% of parent's revenue captured`);
+      const parentLabel = tree.focal_segment ? `parent segment (${tree.focal_segment})` : `parent`;
+      insights.push(`${coverPct}% of ${parentLabel}'s revenue captured`);
     }
     if (Array.isArray(tree.co_owners) && tree.co_owners.length > 0) {
       insights.push(`Multi-owner structure (${tree.co_owners.length} co-owner${tree.co_owners.length > 1 ? 's' : ''})`);
@@ -2767,17 +2768,21 @@ async function generatePDF(result) {
     const parentName = tree.parent?.company || 'Parent';
     text(`${parentName}'s segments. Focal is${tree.focal_segment ? ` in "${tree.focal_segment}"` : ' not assigned to a specific segment'}.`,
       { size: 8.5, style: 'italic', color: C.muted, gap: 2 });
+    // Calculate total segment revenue to show %
+    const totalSegRev = parentSegments.reduce((sum, s) => sum + (s.revenue_usd || 0), 0);
     const segRows = parentSegments.map((seg) => {
-      const rev = seg.revenue > 0 ? formatUSD(seg.revenue) : '—';
+      const rev = seg.revenue_usd && seg.revenue_usd > 0 ? formatUSD(seg.revenue_usd) : '—';
+      const pctStr = totalSegRev > 0 && seg.revenue_usd ? `${((seg.revenue_usd / totalSegRev) * 100).toFixed(0)}%` : '—';
       const badge = seg.contains_focal ? { text: 'contains focal', color: C.activeFg, bold: true } : '—';
       return [
         seg.name || '—',
         rev,
+        pctStr,
         badge,
       ];
     });
     if (segRows.length > 0) {
-      table(['Segment', 'Revenue', 'Contains Focal'], segRows, [60, 50, 38]);
+      table(['Segment', 'Revenue', '% of Total', 'Contains Focal'], segRows, [50, 40, 28, 40]);
     }
   }
 
@@ -2871,7 +2876,8 @@ async function generatePDF(result) {
   // ─── Ownership Chain Detail ───
   const chainWithFocal = [...chain, tree];
   const chainWithDetail = chainWithFocal.filter((n) => {
-    const hasStake = n.stake && (n.stake.equity_pct != null || n.stake.voting_pct != null);
+    const isRoot = n === chain[0];
+    const hasStake = n.stake && (n.stake.equity_pct != null || n.stake.voting_pct != null) && !isRoot;
     const hasRole = n.ownership_role;
     return hasStake || hasRole;
   });
@@ -2910,19 +2916,23 @@ async function generatePDF(result) {
     } else if (n.pending_acquisition && n.pending_acquisition.acquirer) {
       companyColor = C.warning;
     }
+    // Revenue range with central estimate
+    const revStr = rev && rev.central > 0
+      ? `${formatUSD(rev.low)}–${formatUSD(rev.high)}${rev.central ? ` (${formatUSD(rev.central)})` : ''}`
+      : '—';
     return [
       { text: n.company, bold: n === tree, color: companyColor },
       n.category || '—',
-      (rev && rev.central > 0) ? formatUSD(rev.central) : '—',
+      revStr,
       (rev && rev.confidence) || '—',
       { text: st, color: fg, bold: true },
     ];
   });
   if (breakdownRows.length > 0) {
     section('Revenue Breakdown');
-    table(['Company', 'Category', 'Revenue', 'Conf.', 'Status'], breakdownRows, [46, 48, 30, 22, 32]);
+    table(['Company', 'Category', 'Revenue (Range)', 'Conf.', 'Status'], breakdownRows, [46, 48, 45, 22, 32]);
 
-    // Confidence distribution chart (stacked bar for top 3 + focal)
+    // Confidence distribution chart (stacked bar for top 4)
     {
       const entities = [tree, ...siblings].slice(0, 4);
       const confData = entities.map((n) => {
@@ -2940,7 +2950,8 @@ async function generatePDF(result) {
         ensure(20);
         y += 2;
         font(9, 'bold'); pdf.setTextColor(...C.ink);
-        pdf.text('Revenue Confidence Distribution', margin, y, { baseline: 'top' }); y += 5;
+        const chartLabel = [tree, ...siblings].length > 4 ? `Revenue Confidence Distribution (top 4)` : `Revenue Confidence Distribution`;
+        pdf.text(chartLabel, margin, y, { baseline: 'top' }); y += 5;
 
         // Draw horizontal stacked bar
         const barY = y;
@@ -3017,7 +3028,7 @@ async function generatePDF(result) {
         pdf.rect(margin, rankY, barW, barH, 'F');
 
         font(7.5, r.isFocal ? 'bold' : 'normal');
-        pdf.setTextColor(...(r.isFocal ? C.accentHover : C.text));
+        pdf.setTextColor(...(r.isFocal ? C.white : C.text));
         const label = `#${i + 1} ${r.company} ${r.central > 0 ? formatUSD(r.central) : '—'}`;
         pdf.text(label, margin + 3, rankY + barH / 2 + 0.2, { baseline: 'middle' });
 
@@ -3044,6 +3055,8 @@ async function generatePDF(result) {
       cousinGroups.get(k).push(c);
     });
     for (const [division, items] of cousinGroups) {
+      const spaceNeeded = 4 + 5 + (items.length * 5);
+      ensure(spaceNeeded);
       text(`via division: ${division}`, { size: 9, style: 'bold', color: C.text, gap: 1.2 });
       const rows = items.map((c) => {
         const st = deriveStatus(c).label;
@@ -3128,6 +3141,14 @@ async function generatePDF(result) {
     pdf.setFillColor(...col); pdf.rect(margin, btop, (clamped / 2) * barW, barH, 'F');
     pdf.setDrawColor(...C.ink); pdf.setLineWidth(0.3); pdf.line(margin + barW / 2, btop - 1, margin + barW / 2, btop + barH + 1);
     pdf.setDrawColor(...C.border); pdf.setLineWidth(0.2); pdf.rect(margin, btop, barW, barH);
+
+    // Coverage percentage label on bar
+    const coveragePct = (recon.ratio * 100).toFixed(0);
+    font(7.5, 'bold'); pdf.setTextColor(...(recon.ratio > 1.5 || recon.ratio < 0.5 ? C.white : C.white));
+    const filledW = (clamped / 2) * barW;
+    const labelX = Math.min(margin + filledW - 1, margin + barW - 12);
+    pdf.text(`${coveragePct}%`, labelX, btop + barH / 2 + 0.1, { baseline: 'middle', align: 'right' });
+
     y += barH + 2;
     font(7, 'normal'); pdf.setTextColor(...C.subtle);
     pdf.text('0×', margin, y, { baseline: 'top' });
@@ -3291,11 +3312,12 @@ async function generatePDF(result) {
   });
 
   y += 2;
-  text('Special badges:', { size: 9, style: 'bold', color: C.ink, gap: 1 });
+  text('Special badges & indicators:', { size: 9, style: 'bold', color: C.ink, gap: 1 });
   [
-    { badge: 'review', desc: 'Revenue estimate may exceed parent or have hierarchy conflicts' },
+    { badge: 'review', desc: 'Revenue estimate may exceed parent or have hierarchy conflicts; verify with additional sources' },
     { badge: 'PE-owned', desc: 'Backed by private equity firm' },
-    { badge: 'Pending Acquisition', desc: 'Deal announced but not yet closed' },
+    { badge: 'Pending Acquisition', desc: 'Deal announced but not yet closed; awaiting regulatory approval' },
+    { badge: 'context unverified', desc: 'Some ownership layers lack independent confirmation; treat with caution' },
   ].forEach(({ badge, desc }) => {
     ensure(4);
     font(8.5, 'bold'); pdf.setTextColor(...C.text);
@@ -3304,6 +3326,15 @@ async function generatePDF(result) {
     pdf.text(desc, margin + 50, y, { baseline: 'top', maxW: contentW - 50 });
     y += 4;
   });
+
+  y += 2;
+  text('Reconciliation coverage ratio:', { size: 9, style: 'bold', color: C.ink, gap: 1 });
+  ensure(10);
+  font(8.5, 'normal'); pdf.setTextColor(...C.text);
+  pdf.text('0× = no children revenue; 1.0× = children sum equals parent; 2.0×+ = children exceed parent.', margin, y, { baseline: 'top', maxW: contentW });
+  y += 4;
+  pdf.text('Gaps above 1.0× indicate unreported segments or divisions not in this report.', margin, y, { baseline: 'top', maxW: contentW });
+  y += 4;
 
   // ─── Footer + page numbers (all pages) ───
   const pageCount = pdf.internal.getNumberOfPages();
