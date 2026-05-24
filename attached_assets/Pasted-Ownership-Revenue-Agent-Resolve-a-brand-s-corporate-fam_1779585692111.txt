@@ -1,0 +1,839 @@
+Ownership & Revenue Agent
+Resolve a brand's corporate family with revenue per node.
+
+Target brand
+Nectar Sleep
+Context (optional)
+domain, industry, geography…
+Investigate →
+↻ Re-run fresh
+Model
+
+Claude
+
+Sonnet 4
+✓ loaded from cache · just now
+Prior investigations
+13 saved
+
+Nectar Sleep
+$168.0M
+high
+just now
+×
+
+Instagram
+$67.00B
+high
+11m ago
+×
+
+Casper Sleep Inc.
+$450.0M
+medium
+13m ago
+×
+
+Call of Duty
+$8.50B
+high
+29m ago
+×
+
+GEICO
+$44.00B
+high
+1h ago
+×
+
+Marine Layer
+$69.0M
+medium
+1h ago
+×
+
+Halo Collar
+$85.0M
+high
+1h ago
+×
+
+TikTok
+$16.10B
+high
+1h ago
+×
+
+Patagonia, Inc.
+$1.50B
+high
+1h ago
+×
+
+Tiffany & Co.
+$8.75B
+high
+1h ago
+×
+
+Pringles
+$3.50B
+high
+1h ago
+×
+
+Mercury Technologies Inc.
+$775.0M
+high
+1h ago
+×
+
+Zara
+$30.00B
+high
+1h ago
+×
+↓ PDF
+⎘ Copy share link
+Σ
+Reconciliation · focal + siblings = $346.5M vs $525.0M (Resident Home estimated central)
+Ratio 66% · delta -34% · 5 entities included · soft mismatch
+0×
+1.0× · parent
+2.0×+
+Likely causes of the gap
+· Insufficient captured evidence to attribute the gap
+No missing-sibling, channel, segment, or historical-peak signals were captured to explain the delta.
+Resident Home is not publicly traded — no 10-K anchor available; benchmark uses estimates only.
+Ownership structure
+Click a node to inspect its revenue and signals.
+Tree
+Graph
+React Flow
+Strategic control
+
+▸
+Ashley Furniture Industries
+2 relationships
+
+▸
+Ashley Global Retail
+3 relationships
+
+▸
+Resident Home
+6 relationships
+
+▾
+Nectar Sleep
+focal
+3 relationships
+Co-founder & Co-CEO of parent company Resident
+Eric Hutchinson
+co-founded Nectar Sleep in 2016 and continues to lead parent company
+https://www.convertflow.com/blog/nectar-sleep-marketing
+Co-founder & Co-CEO of parent company Resident
+Ran Reske
+co-founded Nectar Sleep in 2016 alongside Hutchinson and Schmeizer
+https://www.convertflow.com/blog/nectar-sleep-marketing
+Co-founder
+Craig Schmeizer
+original co-founder of Nectar Sleep in 2016
+https://www.convertflow.com/blog/nectar-sleep-marketing
+Notes
+· Focal leads the sibling cohort by revenue — likely cash cow of the family.
+· Resident Home is not publicly traded — no 10-K anchor available; reconciliation uses estimates only.
+▸ Show raw JSON
+Entity detail
+Focal entity
+Nectar Sleep
+nectarsleep.com
+brand
+operating brand
+online memory foam mattress with lifetime warranty
+Annual revenue estimate
+$168.0M
+range $140.0M — $200.0M
+high confidence
+EcommerceDB provides the most reliable current revenue figure of $168M for 2024, corroborated by declining web traffic and flat growth signals. The company peaked at $400M+ around 2020 but has stabilized at a lower level due to market saturation. The Ashley acquisition in 2024 validates continued significant value despite the decline from peak performance.
+Signals captured
+web_traffic
+EcommerceDB revenue data
+$168M annual revenue in 2024
+via ecommercedb.com
+high
+press
+Historical peak revenue
+$500M+ in 2020, down from growth peak
+via convertflow.com
+high
+web_traffic
+SimilarWeb traffic decline
+12.26% traffic decrease, rank #27,108
+via similarweb.com
+medium
+reviews
+Customer review volume
+15K+ UK reviews, 1.2K+ US reviews
+via trustpilot.com/reviews.io
+medium
+customers
+Customer base size
+Over 1 million mattresses sold
+via prnewswire.com
+medium
+funding
+Series B funding
+$130M raised by parent company
+via prnewswire.com
+medium
+press
+Ashley acquisition
+Acquired Q1 2024 for undisclosed amount
+via bedtimesmagazine.com
+high
+hiring
+Employee count
+201-500 employees per SimilarWeb
+via similarweb.com
+low
+Positioning
+vs parent
+32.0% of Resident Home central revenue
+vs siblings
+Ranked 1 of 5 in family — ★ Nectar Sleep $168.0M · DreamCloud $160.0M · Awara $8.5M · Siena $6.0M · Cloverlane $4.0M
+growth signals
+Historical peak revenue (convertflow.com); Series B funding (prnewswire.com); Ashley acquisition (bedtimesmagazine.com)
+
+▾ Agent logs · 186 events
+hide
+[01]
+phase
+· ownership → resolving ownership of Nectar Sleep
+[02]
+[ownership]
+search
+"Nectar Sleep company domain sector"
+[03]
+[ownership]
+fetched
+9 results · Nectar Sleep Company & Revenue 2014-2026 · Nectar Sleep - Crunchbase Company Profile & Fun
+[04]
+[ownership]
+search
+"Nectar Sleep parent company Resident"
+[05]
+[ownership]
+fetched
+9 results · Ashley Home acquires Nectar mattress owner Resident Home · Ashley Home acquires Nectar mat
+[06]
+[ownership]
+search
+"Ashley Global Retail parent company ownership"
+[07]
+[ownership]
+fetched
+10 results · About Ashley | Ashley · Who Owns Ashley Furniture Industries Company? – MatrixBCG.com
+[08]
+[ownership]
+search
+"Resident Home brands DreamCloud Awara Siena mattresses"
+[09]
+[ownership]
+fetched
+10 results · Direct-to-Consumer Mattress Brands | Resident Home · Ashley Home acquires Nectar mattress
+[10]
+[ownership]
+search
+"Nectar Sleep founding investors Series B funding"
+[11]
+[ownership]
+fetched
+10 results · Award-Winning Mattress Brand Nectar Partners with Google to Inspire Great Sleep · Nectar S
+[12]
+[ownership]
+Based on my research, I can now provide a comprehensive corporate ownership tree for Nectar Sleep. Let me verify one important detail about Resident's Series B investors.
+[13]
+[ownership]
+search
+""Ion Crossover Partners" "Nexus Capital Management" "Baron Capital" Resident Home Series B"
+[14]
+[ownership]
+fetched
+9 results · Resident Raises $130M in Series B Funding - FinSMEs · Resident Raises $130 Million for Con
+[15]
+[ownership]
+{ "company": "Nectar Sleep", "domain": "nectarsleep.com", "node_type": "operating_brand", "layer": "brand", "standalone": false, "terminal_layer": null, "in_current_sources": true, "in_historical_sources": true, "last_mention_date": "2026-05-24", "category": "online memory foam mattress with lifetim…
+[16]
+phase
+· revenue → estimating revenue for 7 entities
+[17]
+phase
+· anchor:Resident Home → → Resident Home 10-K segment revenue (if public)
+[18]
+phase
+· revenue:Nectar Sleep → → Nectar Sleep (focal)
+[19]
+phase
+· revenue:Resident Home → → Resident Home (parent)
+[20]
+phase
+· revenue:Ashley Global Retail → → Ashley Global Retail (grandparent)
+[21]
+[anchor:Resident Home]
+I'll search for information about Resident Home and its relationship to Nectar Sleep to determine if it's publicly traded and extract segment revenue data.
+[22]
+[anchor:Resident Home]
+search
+"Resident Home Nectar Sleep parent company public traded"
+[23]
+[anchor:Resident Home]
+fetched
+9 results · FTC penalizes parent company of Nectar Sleep over false "Made in USA" ads · Resident Home
+[24]
+[anchor:Resident Home]
+Now I need to search for Ashley Global Retail's SEC filings to see if they are publicly traded and get their segment revenue information.
+[25]
+[anchor:Resident Home]
+search
+"Ashley Global Retail SEC filing 10-K publicly traded ticker"
+[26]
+[anchor:Resident Home]
+fetched
+5 results · Ashley Global Retail Company Overview, Contact Details & Competitors | LeadIQ · Sec
+[27]
+[anchor:Resident Home]
+Based on my search results, I can see that Resident Home (the parent company of Nectar Sleep) was acquired by Ashley Home/Ashley Global Retail in March 2024. However, Ashley Global Retail appears to be a private company, not publicly traded. ```json { "is_public": false, "ticker": null, "fiscal_year": null, "t…
+[28]
+[revenue:Resident Home]
+I'll investigate the annual revenue of Resident Home by gathering behavioral signals from the web. Let me start by confirming the entity and gathering key signals.
+[29]
+[revenue:Resident Home]
+search
+"Resident Home residenthome.com company"
+[30]
+[revenue:Resident Home]
+fetched
+10 results · Shop Mattresses, Bed Frames & Bedding Products Online | Resident Home · Resident Home 2026
+[31]
+[revenue:Resident Home]
+Now let me search for more specific signals about funding, revenue estimates, and web traffic data.
+[32]
+[revenue:Resident Home]
+search
+"Resident Home revenue funding Ashley HomeStore acquisition 2024"
+[33]
+[revenue:Resident Home]
+fetched
+10 results · New Residential Funding 2024-RTL2 LLC - Form ABS-15G/A - FY2024 · New Residential Funding
+[34]
+[revenue:Resident Home]
+Now let me search for web traffic data and customer metrics to estimate the scale of their business.
+[35]
+[revenue:Resident Home]
+search
+"Nectar Sleep DreamCloud website traffic SimilarWeb customers mattress sales"
+[36]
+[revenue:Resident Home]
+fetched
+8 results · nectarsleep.com Traffic Analytics, Ranking & Audience [October 2025] | Similarweb · How Ne
+[37]
+[revenue:Resident Home]
+Let me get one more search to look for recent revenue or financial performance data.
+[38]
+[revenue:Resident Home]
+search
+""Resident Home" "Ashley acquisition" revenue valuation 2024"
+[39]
+[revenue:Resident Home]
+fetched
+2 results · Ashley Home acquires Nectar mattress owner Resident Home | Retail Dive · Ashley Home acqui
+[40]
+[revenue:Resident Home]
+Based on my investigation of Resident Home, I can now provide a comprehensive revenue estimate based on the behavioral signals I've gathered. ```json { "revenue_estimate": { "low": 400000000, "high": 650000000, "central": 525000000 }, "confidence": "medium", "signals_attempted": 7, "signals_found…
+[41]
+phase
+· revenue:DreamCloud → → DreamCloud (sibling)
+[42]
+[revenue:Ashley Global Retail]
+I'll investigate Ashley Global Retail (ashley.com) to estimate their annual revenue. Let me start by gathering behavioral signals from various sources.
+[43]
+[revenue:Ashley Global Retail]
+search
+"Ashley Furniture ashley.com revenue financial performance"
+[44]
+[revenue:Ashley Global Retail]
+fetched
+10 results · Ashley Furniture Company & Revenue 2015-2027 · ashleyfurniture.com eCommerce Revenue - Gri
+[45]
+[revenue:Ashley Global Retail]
+Now let me search for more specific information about Ashley Furniture's hiring activity and recent business performance to gather additional behavioral signals.
+[46]
+[revenue:Ashley Global Retail]
+search
+"Ashley Furniture employees hiring LinkedIn jobs 2025"
+[47]
+[revenue:Ashley Global Retail]
+fetched
+10 results · Ashley Furniture Industries: Jobs | LinkedIn · 379 Ashley Furniture Industries jobs in Uni
+[48]
+[revenue:Ashley Global Retail]
+Let me search for web traffic data and additional customer/market signals for Ashley Furniture.
+[49]
+[revenue:Ashley Global Retail]
+search
+"ashley.com website traffic similarweb alexa monthly visitors 2025"
+[50]
+[revenue:Ashley Global Retail]
+fetched
+10 results · ashleymadison.com Traffic Analytics, Ranking & Audience [November 2025] | Similarweb · ash
+[51]
+[revenue:Ashley Global Retail]
+Now let me search for one more key piece of information about Ashley's store count and international presence to complete the analysis.
+[52]
+[revenue:Ashley Global Retail]
+search
+"Ashley Furniture store count locations international retail footprint 2025"
+[53]
+[revenue:Ashley Global Retail]
+fetched
+7 results · What is Sales and Marketing Strategy of Ashley Furniture Industries Company? – MatrixBCG.c
+[54]
+[revenue:Ashley Global Retail]
+Based on my research, I now have sufficient behavioral signals to estimate Ashley Global Retail's annual revenue. Let me analyze the gathered data and provide my assessment. ```json { "revenue_estimate": { "low": 9000000000, "high": 12500000000, "central": 10800000000 }, "confidence": "high", "sign…
+[55]
+phase
+· revenue:Awara → → Awara (sibling)
+[56]
+[revenue:Nectar Sleep]
+I'll investigate Nectar Sleep's annual revenue by gathering behavioral signals from the web. Let me start by confirming the entity and gathering key data points.
+[57]
+[revenue:Nectar Sleep]
+search
+"Nectar Sleep nectarsleep.com company revenue funding"
+[58]
+[revenue:Nectar Sleep]
+fetched
+9 results · Nectar Sleep - Crunchbase Company Profile & Funding · Nectarsleep’s Competitors, Revenue,
+[59]
+[revenue:Nectar Sleep]
+Great! I found some very helpful data. Now let me search for more specific signals about hiring, web traffic, and customer reviews to triangulate the revenue estimate.
+[60]
+[revenue:Nectar Sleep]
+search
+"Nectar Sleep LinkedIn employees hiring traffic SimilarWeb"
+[61]
+[revenue:Nectar Sleep]
+fetched
+10 results · nectarsleep.com Traffic Analytics, Ranking & Audience [October 2025] | Similarweb · 7 Nect
+[62]
+[revenue:Nectar Sleep]
+Now let me search for customer reviews and marketplace presence to get more signals.
+[63]
+[revenue:Nectar Sleep]
+search
+"Nectar Sleep reviews Trustpilot G2 Capterra customer count"
+[64]
+[revenue:Nectar Sleep]
+fetched
+10 results · Nectarsleep Reviews | Read Customer Service Reviews of nectarsleep.com · Nectar Sleep Revi
+[65]
+[revenue:Nectar Sleep]
+Let me search for more recent information about the Ashley Home acquisition mentioned in my first search.
+[66]
+[revenue:Nectar Sleep]
+search
+"Nectar Sleep Ashley Home acquisition 2024 Resident Home"
+[67]
+[revenue:Nectar Sleep]
+fetched
+10 results · Ashley Acquiring Resident Home » BedTimes Magazine · Resident Home: Building A Billion Dol
+[68]
+[revenue:Nectar Sleep]
+Now I have comprehensive data to estimate Nectar Sleep's annual revenue. Let me analyze all the signals I've gathered: **Key Signals Found:** 1. **Revenue Data (E-commerce DB)**:
+[69]
+[revenue:Nectar Sleep]
+$168M annual revenue on nectarsleep.com in 2024, with <0% change from previous year
+[70]
+[revenue:Nectar Sleep]
+2. **Historical Growth**:
+[71]
+[revenue:Nectar Sleep]
+Started with $44M in first year (2017), grew 525% to ~$250M in 2018
+[72]
+[revenue:Nectar Sleep]
+.
+[73]
+[revenue:Nectar Sleep]
+Reached over $500M in 2020
+[74]
+[revenue:Nectar Sleep]
+3. **Case Study Claims**:
+[75]
+[revenue:Nectar Sleep]
+Growth from $10M to over $300M annual revenue
+[76]
+[revenue:Nectar Sleep]
+4. **Web Traffic**:
+[77]
+[revenue:Nectar Sleep]
+SimilarWeb shows global rank #27,108, 201-500 employees, $50M-$75M annual revenue estimate, 12.26% traffic decrease
+[78]
+[revenue:Nectar Sleep]
+5. **Ashley Acquisition**:
+[79]
+[revenue:Nectar Sleep]
+Acquired by Ashley Home in Q1 2024
+[80]
+[revenue:Nectar Sleep]
+-
+[81]
+[revenue:Nectar Sleep]
+described as "the most successful DTC mattress exit event in history"
+[82]
+[revenue:Nectar Sleep]
+6. **Customer Reviews**:
+[83]
+[revenue:Nectar Sleep]
+232 Trustpilot reviews (US)
+[84]
+[revenue:Nectar Sleep]
+,
+[85]
+[revenue:Nectar Sleep]
+1,211 Reviews.io reviews with 4.66 average
+[86]
+[revenue:Nectar Sleep]
+,
+[87]
+[revenue:Nectar Sleep]
+~15,000 UK Trustpilot reviews
+[88]
+[revenue:Nectar Sleep]
+7. **Funding**:
+[89]
+[revenue:Nectar Sleep]
+$130M Series B funding for parent company Resident
+[90]
+[revenue:Nectar Sleep]
+8. **Customer Base**:
+[91]
+[revenue:Nectar Sleep]
+Over one million mattresses sold since 2016
+[92]
+[revenue:Nectar Sleep]
+**Analysis:** The most reliable signal is the EcommerceDB data showing
+[93]
+[revenue:Nectar Sleep]
+$168M revenue in 2024
+[94]
+[revenue:Nectar Sleep]
+. However, there are some discrepancies: - Historical growth patterns suggest much higher peak revenue (~$500M in 2020) - The
+[95]
+[revenue:Nectar Sleep]
+flat growth (<0%)
+[96]
+[revenue:Nectar Sleep]
+and
+[97]
+[revenue:Nectar Sleep]
+declining web traffic (-12.26%)
+[98]
+[revenue:Nectar Sleep]
+suggest the company may be past its peak - SimilarWeb's
+[99]
+[revenue:Nectar Sleep]
+$50M-$75M estimate
+[100]
+[revenue:Nectar Sleep]
+seems low compared to other data points - The Ashley acquisition in 2024 suggests continued significant value The revenue likely peaked around 2020-2021 at $400M+ but has since declined due to market saturation and increased competition in the DTC mattress space. ```json { "revenue_estimate": { "low": 140000000…
+[101]
+phase
+· revenue:Siena → → Siena (sibling)
+[102]
+[revenue:DreamCloud]
+I'll investigate DreamCloud's annual revenue by gathering behavioral signals from the web. Let me start by confirming the entity and gathering key signals.
+[103]
+[revenue:DreamCloud]
+search
+"DreamCloud mattress dreamcloudsleep.com company"
+[104]
+[revenue:DreamCloud]
+fetched
+10 results · DreamCloud: Luxury Hybrid Mattresses & Premium Bedding · DreamCloud Hybrid Luxury Mattress
+[105]
+[revenue:DreamCloud]
+Good, I've confirmed that DreamCloud is indeed a luxury mattress company operating at dreamcloudsleep.com. I can see they offer multiple mattress models (Classic, Premier, Luxe, Ultra) with different review counts suggesting varying popularity. Now let me search for more specific revenue signals like funding, traffic d…
+[106]
+[revenue:DreamCloud]
+search
+"DreamCloud mattress company funding revenue Resident Home"
+[107]
+[revenue:DreamCloud]
+fetched
+8 results · DreamCloud Company Overview, Contact Details & Competitors | LeadIQ · Ashley Home acquires
+[108]
+[revenue:DreamCloud]
+Excellent! Now I have some key information about DreamCloud being part of Resident Home, which was acquired by Ashley Home for $1 billion. Let me search for web traffic and customer metrics to round out my analysis.
+[109]
+[revenue:DreamCloud]
+search
+"dreamcloudsleep.com traffic similarweb alexa ranking visitors"
+[110]
+[revenue:DreamCloud]
+fetched
+10 results · alexa.com Traffic Analytics, Ranking & Audience [February 2026] | Similarweb · Website ran
+[111]
+[revenue:DreamCloud]
+My previous search didn't return specific traffic data for dreamcloudsleep.com. Let me try one more specific search to gather pricing information and reviews data.
+[112]
+[revenue:DreamCloud]
+search
+"DreamCloud mattress pricing reviews G2 Trustpilot customer count"
+[113]
+[revenue:DreamCloud]
+fetched
+10 results · DreamCloud Mattress Review 2026 | Expert Tested · DreamCloud Mattress Customer Reviews
+[114]
+[revenue:DreamCloud]
+Now I have comprehensive data to analyze DreamCloud's annual revenue. Let me synthesize all the information I've gathered. ```json { "revenue_estimate": { "low": 140000000, "high": 180000000, "central": 160000000 }, "confidence": "medium", "signals_attempted": 7, "signals_found_count": 6, "sign…
+[115]
+phase
+· revenue:Cloverlane → → Cloverlane (sibling)
+[116]
+[revenue:Awara]
+I'll investigate the annual revenue of Awara (awarasleep.com), a mattress company. Let me start by gathering behavioral signals from multiple sources.
+[117]
+[revenue:Awara]
+search
+"Awara mattress awarasleep.com revenue funding"
+[118]
+[revenue:Awara]
+fetched
+10 results · Awara Sleep - Overview, News & Similar companies | ZoomInfo.com · Awara Sleep Owner, Exact
+[119]
+[revenue:Awara]
+Now let me search for more specific traffic and pricing information:
+[120]
+[revenue:Awara]
+search
+"awarasleep.com pricing mattress cost similarweb traffic"
+[121]
+[revenue:Awara]
+fetched
+9 results · Total Value - Pricing & Savings | AwaraSleep · Awarasleep
+[122]
+[revenue:Awara]
+Let me search for current pricing information and review counts:
+[123]
+[revenue:Awara]
+search
+"Awara mattress queen king prices 2024 2025 reviews count"
+[124]
+[revenue:Awara]
+fetched
+10 results · Awara Mattress Review and Prices 2024: Quality, Material, Sizes, Warranty · Awara Mattress
+[125]
+[revenue:Awara]
+Let me search for customer reviews and company background information to assess the scale of operations:
+[126]
+[revenue:Awara]
+search
+""Awara Sleep" "Resident Home" company employees headquarters funding"
+[127]
+[revenue:Awara]
+fetched
+6 results · Resident Home LLC | Mattress & Bedding Industry Leader · Terms and Conditions | Resident H
+[128]
+[revenue:Awara]
+Based on my research, I now have enough data to provide a comprehensive revenue estimate for Awara Sleep. Let me analyze the signals I've gathered: ## Signals Found: 1. **Direct Revenue Data**:
+[129]
+[revenue:Awara]
+Grips Intelligence reports awarasleep.com's annual sales on its online store amounted to $9.2M in 2024, up 20-50% from the previous year. For 2025, revenue is expected to decline by 5-10%
+[130]
+[revenue:Awara]
+2. **Company Size**:
+[131]
+[revenue:Awara]
+ZoomInfo lists Awara Sleep's revenue as <$5 Million and has 1-10 employees
+[132]
+[revenue:Awara]
+3. **Monthly Traffic & Revenue**:
+[133]
+[revenue:Awara]
+In October 2025, awarasleep.com generated a revenue of $666,086 from 728 transactions with 40,415 sessions, boasting an average order value (AOV) of $900-$925 and a conversion rate of 1.50-2.00%
+[134]
+[revenue:Awara]
+4. **Pricing Information**:
+[135]
+[revenue:Awara]
+Current queen mattress prices are $949 for the original Awara and $1,329 for the Awara Premier
+[136]
+[revenue:Awara]
+5. **Parent Company**:
+[137]
+[revenue:Awara]
+Resident Home LLC operates several well-known brands, including Nectar Sleep, DreamCloud Sleep, and Awara Sleep
+[138]
+[revenue:Awara]
+6. **Product Range**:
+[139]
+[revenue:Awara]
+Awara Sleep is a Shopify store based in Mountain View, US, with 19 products published across 5 collections
+[140]
+[revenue:Awara]
+There's a significant discrepancy between the Grips Intelligence data showing $9.2M in 2024 revenue and ZoomInfo's estimate of <$5M. Given that the Grips data is more recent and specific to ecommerce performance, and considering the monthly revenue figure of ~$666K (which would annualize to ~$8M), the higher figure app…
+[141]
+[revenue:Siena]
+I'll investigate the annual revenue of "Siena" for you. Let me start by disambiguating which Siena entity you're referring to, then gather behavioral signals to estimate their revenue.
+[142]
+[revenue:Siena]
+search
+"Siena company business revenue"
+[143]
+[revenue:Siena]
+fetched
+10 results · Siena AI 2026 Company Profile: Valuation, Funding & Investors | PitchBook · How Siena AI h
+[144]
+[revenue:Siena]
+I can see there are multiple "Siena" companies in the search results. Let me gather more specific information about the most prominent ones to get better behavioral signals.
+[145]
+[revenue:Siena]
+search
+"Siena AI customer support automation funding hiring"
+[146]
+[revenue:Siena]
+fetched
+10 results · Siena AI raises $4.7M to develop an empathic AI customer service agent | TechCrunch · Sien
+[147]
+[revenue:Siena]
+Now let me get more information about Siena AI's customer base and pricing to triangulate their revenue better.
+[148]
+[revenue:Siena]
+search
+"Siena AI pricing customers enterprise deals"
+[149]
+[revenue:Siena]
+fetched
+10 results · Pricing | Siena AI · Siena AI review: features, pricing, and who it's actually for (2026)
+[150]
+[revenue:Siena]
+Now let me gather one more piece of information about Siena AI's competitors and market position to better triangulate their revenue.
+[151]
+[revenue:Siena]
+search
+""Siena AI" competitors Gorgias Zendesk market share customers"
+[152]
+[revenue:Siena]
+fetched
+10 results · The Best 6 Siena AI Alternatives to Automate Ecommerce Customer… · I tested every Siena AI
+[153]
+[revenue:Siena]
+Based on my research, I can now provide a comprehensive revenue estimate for Siena AI. Here's my analysis: ```json { "revenue_estimate": { "low": 4000000, "high": 8000000, "central": 6000000 }, "confidence": "medium", "signals_attempted": 7, "signals_found_count": 6, "signals_found": [ { …
+[154]
+[revenue:Siena]
+Latka's report that "Siena AI hit $5.9M in revenue in June 2025"
+[155]
+[revenue:Siena]
+, which aligns well with other behavioral indicators.
+[156]
+[revenue:Siena]
+Their pricing model of "$750/month platform fee plus $0.90 per automated ticket"
+[157]
+[revenue:Siena]
+combined with
+[158]
+[revenue:Siena]
+65+ customers including brands like Kitsch, Simple Modern and Everyday Dose
+[159]
+[revenue:Siena]
+supports this revenue range. The company has raised
+[160]
+[revenue:Siena]
+$4.7 million in seed funding from Sierra Ventures, Pari Passu Ventures, and others
+[161]
+[revenue:Siena]
+, though some sources suggest additional funding rounds. They have
+[162]
+[revenue:Siena]
+54-59 employees
+[163]
+[revenue:Siena]
+and are
+[164]
+[revenue:Siena]
+actively hiring with 14 open positions
+[165]
+[revenue:Siena]
+, indicating growth momentum. Their pricing targets enterprise customers handling significant ticket volumes, with
+[166]
+[revenue:Siena]
+customer examples typically being brands handling thousands of tickets monthly
+[167]
+[revenue:Siena]
+. This B2B SaaS model with conversation-based pricing supports the reported revenue figures.
+[168]
+[revenue:Cloverlane]
+I'll investigate the annual revenue of Cloverlane. Let me start by disambiguating which entity this refers to and then gather behavioral signals.
+[169]
+[revenue:Cloverlane]
+search
+"Cloverlane company business"
+[170]
+[revenue:Cloverlane]
+fetched
+9 results · Cloverlane Home | BBB Business Profile | Better Business Bureau · CLOVER LANE Inc Company
+[171]
+[revenue:Cloverlane]
+Now I have a clear picture.
+[172]
+[revenue:Cloverlane]
+Cloverlane is a luxury mattress brand launched by Resident Home in February 2024, and Resident Home's brands include Nectar, DreamCloud, Siena, Awara, and Cloverlane
+[173]
+[revenue:Cloverlane]
+.
+[174]
+[revenue:Cloverlane]
+The company has discontinued its mattress line but continues to provide warranty support
+[175]
+[revenue:Cloverlane]
+. Let me search for more information about Resident Home and the parent company to understand the revenue context better.
+[176]
+[revenue:Cloverlane]
+search
+"Resident Home revenue funding Nectar DreamCloud"
+[177]
+[revenue:Cloverlane]
+fetched
+8 results · Ashley Home acquires Nectar mattress owner Resident Home | Retail Dive · Resident raises $
+[178]
+[revenue:Cloverlane]
+Excellent! Now I have much clearer information. Let me search for more recent information about Cloverlane specifically and any traffic/performance data.
+[179]
+[revenue:Cloverlane]
+search
+"Cloverlane.com traffic site analytics discontinued 2024"
+[180]
+[revenue:Cloverlane]
+fetched
+10 results · cloverlane.com Traffic Analytics, Ranking Stats & Tech Stack · clover.com Traffic Analytic
+[181]
+[revenue:Cloverlane]
+Let me search for any recent news or updates about Cloverlane's performance after its discontinuation.
+[182]
+[revenue:Cloverlane]
+search
+""Cloverlane mattress" discontinued "Resident Home" 2024 sales"
+[183]
+[revenue:Cloverlane]
+fetched
+3 results · Resident Home Launches Luxury Lifestyle Brand, Cloverlane · Cloverlane Mattress: Independe
+[184]
+[revenue:Cloverlane]
+Based on my research, I now have comprehensive information about Cloverlane. Let me analyze the signals and provide my revenue estimate. ```json { "revenue_estimate": { "low": 2000000, "high": 8000000, "central": 4000000 }, "confidence": "low", "signals_attempted": 6, "signals_found_count": 4, …
+[185]
+phase
+· synthesis → merging ownership + revenue → positioning
+[186]
+phase
+· done → investigation complete
