@@ -1210,6 +1210,22 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
     notes.push(`${tree.parent?.company || 'Parent'} is not publicly traded — no 10-K anchor available; reconciliation uses estimates only.`);
   }
 
+  // Task #43: surface prior joint-venture history captured by the agent in
+  // model-provided "notes" on the focal or any parent layer (Step 6.7).
+  // Pattern: a sentence describing prior JV owners + stakes + consolidation
+  // year (e.g. "Prior joint venture: Disney 67% / Comcast 33% — consolidated
+  // by Disney in 2023..."). Promote so users see it in strategic_notes; raw
+  // node.notes already flows through the tree unchanged.
+  const jvHistoryRe = /\b(joint[\s-]?venture|jv)\b[\s\S]{0,200}?\b(consolidat|buyout|bought\s+out|acquir)/i;
+  const jvLayers = [tree, ...(function chain(n) { const out = []; let p = n?.parent; while (p) { out.push(p); p = p.parent; } return out; })(tree)];
+  jvLayers.forEach((node) => {
+    const txt = (node && typeof node.notes === 'string') ? node.notes.trim() : '';
+    if (!txt || !jvHistoryRe.test(txt)) return;
+    const label = node === tree ? tree.company : node.company;
+    const already = notes.some((n) => n.includes(txt));
+    if (!already) notes.push(`Prior JV history (${label}): ${txt}`);
+  });
+
   const strategic_notes = notes.length > 0 ? notes : ['No distinctive structural signals captured.'];
 
   return {

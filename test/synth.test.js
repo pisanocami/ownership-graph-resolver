@@ -487,6 +487,84 @@ test('Round 2: Activision Publishing vs Activision Blizzard with distinct revenu
   assert.ok(consistencyHit, 'subsidiary-out-earns-owner check still flags the pair');
 });
 
+// ─── Task #43: prior JV history surfaced in notes for consolidated subsidiaries ──
+
+test('Task #43: Hulu prior JV (Disney 67% / Comcast 33%, 2023 consolidation) surfaces in strategic_notes', () => {
+  const ownership = {
+    company: 'Hulu',
+    domain: 'hulu.com',
+    node_type: 'operating_brand',
+    notes: 'Prior joint venture: Disney 67% / Comcast (NBCUniversal) 33% — consolidated by Disney in 2023 via $8.61B buyout of NBCUniversal\'s stake.',
+    acquisition: {
+      acquired_by: 'The Walt Disney Company',
+      year: 2023,
+      price_usd: 8_610_000_000,
+      price_display: '$8.61B',
+      deal_type: 'all_cash',
+      source_url: 'https://thewaltdisneycompany.com/...',
+    },
+    parent: {
+      company: 'The Walt Disney Company',
+      domain: 'thewaltdisneycompany.com',
+      ticker: 'DIS',
+      parent: null,
+    },
+  };
+  const out = synthesize(ownership, {}, null, {});
+  // Raw model notes preserved on the focal node (tree → UI/JSON/PDF flow).
+  assert.match(out.ownership_tree.notes, /Disney 67%.*Comcast.*33%/);
+  // Promoted into strategic_notes so users see the prior configuration.
+  const hit = out.positioning_analysis.strategic_notes.some(
+    (n) => /Prior JV history \(Hulu\)/.test(n) && /Disney 67%.*Comcast.*33%/.test(n) && /2023/.test(n)
+  );
+  assert.ok(hit, 'JV-history note promoted to strategic_notes');
+  // acquisition.price_usd remains the FINAL consolidating deal only — not a
+  // historical aggregate of every Hulu transaction back to 2009.
+  assert.equal(out.ownership_tree.acquisition.price_usd, 8_610_000_000);
+  assert.equal(out.ownership_tree.acquisition.year, 2023);
+});
+
+test('Task #43: a parent-layer JV-history note is also promoted (e.g. SonyBMG era on the parent)', () => {
+  const ownership = {
+    company: 'Some Sony Music Label',
+    parent: {
+      company: 'Sony Music Entertainment',
+      notes: 'Prior joint venture: Sony 50% / Bertelsmann 50% (SonyBMG) — consolidated by Sony in 2008 buyout of Bertelsmann\'s stake.',
+      parent: null,
+    },
+  };
+  const out = synthesize(ownership, {}, null, {});
+  const hit = out.positioning_analysis.strategic_notes.some(
+    (n) => /Prior JV history \(Sony Music Entertainment\)/.test(n) && /Bertelsmann/.test(n)
+  );
+  assert.ok(hit, 'parent-layer JV history surfaces too');
+});
+
+test('Task #43: regex does not match incidental "jv" substrings or unrelated acquisition mentions', () => {
+  const ownership = {
+    company: 'Acme',
+    notes: 'Acme acquired SomeCo in 2022 — no JVs ever existed in this lineage.',
+    parent: { company: 'Acme Holdings', parent: null },
+  };
+  const out = synthesize(ownership, {}, null, {});
+  const hit = out.positioning_analysis.strategic_notes.some((n) => /Prior JV history/.test(n));
+  assert.equal(hit, false, 'lone "JVs" mention without consolidation pairing must not promote');
+});
+
+test('Task #43: nodes without JV-history notes do NOT trigger the surface', () => {
+  // T16 regression guard — Patagonia's co_owners flow must remain unaffected
+  // by the JV-history surface (the notes there describe a current steward-
+  // ownership transition, not a prior JV consolidation).
+  const ownership = {
+    company: 'Patagonia',
+    notes: 'Holdfast Collective captured as economic_beneficiary co-owner; Purpose Trust kept as parent because it holds 100% voting power.',
+    parent: { company: 'Patagonia Purpose Trust', parent: null },
+  };
+  const out = synthesize(ownership, {}, null, {});
+  const hit = out.positioning_analysis.strategic_notes.some((n) => /Prior JV history/.test(n));
+  assert.equal(hit, false, 'co-owner transition note must not be misread as JV history');
+});
+
 test('Round 2: the guard never clears the focal\'s own revenue even when an ancestor matches', () => {
   // Pathological case: focal "Patagonia" and parent "Patagonia Purpose Trust"
   // share the token AND a 100%-pass-through revenue. The focal must NOT be
