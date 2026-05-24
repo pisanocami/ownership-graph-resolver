@@ -2059,8 +2059,16 @@ const GraphView = React.forwardRef(({ tree, selectedKey, onSelect, theme }, ref)
           scale: 2,
           useCORS: true,
           allowTaint: true,
+          logging: false,
         });
-        return canvas.toDataURL('image/png');
+        const dataUrl = canvas.toDataURL('image/png');
+        // Return both the image data and aspect ratio for proper PDF embedding
+        return {
+          imageData: dataUrl,
+          width: canvas.width,
+          height: canvas.height,
+          aspectRatio: canvas.width / canvas.height,
+        };
       } catch (err) {
         console.error('Failed to export SVG:', err);
         return null;
@@ -2890,12 +2898,12 @@ async function generatePDF(result, svgImage = null) {
     text(`${chain.length + 1} ownership level${chain.length > 0 ? 's' : ''} from ultimate parent to ${focal}.`,
       { size: 8.5, style: 'italic', color: C.muted, gap: 3 });
 
-    if (svgImage) {
-      // Embed the ReactFlow SVG as a high-quality PNG image
+    if (svgImage && svgImage.imageData) {
+      // Embed the ReactFlow SVG as a high-quality PNG image with actual aspect ratio
       const imgW = contentW;
-      const imgH = (imgW * 9) / 16; // aspect ratio; adjust if needed
+      const imgH = imgW / svgImage.aspectRatio;
       ensure(imgH + 4);
-      pdf.addImage(svgImage, 'PNG', margin, y, imgW, imgH);
+      pdf.addImage(svgImage.imageData, 'PNG', margin, y, imgW, imgH);
       y += imgH + 4;
     } else {
       // Fallback: render with jsPDF primitives
