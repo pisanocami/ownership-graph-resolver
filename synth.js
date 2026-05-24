@@ -1181,15 +1181,53 @@ function buildReconciliationExplanation({ ratio, tree, siblings, parentAnchor })
 // `options.seed` parameter is plumbed through and stamped onto the result so
 // callers can prove run-to-run identity, and so the in-session revenue cache
 // (createRevenueCache) can key against the same seed.
-export function createRevenueCache() {
+// X.03 / P-NEW.7: revenue numbers must not drift between runs. The in-memory
+// Map stabilizes a single session; opt-in persistence (localStorage, browser
+// only) carries the cache across reloads and re-runs so the same focal returns
+// the same revenue until the entry's TTL expires. No-ops safely under Node (no
+// localStorage), so tests and the deterministic harness are unaffected.
+export function createRevenueCache(options = {}) {
+  const {
+    persist = false,
+    storageKey = 'ogr_revenue_cache_v1',
+    ttlMs = 1000 * 60 * 60 * 24 * 7,
+  } = options;
   const store = new Map();
+  const times = new Map();
   const norm = (k) => String(k || '').toLowerCase().trim();
+  const ls = persist && typeof localStorage !== 'undefined' ? localStorage : null;
+
+  if (ls) {
+    try {
+      const raw = ls.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const now = Date.now();
+        Object.entries(parsed).forEach(([k, entry]) => {
+          if (entry && typeof entry === 'object' && (!entry.t || now - entry.t < ttlMs)) {
+            store.set(k, entry.v);
+            times.set(k, entry.t || now);
+          }
+        });
+      }
+    } catch (_e) { /* corrupt cache — start clean */ }
+  }
+
+  const flush = () => {
+    if (!ls) return;
+    try {
+      const obj = {};
+      store.forEach((v, k) => { obj[k] = { v, t: times.get(k) || Date.now() }; });
+      ls.setItem(storageKey, JSON.stringify(obj));
+    } catch (_e) { /* quota / serialization — non-fatal */ }
+  };
+
   return {
     has: (k) => store.has(norm(k)),
     get: (k) => store.get(norm(k)),
-    set: (k, v) => { store.set(norm(k), v); return v; },
+    set: (k, v) => { const nk = norm(k); store.set(nk, v); times.set(nk, Date.now()); flush(); return v; },
     size: () => store.size,
-    clear: () => store.clear(),
+    clear: () => { store.clear(); times.clear(); if (ls) { try { ls.removeItem(storageKey); } catch (_e) { /* ignore */ } } },
   };
 }
 
@@ -1451,6 +1489,22 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
     if (benchmark > 0) {
       const ratio = sumChildCentralAdj / benchmark;
       const pctDelta = Math.round((ratio - 1) * 100);
+      // P-NEW.8: a private parent benchmark is an estimate, not a filing. Express
+      // the coverage gap as a RANGE bracketed by the parent's own low/high
+      // estimate so the brief avoids false precision (e.g. "-85% to -95%" rather
+      // than a single "-91%"). Only when the benchmark is the parent's estimate.
+      let pct_delta_range;
+      let benchmark_range;
+      if (benchmarkSource === 'estimated') {
+        const pLow = tree.parent?.revenue_estimate?.low || 0;
+        const pHigh = tree.parent?.revenue_estimate?.high || 0;
+        if (pLow > 0 && pHigh > 0 && pHigh !== pLow) {
+          const deltaAtHigh = Math.round((sumChildCentralAdj / pHigh - 1) * 100);
+          const deltaAtLow = Math.round((sumChildCentralAdj / pLow - 1) * 100);
+          pct_delta_range = [Math.min(deltaAtHigh, deltaAtLow), Math.max(deltaAtHigh, deltaAtLow)];
+          benchmark_range = [pLow, pHigh];
+        }
+      }
       reconciliation = {
         sum_children_central: sumChildCentralAdj,
         parent_benchmark: benchmark,
@@ -1460,6 +1514,8 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
         parent_total_revenue: anchorTotal > 0 ? anchorTotal : null,
         ratio: Number(ratio.toFixed(3)),
         pct_delta: pctDelta,
+        pct_delta_range,
+        benchmark_range,
         focal_segment_revenue: focalSegmentRev || null,
         children_counted: childrenCounted,
         consolidated_siblings: consolidated_siblings.length ? consolidated_siblings : undefined,

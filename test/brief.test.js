@@ -27,6 +27,10 @@ import {
   buildCapitalPathSummaryText,
   buildActionableReads,
   sanitizeForPdf,
+  derivePublicAncestor,
+  deriveCapitalDecision,
+  refreshCompetitiveSectionConfidence,
+  lookupPeerEvToRevenue,
 } from '../brief.js';
 import { synthesize } from '../synth.js';
 
@@ -538,4 +542,113 @@ test('V2.1 integration: buildIntelligenceBrief return shape includes all new fie
   assert.ok('excluded_with_reason' in b.data_trace);
   assert.ok('primary_used' in b.data_trace);
   assert.ok('known_gaps_starred' in b.confidence_gaps);
+});
+
+// ─── Sprint v2.2: brand-in-public (P-NEW.1/2) ─────────────────────────────
+
+test('derivePublicAncestor: ticker on a node up the chain', () => {
+  const tree = { company: 'Brand', parent: { company: 'Sub', parent: { company: 'TopCo', ticker: 'TOP' } } };
+  const pa = derivePublicAncestor(tree);
+  assert.equal(pa.company, 'TopCo');
+  assert.equal(pa.ticker, 'TOP');
+});
+
+test('derivePublicAncestor: ticker only in the parent 10-K anchor (Doritos/PEP shape)', () => {
+  const tree = { company: 'Doritos', parent: { company: 'Frito-Lay', parent: { company: 'PepsiCo, Inc.' } } };
+  const pa = derivePublicAncestor(tree, { is_public: true, ticker: 'PEP' });
+  assert.ok(pa);
+  assert.equal(pa.company, 'PepsiCo, Inc.');
+  assert.equal(pa.ticker, 'PEP');
+});
+
+test('derivePublicAncestor: private chain → null', () => {
+  const tree = { company: 'MSC Cruises', parent: { company: 'MSC Group' } };
+  assert.equal(derivePublicAncestor(tree, { is_public: false }), null);
+});
+
+test('deriveCapitalDecision: brand embedded in public parent → brand_in_public (not "Actionable")', () => {
+  const tree = { company: 'Doritos', node_type: 'operating_brand', parent: { company: 'Frito-Lay', parent: { company: 'PepsiCo' } } };
+  const cap = deriveCapitalDecision(tree, { is_public: true, ticker: 'PEP' });
+  assert.equal(cap.reason, 'brand_in_public');
+  assert.equal(cap.decision, 'Embedded in parent ticker');
+});
+
+test('deriveCapitalDecision: focal with its OWN ticker stays Actionable', () => {
+  const tree = { company: 'PublicCo', ticker: 'PUB', parent: { company: 'Holding', ticker: 'HLD' } };
+  const cap = deriveCapitalDecision(tree, { is_public: true, ticker: 'HLD' });
+  assert.equal(cap.reason, 'public_listing');
+  assert.equal(cap.decision, 'Actionable');
+});
+
+test('deriveCapitalDecision: family-100% lock dominates a public ancestor', () => {
+  const tree = { company: 'Brand', parent: { company: 'Aponte Family', node_type: 'individual', ownership_pct: 100 } };
+  const cap = deriveCapitalDecision(tree, { is_public: true, ticker: 'XXX' });
+  assert.equal(cap.reason, 'family_concentrated_100pct');
+});
+
+test('buildCapitalPathSummaryText: brand_in_public → "Brand within … Not separately tradeable"', () => {
+  const tree = { company: 'Doritos', signals_found: [] };
+  const cap = { decision: 'Embedded in parent ticker', reason: 'brand_in_public' };
+  const pa = { company: 'PepsiCo, Inc.', ticker: 'PEP' };
+  const s = buildCapitalPathSummaryText(tree, { is_family: false }, cap, pa);
+  assert.match(s, /Brand within PepsiCo, Inc\. \(PEP\)/);
+  assert.match(s, /Not separately tradeable/);
+});
+
+test('buildDiscountDecomposition: public ancestor → embed component, no illiquidity', () => {
+  const tree = { company: 'Doritos', revenue_estimate: { central: 3e9 }, parent: { company: 'Frito-Lay' } };
+  const dec = buildDiscountDecomposition(tree, { company: 'PepsiCo', ticker: 'PEP' });
+  assert.ok(dec);
+  assert.ok(dec.components.some((c) => /embed|not separately tradeable/i.test(c.label)));
+  assert.ok(!dec.components.some((c) => c.label === 'Illiquidity'));
+});
+
+test('salty_snacks catalog: tortilla-chip focal gets a peer set', () => {
+  assert.equal(detectSector({ company: 'Doritos', category: 'Flavored Tortilla Chips' }), 'salty_snacks');
+  const pm = buildPeerMultiplesFromCatalog({ company: 'Doritos', category: 'Flavored Tortilla Chips' });
+  assert.ok(pm && pm.peers.length >= 4);
+});
+
+test('lookupPeerEvToRevenue: matches a discovered peer by name token', () => {
+  const tree = { company: 'Doritos', category: 'Flavored Tortilla Chips' };
+  assert.equal(lookupPeerEvToRevenue(tree, 'Mondelez International'), 3.5);
+  assert.equal(lookupPeerEvToRevenue(tree, 'Some Unknown Brand'), null);
+});
+
+// ─── Sprint v2.2: reconciliation range + sibling flags (P-NEW.6/8) ────────
+
+test('classifyReconciliation: benchmark range surfaces a delta range', () => {
+  const recon = {
+    sum_children_central: 1000, parent_benchmark: 6000, ratio: 0.167, pct_delta: -83,
+    pct_delta_range: [-85, -81], benchmark_range: [5500, 6500],
+  };
+  const out = classifyReconciliation(recon, { parent: { company: 'MSC Group' }, siblings: [] });
+  assert.deepEqual(out.raw_numbers.delta_pct_range, [-85, -81]);
+  assert.match(out.honest_explanation, /-85% to -81%/);
+});
+
+test('classifyReconciliation: material shortfall flags low/missing-estimate siblings', () => {
+  const recon = { sum_children_central: 300, parent_benchmark: 1000, ratio: 0.3, pct_delta: -70 };
+  const tree = {
+    parent: { company: 'P' },
+    siblings: [
+      { company: 'HasEstimate', revenue_estimate: { central: 200, confidence: 'high' } },
+      { company: 'NoEstimate' },
+      { company: 'LowConf', revenue_estimate: { central: 50, confidence: 'low' } },
+    ],
+  };
+  const out = classifyReconciliation(recon, tree);
+  assert.ok(out.siblings_likely_understated.includes('NoEstimate'));
+  assert.ok(out.siblings_likely_understated.includes('LowConf'));
+});
+
+test('refreshCompetitiveSectionConfidence: bumps stars once peers attach', () => {
+  const brief = {
+    section_confidence: { competitive_context: { stars: '*', reason: 'Discovery phase' }, mispricing: { stars: '*', reason: 'No peer set' } },
+    competitive_context: [{ competitor: 'A' }, { competitor: 'B' }],
+    mispricing: { peer_multiples: { source: 'discovered', peers: [] } },
+  };
+  refreshCompetitiveSectionConfidence(brief);
+  assert.equal(brief.section_confidence.competitive_context.stars, '***');
+  assert.equal(brief.section_confidence.mispricing.stars, '***');
 });

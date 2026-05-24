@@ -99,7 +99,15 @@ export function classifyReconciliation(recon, tree) {
     honest_explanation = `Focal + siblings reconcile within ${Math.abs(recon.pct_delta)}% of parent benchmark.`;
   }
 
-  const siblings_likely_overstated = (tree.siblings || [])
+  // P-NEW.8: when the parent benchmark is itself an estimate range (private
+  // parent, no 10-K), express the coverage gap as a range rather than a single
+  // false-precision number.
+  if (Array.isArray(recon.pct_delta_range) && recon.pct_delta_range.length === 2) {
+    const [lo, hi] = recon.pct_delta_range;
+    honest_explanation = `${honest_explanation} Parent benchmark is an estimate range, so the true gap spans ${lo > 0 ? '+' : ''}${lo}% to ${hi > 0 ? '+' : ''}${hi}%.`;
+  }
+
+  let siblings_likely_overstated = (tree.siblings || [])
     .filter((s) => {
       const hasLowConfidence = s.revenue_estimate?.confidence === 'low';
       const isCircular = recon.circular_siblings?.includes(s.company);
@@ -108,7 +116,7 @@ export function classifyReconciliation(recon, tree) {
     })
     .map((s) => s.company);
 
-  const siblings_likely_understated = (tree.siblings || [])
+  let siblings_likely_understated = (tree.siblings || [])
     .filter((s) => {
       const inCurrentSources = s.in_current_sources === true;
       const noEstimate = !s.revenue_estimate?.central;
@@ -116,11 +124,31 @@ export function classifyReconciliation(recon, tree) {
     })
     .map((s) => s.company);
 
+  // P-NEW.6: when a MATERIAL gap exists but the strong rules above flagged
+  // nobody, surface the likeliest culprits so the gap is never left unexplained.
+  // Overshoot → the largest-estimate siblings dominate the sum; shortfall →
+  // siblings carrying weak/missing estimates are the likeliest to be understated.
+  const delta = recon.pct_delta || 0;
+  if (delta > 20 && siblings_likely_overstated.length === 0) {
+    siblings_likely_overstated = (tree.siblings || [])
+      .filter((s) => (s.revenue_estimate?.central || 0) > 0)
+      .sort((a, b) => (b.revenue_estimate.central || 0) - (a.revenue_estimate.central || 0))
+      .slice(0, 2)
+      .map((s) => s.company);
+  }
+  if (delta < -20 && siblings_likely_understated.length === 0) {
+    siblings_likely_understated = (tree.siblings || [])
+      .filter((s) => !s.revenue_estimate?.central || s.revenue_estimate?.confidence === 'low')
+      .map((s) => s.company);
+  }
+
   return {
     raw_numbers: {
       sum_siblings: recon.sum_children_central,
       anchor: recon.parent_benchmark,
+      anchor_range: recon.benchmark_range || null,
       delta_pct: recon.pct_delta,
+      delta_pct_range: recon.pct_delta_range || null,
     },
     interpretation,
     honest_explanation,
@@ -327,17 +355,30 @@ export function detectFamilyConcentrated(tree) {
   );
   if (familyNode) {
     const pct = Number(familyNode.ownership_pct) || 100;
-    // Gather other individuals along the chain or in co_owners that share the
-    // dominant surname — gives us a multi-member detail table (Aponte 4).
-    const candidates = [familyNode, ...chain.filter((n) => n.node_type === 'individual'), ...co.filter((c) => c.node_type === 'individual')]
-      .filter((n, i, arr) => arr.findIndex((m) => m.company === n.company) === i);
-    const sn = surnameOf(familyNode.company);
-    const sameSurname = candidates.filter((c) => sn && surnameOf(c.company) === sn);
-    const members = (sameSurname.length >= 2 ? sameSurname : [familyNode]).map((c) => ({
-      name: c.company,
-      role: c.role || c.ownership_role || (c === familyNode ? 'Founder / Owner' : 'Family member'),
-      est_stake: c.ownership_pct ? `${c.ownership_pct}%` : (c === familyNode ? `${pct}%` : 'undisclosed'),
-    }));
+    let members;
+    // P3.01: prefer the LLM-enumerated family_members list when present, so the
+    // detail table shows the individual members (Gianluigi/Rafaela/Diego/Alexa
+    // Aponte) rather than a single "X Family" row.
+    if (Array.isArray(familyNode.family_members) && familyNode.family_members.length > 0) {
+      members = familyNode.family_members.map((m) => ({
+        name: m.name || m.company || 'Family member',
+        role: m.role || m.ownership_role || 'Family member',
+        est_stake: m.est_stake || (m.est_stake_pct != null ? `${m.est_stake_pct}%` : (m.ownership_pct != null ? `${m.ownership_pct}%` : 'undisclosed')),
+      }));
+    } else {
+      // Gather other individuals along the chain or in co_owners that share the
+      // dominant surname — gives us a multi-member detail table (Aponte 4).
+      const candidates = [familyNode, ...chain.filter((n) => n.node_type === 'individual'), ...co.filter((c) => c.node_type === 'individual')]
+        .filter((n, i, arr) => arr.findIndex((m) => m.company === n.company) === i);
+      const snLocal = surnameOf(familyNode.company);
+      const sameSurname = candidates.filter((c) => snLocal && surnameOf(c.company) === snLocal);
+      members = (sameSurname.length >= 2 ? sameSurname : [familyNode]).map((c) => ({
+        name: c.company,
+        role: c.role || c.ownership_role || (c === familyNode ? 'Founder / Owner' : 'Family member'),
+        est_stake: c.ownership_pct ? `${c.ownership_pct}%` : (c === familyNode ? `${pct}%` : 'undisclosed'),
+      }));
+    }
+    const sn = surnameOf(familyNode.company) || (members[0] ? surnameOf(members[0].name) : null);
     return {
       is_family: true,
       total_pct: pct,
@@ -395,21 +436,53 @@ export function detectMaAttention(tree) {
   return 'none';
 }
 
+// ─── Public-ancestor detection (P-NEW.1) ──────────────────────────────────
+// The nearest publicly-traded entity at or above the focal. Its ticker may sit
+// on a tree node (tree.parent.ticker) OR — more commonly — only in the parent
+// 10-K anchor (e.g. Doritos: "PEP" lives in parentAnchor, not on any node).
+// Returns null when nothing in the chain is public.
+export function derivePublicAncestor(tree, parentAnchor = null) {
+  if (!tree) return null;
+  let node = tree.parent;
+  while (node) {
+    if (node.ticker || node.public_listing) {
+      return { company: node.company, ticker: node.ticker || null, source: 'node' };
+    }
+    node = node.parent;
+  }
+  if (parentAnchor && parentAnchor.is_public) {
+    let top = tree.parent;
+    while (top && top.parent) top = top.parent;
+    return {
+      company: top?.company || tree.parent?.company || 'parent company',
+      ticker: parentAnchor.ticker || null,
+      source: 'anchor',
+    };
+  }
+  return null;
+}
+
 // ─── Capital Decision Derivation (full taxonomy) ──────────────────────────
 // Perfect Brief V2.1 §1: capital_decision drives the verdict label. Family-only
-// 100% with no public path → "NOT ACTIONABLE AS STANDALONE", no exceptions.
-export function deriveCapitalDecision(tree) {
+// 100% with no public path → "NOT ACTIONABLE AS STANDALONE". A brand embedded in
+// a public conglomerate with no ticker of its own is "Embedded in parent ticker"
+// — held/comparable, not separately tradeable (P-NEW.1).
+export function deriveCapitalDecision(tree, parentAnchor = null) {
   if (!tree) return { decision: 'Watch', reason: 'no_tree' };
   const family = detectFamilyConcentrated(tree);
-  const hasPublicTicker = !!(tree.ticker || tree.parent?.ticker || tree.public_listing);
+  const focalOwnTicker = !!(tree.ticker || tree.public_listing);
+  const publicAncestor = derivePublicAncestor(tree, parentAnchor);
   const hasPendingMA = !!tree.pending_acquisition?.acquirer;
   const isPE = tree.terminal_layer === 'private_equity' || tree.parent?.terminal_layer === 'private_equity';
 
   if (hasPendingMA) return { decision: 'Watch', reason: 'pending_acquisition' };
-  if (hasPublicTicker) return { decision: 'Actionable', reason: 'public_listing' };
-  if (isPE) return { decision: 'Actionable via sponsor', reason: 'pe_owned' };
+  if (focalOwnTicker) return { decision: 'Actionable', reason: 'public_listing' };
   if (family.is_family && family.total_pct >= 95) {
     return { decision: 'Not actionable as standalone', reason: 'family_concentrated_100pct' };
+  }
+  if (isPE) return { decision: 'Actionable via sponsor', reason: 'pe_owned' };
+  if (publicAncestor) {
+    return { decision: 'Embedded in parent ticker', reason: 'brand_in_public' };
   }
   if (tree.co_owners && tree.co_owners.length > 0 && !tree.parent) {
     return { decision: 'Not actionable as standalone', reason: 'multi_owner_no_parent' };
@@ -423,7 +496,7 @@ export function deriveCapitalDecision(tree) {
 // ─── Verdict changers — "What would make this actionable" ─────────────────
 // Perfect Brief V2.1 §1: when capital_decision is NOT actionable, surface 2–4
 // concrete events that would flip it to actionable.
-export function buildVerdictChangers(tree, capitalDecision) {
+export function buildVerdictChangers(tree, capitalDecision, publicAncestor = null) {
   const out = [];
   const family = detectFamilyConcentrated(tree);
   if (capitalDecision?.reason === 'family_concentrated_100pct' && family.surname) {
@@ -431,6 +504,13 @@ export function buildVerdictChangers(tree, capitalDecision) {
     out.push(`${surname} family announces partial sale or IPO of the operating division.`);
     out.push(`Holding-company restructuring that separates the focal segment from the wider group.`);
     out.push(`Recent acquisitions by the holding of competing assets in the focal category.`);
+  } else if (capitalDecision?.reason === 'brand_in_public') {
+    const pname = publicAncestor?.company || tree.parent?.company || 'the parent';
+    const tk = publicAncestor?.ticker ? ` (${publicAncestor.ticker})` : '';
+    const seg = tree.focal_segment || tree.category || 'focal';
+    out.push(`${pname}${tk} carves out or spins off ${tree.company} as a standalone listing.`);
+    out.push(`${pname} divests the ${seg} business to a strategic or PE buyer.`);
+    out.push(`Activist campaign pushes ${pname} to separate the segment for a pure-play re-rating.`);
   } else if (capitalDecision?.reason === 'multi_owner_no_parent' || capitalDecision?.reason === 'split_control') {
     out.push('Buy-out or consolidation that puts a single owner in control of >50% economics.');
     out.push('IPO filing or S-1 disclosure that creates a public capital path.');
@@ -628,7 +708,7 @@ export function deriveVerdict(tree, positioning) {
     trajectory = 'Re-investment cycle';
   }
 
-  const cap = deriveCapitalDecision(tree);
+  const cap = deriveCapitalDecision(tree, positioning?.parent_anchor);
   const capital_decision = cap.decision;
   const capital_decision_reason = cap.reason;
 
@@ -710,7 +790,7 @@ export function buildMispricingSkeleton(tree, positioning, competitive_context =
     }
     // Discount decomposition (deterministic ranges; LLM may override).
     if (!peer_multiples.decomposition) {
-      peer_multiples.decomposition = buildDiscountDecomposition(tree);
+      peer_multiples.decomposition = buildDiscountDecomposition(tree, derivePublicAncestor(tree, positioning?.parent_anchor));
     }
   }
 
@@ -796,7 +876,15 @@ export function buildIntelligenceBrief(tree, positioning, opts = {}) {
 
   // Verdict-changers (what would make this actionable).
   const capDecisionObj = { decision: verdict.capital_decision, reason: verdict.capital_decision_reason };
-  const verdict_changers_list = buildVerdictChangers(tree, capDecisionObj);
+  const publicAncestor = derivePublicAncestor(tree, positioning?.parent_anchor);
+  const verdict_changers_list = buildVerdictChangers(tree, capDecisionObj, publicAncestor);
+
+  // P5.04: the mispricing section should be self-contained — cross-reference the
+  // verdict-changer events as deterministic falsifying signals when the LLM has
+  // not supplied sharper ones. (LLM enrichment may override downstream.)
+  if (!Array.isArray(mispricing.falsifying_signals) || mispricing.falsifying_signals.length === 0) {
+    mispricing.falsifying_signals = verdict_changers_list.slice(0, 4);
+  }
 
   // Confidence gaps buckets — existing logic preserved + verdict_changers from
   // capital-decision reasons folded in so the PDF surfaces them uniformly.
@@ -851,13 +939,13 @@ export function buildIntelligenceBrief(tree, positioning, opts = {}) {
   // gap leverage stars, section-confidence breakdown, sources split, and the
   // capital-path one-liner for the hero. All deterministic seeds — LLM may
   // augment but the brief renders correctly even without enrichment.
-  const verdict_changer_map = buildVerdictChangerMap(tree, capDecisionObj, family_detail);
+  const verdict_changer_map = buildVerdictChangerMap(tree, capDecisionObj, family_detail, publicAncestor);
   const confidence_buckets = buildConfidenceBuckets(tree, positioning, escalated.triggers);
   const known_gaps_starred = buildGapLeverageStars(confidence_gaps.known_gaps, family_detail);
   const section_confidence = buildSectionConfidence(tree, positioning, mispricing, family_detail);
   const limitations_list = buildLimitationsList(tree, positioning, escalated.triggers);
   const data_trace_split = splitDataSources(tree);
-  const capital_path_summary = buildCapitalPathSummaryText(tree, family_detail, capDecisionObj);
+  const capital_path_summary = buildCapitalPathSummaryText(tree, family_detail, capDecisionObj, publicAncestor);
   const actionable_reads = buildActionableReads(tree, verdict, mispricing, family_detail);
 
   return {
@@ -884,9 +972,15 @@ export function buildIntelligenceBrief(tree, positioning, opts = {}) {
     strategic_notes_by_audience: {
       for_investors: verdict.capital_decision === 'Not actionable as standalone'
         ? `Treat ${tree.company} as a market-intelligence signal and private comparable, not a transactable target.`
-        : 'Pending LLM enrichment',
-      for_competitors: null,
-      for_ma_advisors: mispricing.ma_attention !== 'none' ? 'Pending LLM enrichment' : null,
+        : capDecisionObj.reason === 'brand_in_public'
+          ? `Treat ${tree.company} as a pure-play comparable embedded in ${publicAncestor?.company || 'its public parent'}${publicAncestor?.ticker ? ` (${publicAncestor.ticker})` : ''}; exposure is only available via the parent or a future carve-out.`
+          : 'Pending LLM enrichment',
+      for_competitors: 'N/A - competitive reads are summarized in the Competitive Context section.',
+      for_ma_advisors: mispricing.ma_attention !== 'none'
+        ? 'Pending LLM enrichment'
+        : capDecisionObj.reason === 'brand_in_public'
+          ? `N/A - no standalone M&A path; a deal would require ${publicAncestor?.company || 'the parent'} to carve out or divest the brand.`
+          : 'N/A - no active M&A signals; no live transaction path.',
       for_growth_signal_users: 'Pending LLM enrichment',
     },
     data_trace: { ...data_trace, ...data_trace_split },
@@ -982,6 +1076,16 @@ export const PEER_MULTIPLES_CATALOG = {
     ],
     keywords: ['fintech', 'banking', 'neobank', 'mercury'],
   },
+  salty_snacks: {
+    peers: [
+      { name: 'Mondelez (MDLZ)', revenue: 36.0e9, ev_to_revenue: 3.5 },
+      { name: 'Kellanova (K)', revenue: 13.0e9, ev_to_revenue: 2.6 },
+      { name: 'General Mills (GIS)', revenue: 20.0e9, ev_to_revenue: 2.5 },
+      { name: 'Campbell Soup (CPB)', revenue: 9.6e9, ev_to_revenue: 2.0 },
+      { name: 'Utz Brands (UTZ)', revenue: 1.4e9, ev_to_revenue: 1.6 },
+    ],
+    keywords: ['tortilla', 'chips', 'potato chip', 'corn chip', 'pretzel', 'popcorn', 'doritos', 'salty snack'],
+  },
 };
 
 export function detectSector(tree) {
@@ -1011,17 +1115,45 @@ export function buildPeerMultiplesFromCatalog(tree) {
   };
 }
 
+// P6.02: best-effort EV/Revenue lookup for a web-discovered competitor by
+// matching its name against the focal's sector peer-multiples catalog. Returns
+// a number or null (discovered peers carry no multiple of their own).
+export function lookupPeerEvToRevenue(tree, peerName) {
+  const sector = detectSector(tree);
+  if (!sector) return null;
+  const entry = PEER_MULTIPLES_CATALOG[sector];
+  if (!entry) return null;
+  const norm = (s) => String(s || '').toLowerCase().replace(/\([^)]*\)/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const target = norm(peerName);
+  if (!target) return null;
+  const targetHead = target.split(' ')[0];
+  const hit = entry.peers.find((p) => {
+    const pn = norm(p.name);
+    if (!pn) return false;
+    return pn.includes(target) || target.includes(pn) || pn.split(' ')[0] === targetHead;
+  });
+  return hit && typeof hit.ev_to_revenue === 'number' ? hit.ev_to_revenue : null;
+}
+
 // ─── Discount decomposition (P5.03) ───────────────────────────────────────
 // Deterministic % ranges for illiquidity, conglomerate, governance discounts.
 // LLM may overwrite with sharper numbers when peer comps differ.
-export function buildDiscountDecomposition(tree) {
+export function buildDiscountDecomposition(tree, publicAncestor = null) {
   const components = [];
   const isPublic = !!(tree?.ticker || tree?.parent?.ticker || tree?.public_listing);
   const family = detectFamilyConcentrated(tree);
   const hasConglomerateParent = tree?.parent && !tree?.parent?.ticker && (tree?.parent?.revenue_estimate?.central || 0) > 5 * (tree?.revenue_estimate?.central || 1e9);
 
-  if (!isPublic) components.push({ label: 'Illiquidity', pct_range: '20–30%', note: 'Private-company discount applied to public-peer multiples.' });
-  if (hasConglomerateParent) components.push({ label: 'Conglomerate / segment-mix', pct_range: '10–20%', note: `Embedded in ${tree.parent.company} — capital not directly accessible to focal-only acquirers.` });
+  // A brand embedded in a PUBLIC conglomerate is not illiquid — the discount is
+  // that you cannot buy the brand directly, only the parent or a carve-out
+  // (P-NEW.2). Otherwise apply the standard private illiquidity discount.
+  if (publicAncestor) {
+    const tk = publicAncestor.ticker ? ` (${publicAncestor.ticker})` : '';
+    components.push({ label: 'Conglomerate embed / not separately tradeable', pct_range: '15–25%', note: `Embedded in ${publicAncestor.company}${tk} — capital accessible only via parent shares or a carve-out, not a direct stake in ${tree?.company}.` });
+  } else if (!isPublic) {
+    components.push({ label: 'Illiquidity', pct_range: '20–30%', note: 'Private-company discount applied to public-peer multiples.' });
+  }
+  if (!publicAncestor && hasConglomerateParent) components.push({ label: 'Conglomerate / segment-mix', pct_range: '10–20%', note: `Embedded in ${tree.parent.company} — capital not directly accessible to focal-only acquirers.` });
   if (family.is_family && family.total_pct >= 95) {
     components.push({ label: 'Governance / family control', pct_range: '10–15%', note: 'Family-concentrated 100% with no public path — no monetization mechanism absent succession event.' });
   } else if (tree?.co_owners?.length > 1) {
@@ -1054,13 +1186,18 @@ export function buildActionableReads(tree, verdict, mispricing, family) {
 }
 
 // ─── Verdict-changer condition→label map (P7.03) ──────────────────────────
-export function buildVerdictChangerMap(tree, capDecision, family) {
+export function buildVerdictChangerMap(tree, capDecision, family, publicAncestor = null) {
   const map = [];
   if (capDecision?.reason === 'family_concentrated_100pct' && family?.surname) {
     const surname = family.surname.charAt(0).toUpperCase() + family.surname.slice(1);
     map.push({ condition: `${surname} family announces partial sale or IPO of operating division`, new_label: 'ACQUIRE TARGET' });
     map.push({ condition: 'Holding-company restructuring separates focal segment from group', new_label: 'WATCH (transactability path opens)' });
     map.push({ condition: 'Founder succession event triggers governance review', new_label: 'WATCH' });
+  } else if (capDecision?.reason === 'brand_in_public') {
+    const pname = publicAncestor?.company || tree?.parent?.company || 'Parent';
+    map.push({ condition: `${pname} carves out / spins off ${tree?.company} as a standalone listing`, new_label: 'ACQUIRE TARGET (pure-play emerges)' });
+    map.push({ condition: `${pname} divests the segment to a strategic or PE buyer`, new_label: 'WATCH (transaction path opens)' });
+    map.push({ condition: 'Activist pressure forces a segment separation', new_label: 'WATCH' });
   } else if (capDecision?.reason === 'pe_owned') {
     map.push({ condition: 'Sponsor files S-1 / announces dual-track', new_label: 'ACQUIRE TARGET (window opens)' });
     map.push({ condition: 'Secondary stake sold to strategic acquirer', new_label: 'WATCH' });
@@ -1138,6 +1275,28 @@ export function buildSectionConfidence(tree, positioning, mispricing, family, co
   };
 }
 
+// ─── Section-confidence refresh after competitive discovery (P-NEW.3) ─────
+// buildSectionConfidence runs at brief-build time, when competitive_context is
+// still null (discovery is a later async web-search phase). Once the app
+// attaches the discovered peer set, call this to recompute the two entries that
+// depend on it so they no longer read a permanent 1-star "Discovery phase".
+export function refreshCompetitiveSectionConfidence(brief) {
+  if (!brief || !brief.section_confidence) return brief;
+  const stars = (n) => '*'.repeat(Math.max(1, Math.min(3, n)));
+  const ctx = brief.competitive_context;
+  const hasCtx = Array.isArray(ctx) && ctx.length > 0;
+  brief.section_confidence.competitive_context = {
+    stars: stars(hasCtx ? 3 : 1),
+    reason: hasCtx ? 'Peer set identified' : 'Discovery phase',
+  };
+  const pm = brief.mispricing && brief.mispricing.peer_multiples;
+  brief.section_confidence.mispricing = {
+    stars: stars(pm && pm.source === 'discovered' ? 3 : pm ? 2 : 1),
+    reason: pm && pm.source === 'discovered' ? 'Web-discovered peers' : pm ? 'Catalog peers' : 'No peer set',
+  };
+  return brief;
+}
+
 // ─── Limitations list (P9.03) ─────────────────────────────────────────────
 export function buildLimitationsList(tree, positioning, escalatedTriggers = []) {
   const out = [];
@@ -1174,8 +1333,13 @@ export function splitDataSources(tree) {
 }
 
 // ─── Capital-path one-line summary (P1.04) ────────────────────────────────
-export function buildCapitalPathSummaryText(tree, family, capDecision) {
+export function buildCapitalPathSummaryText(tree, family, capDecision, publicAncestor = null) {
   const parts = [];
+  if (capDecision?.reason === 'brand_in_public' && publicAncestor) {
+    const tk = publicAncestor.ticker ? ` (${publicAncestor.ticker})` : '';
+    const maSig = (tree?.signals_found || []).some((s) => s.type === 'm_and_a');
+    return [`Brand within ${publicAncestor.company}${tk}`, 'Not separately tradeable', maSig ? 'Recent M&A activity' : 'No standalone M&A path'].join(' · ');
+  }
   if (family?.is_family && family.total_pct >= 95) parts.push('Family-owned private');
   else if (capDecision?.reason === 'pe_owned') parts.push('PE-owned');
   else if (tree?.parent?.ticker) parts.push(`Subsidiary of ${tree.parent.ticker}`);

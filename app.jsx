@@ -19,7 +19,12 @@ import {
   mergeCousins,
   createRevenueCache,
 } from './synth.js';
-import { isConsumerSector, sanitizeForPdf } from './brief.js';
+import {
+  isConsumerSector,
+  sanitizeForPdf,
+  refreshCompetitiveSectionConfidence,
+  lookupPeerEvToRevenue,
+} from './brief.js';
 
 // X.03 deterministic synthesis seed (Task #58): a stable seed derived from
 // (focal, parent, calendar day) lets repeated runs within the same UTC day
@@ -32,7 +37,7 @@ function buildSynthesisSeed(focalName, parentName) {
   const parent = String(parentName || '').toLowerCase().trim();
   return `${focal}|${parent}|${day}`;
 }
-const __revenueCache = createRevenueCache();
+const __revenueCache = createRevenueCache({ persist: true });
 
 const PROVIDERS = {
   anthropic: {
@@ -160,6 +165,10 @@ When a UBO node is promoted, it becomes the new "root" layer of the parent chain
 
 If multiple triggers apply, prefer the most concrete vehicle (a named family office trumps a bare individual name; a foundation trumps an individual trustee). Document the chosen trigger in "notes" ("UBO promoted: trigger B — individual founder Zhang Yiming holds ~22% equity per ...").
 
+FAMILY MEMBER ENUMERATION (P3.01) — when the controlling owner is a FAMILY (trigger A family office / family_group, or a same-surname control bloc), do NOT collapse it into a single "X Family" node. Populate "family_members" on that UBO node: an array of the identifiable individuals the sources name, each { "name": str, "role": str (e.g. "Founder & Chairman", "Co-owner", "President", "CFO"), "est_stake_pct": number|null }. Target the 2–6 named members the evidence supports (e.g. MSC / Aponte → Gianluigi Aponte (Founder & Chairman), Rafaela Aponte-Diamant (Co-owner), Diego Aponte (Group President), Alexa Aponte-Vago (CFO)). A lone "Aponte Family" row is insufficient when individual members are publicly known.
+
+ORIGIN EVENT (P3.02) — on the focal AND on each sibling, set "origin_event": how the brand came to sit under its current parent. "internal_launch" = created in-house by the parent (e.g. Explora Journeys launched by MSC Group in 2023; never an acquisition). "acquisition" = the parent bought it (capture acquisition details as usual). "organic" = founded independently and is itself the root. null when unknown. Do NOT label an internally-launched brand as an acquisition just because it is recent — absence of an acquisition record for a parent-launched brand means internal_launch, not a missing deal.
+
 DEPTH/FAN-OUT CAP
 Limit ownership recursion to 2–3 generations. Cap siblings to the 8 most material brands, but ALWAYS include every brand with in_current_sources:true before any historical-only brand — only drop historical-only brands when over the cap. Cap children to 6 direct subsidiaries.
 
@@ -186,10 +195,12 @@ STRICT JSON OUTPUT, NO PROSE, NO MARKDOWN FENCES:
     "evidence": str,
     "source_url": str
   } | null,
+  "family_members": [{ "name": str, "role": str, "est_stake_pct": <number 0-100>|null }] | null,   // P3.01 — populated ONLY on a family UBO node (Step 7.5 trigger A): the named individuals in the controlling family. null on non-family nodes.
   "in_current_sources": bool,          // appears in a PRIMARY/current source
   "in_historical_sources": bool,       // appears in a SECONDARY/older source
   "last_mention_date": str|null,       // most recent date referenced (ISO-ish) or null
   "category": str,                     // free text from sources; "" if unknown. NOT an enum.
+  "origin_event": "internal_launch"|"acquisition"|"organic"|null,   // P3.02 — how this entity came under its parent: internal_launch = parent-created (e.g. Explora Journeys by MSC, NOT an acquisition); acquisition = bought; organic = founded independently. null if unknown.
   "parent": {recursive} | null,             // ALWAYS the current legal parent. Never the post-close acquirer of an unclosed deal.
   "ownership_role": str | null,             // Free-text role of "parent" over THIS node: "voting_control" | "majority_economic" | "joint_venture_partner" | "controlling_holder" | "sole_owner" | etc. null when no co_owners exist.
   "co_owners": [{                           // Additional formal owners beyond the parent slot — only with measurable stake evidence (Step 6.6). Cap 5. Empty/[] when single-owner.
@@ -202,7 +213,7 @@ STRICT JSON OUTPUT, NO PROSE, NO MARKDOWN FENCES:
     "source_urls": [url]
   }],
   "focal_segment": str | null,              // The parent's segment/division/operating-label that contains the focal (e.g. "Watches & Jewelry", "Fabric & Home Care", or the publishing label "Activision"). null only when parent is genuinely single-segment with no internal grouping.
-  "siblings": [{"company": str, "domain": str, "node_type": str, "category": str, "revenue_model": "direct_revenue"|"distribution_channel"|"sub_product_line", "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}],   // current_siblings_under_current_parent AND inside focal_segment ONLY. revenue_model: "distribution_channel" = free vehicle (Chrome, Android), no standalone revenue.
+  "siblings": [{"company": str, "domain": str, "node_type": str, "category": str, "revenue_model": "direct_revenue"|"distribution_channel"|"sub_product_line", "origin_event": "internal_launch"|"acquisition"|"organic"|null, "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}],   // current_siblings_under_current_parent AND inside focal_segment ONLY. revenue_model: "distribution_channel" = free vehicle (Chrome, Android), no standalone revenue. origin_event: internal_launch = parent-created sibling, not an acquisition.
   "intra_parent_cousins": [{"company": str, "domain": str, "node_type": str, "category": str, "revenue_model": "direct_revenue"|"distribution_channel"|"sub_product_line", "via_division": str, "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}] | null,   // Brands of the SAME parent but in a DIFFERENT segment/division/operating-label than the focal. via_division names that other segment OR label (e.g. "Blizzard", "King"). null only when parent is genuinely single-segment.
   "future_cousins_post_close": [{"company": str, "domain": str, "category": str, "source_urls": [url]}] | null,   // ONLY when pending_acquisition is non-null. Brands of the announced acquirer that would become cousins post-close. Empty/null otherwise.
   "pending_acquisition": {                  // null if no announced-but-unclosed deal
@@ -398,6 +409,7 @@ CRITICAL RULES:
 - The interpretation MUST point to a SPECIFIC strategic insight (market position, recovery trajectory, cyclical exposure, succession risk, etc.) — NEVER restate the evidence in different words.
 - Banned filler: "stable performance", "operational metrics", "demonstrates substantial scale", "well-positioned", "going forward". If you find yourself writing these, return interpretation:null instead.
 - If a signal is flagged self_aware:true, treat it as the agent's own capture limitation — name explicitly which capture heuristic failed and why it matters for the verdict.
+- DIRECTION IS NOT OPTIONAL — actively hunt for NEGATIVE implications instead of defaulting to positive/neutral. Mark directional_implication:"negative" when the signal points to revenue decline, market-share loss, demand softness, a boycott/backlash/controversy, margin compression, plant or store closures, layoffs, recalls, regulatory penalties, litigation, or a failed/withdrawn launch. "Sales fell 14%", a discontinued line, or a capacity cut is NEGATIVE even if the source frames it as a strategic choice. Reserve "neutral" for genuinely ambiguous signals — never as a hedge to avoid committing to a direction.
 - Length: 1–2 sentences max; specific numbers and named comparators preferred over abstractions.
 
 Return STRICT JSON (one object per signal):
@@ -416,6 +428,7 @@ const MISPRICING_PROMPT = `You are a mispricing analyst. Given the focal company
 Rules:
 - has_thesis:true ONLY if you can articulate a specific, evidence-backed claim about under/overvaluation
 - has_thesis:false with a clear explanation (e.g., "correctly priced relative to peer set")
+- BRAND EMBEDDED IN A PUBLIC PARENT (capital_decision "Embedded in parent ticker"): do NOT default to "correctly priced". Attempt a pure-play thesis — compare the focal's implied standalone EV (focal revenue × pure-play peer EV/Rev) against its value embedded in the parent's blended multiple, and state whether a carve-out/spin-off would re-rate it UP (pure-play premium) or DOWN. Use the peer_multiples and implied_valuation_usd already in the input. Falsifying signals here are carve-out / spin-off / divestiture announcements or a parent multiple re-rating.
 - If has_thesis:true, falsifying_signals MUST be non-empty AND each entry MUST be a CONCRETE OBSERVABLE EVENT, not a generic phrase. Allowed examples: "IPO filing / S-1 disclosure", "Acquirer approach reported by FT/Reuters", "Holding-company restructuring announcement", "Peer multiple compression (EV/Rev <2× sustained)", "Founder succession event", "Material covenant breach in bond filing", "Secondary stake sold to strategic". BANNED filler: "New information indicating lower acquisition price", "Market conditions change", "Macro environment shifts".
 - If has_thesis:false, falsifying_signals should be []
 
@@ -460,18 +473,26 @@ const COMPETITOR_PROMPT = `You are a competitive intelligence analyst. Given the
 Rules:
 - Return ONLY companies with identifiable parents and estimated revenues that can be defended by web search
 - Set competitive_distance: "direct" (same segment), "adjacent" (neighboring segment), "tangential" (adjacent category), null (unknown)
+- Set ev_to_revenue per competitor when it is a public company with a defensible EV/Revenue multiple; null otherwise
 - If no identifiable peer set exists (B2B niche, proprietary/private-only, single-vendor category), return an empty array []
 - Avoid hallucinating competitors — do NOT invent companies that don't appear in search results
+- focal_positioning (P6.04): a three-layer read of where the FOCAL sits in the competitive landscape — (1) where_it_sits: its size/rank vs the named peers; (2) strategic_positioning: what differentiates it (brand, distribution, price tier, moat) or where it is undifferentiated; (3) competitive_pressure: where the main threat comes from (which peer/segment). One crisp sentence each, naming real peers. null only when there is no peer set.
 
 Return STRICT JSON:
 {
   "has_peer_set": boolean,
+  "focal_positioning": {
+    "where_it_sits": "<1 sentence — focal size/rank vs named peers>",
+    "strategic_positioning": "<1 sentence — differentiation / moat or lack thereof>",
+    "competitive_pressure": "<1 sentence — where the main competitive threat comes from>"
+  } | null,
   "competitors": [
     {
       "competitor": "<company name>",
       "parent": "<parent company>" | null,
       "positioning": "<1-2 sentence description of how it competes>",
       "estimated_revenue_usd": <number> | null,
+      "ev_to_revenue": <number> | null,
       "competitive_distance": "direct" | "adjacent" | "tangential" | null
     }
   ] | []
@@ -1408,22 +1429,32 @@ Search for direct competitors and return the JSON result.`;
 
               if (compEnrich && compEnrich.competitors) {
                 if (compEnrich.competitors.length > 0) {
-                  finalResult.intelligence_brief.competitive_context = compEnrich.competitors;
+                  const tree = finalResult.ownership_tree;
+                  // P6.02: a web-discovered peer carries no EV/Rev of its own —
+                  // backfill it from the sector catalog by name match so the
+                  // competitive table and peer-multiples set both show a multiple.
+                  const competitors = compEnrich.competitors.map((c) => {
+                    const ev = (typeof c.ev_to_revenue === 'number')
+                      ? c.ev_to_revenue
+                      : lookupPeerEvToRevenue(tree, c.competitor || c.name);
+                    return ev != null ? { ...c, ev_to_revenue: ev } : c;
+                  });
+                  finalResult.intelligence_brief.competitive_context = competitors;
                   // Backfill peer_multiples with discovered peers, but PRESERVE
                   // V2.1 deterministic fields (source, peer_median_ev_revenue,
                   // implied_valuation_usd, decomposition) that the catalog path
                   // populated. Only the per-peer list is replaced.
                   try {
-                    const peers = compEnrich.competitors.slice(0, 5).map((p) => ({
+                    const peers = competitors.slice(0, 5).map((p) => ({
                       name: p.competitor || p.name,
                       revenue: p.estimated_revenue_usd || null,
-                      ev_to_revenue: null,
+                      ev_to_revenue: (typeof p.ev_to_revenue === 'number') ? p.ev_to_revenue : null,
                       discount_or_premium_pct: null,
                     }));
                     if (peers.length > 0) {
                       finalResult.intelligence_brief.mispricing = finalResult.intelligence_brief.mispricing || {};
                       const prev = finalResult.intelligence_brief.mispricing.peer_multiples || {};
-                      finalResult.intelligence_brief.mispricing.peer_multiples = {
+                      const pmObj = {
                         ...prev,
                         peers,
                         source: 'discovered',
@@ -1431,8 +1462,42 @@ Search for direct competitors and return the JSON result.`;
                         // conglomerate) — keep it if the catalog seeded it.
                         decomposition: prev.decomposition || null,
                       };
+                      // Recompute implied valuation from whatever multiples we now
+                      // have (catalog-matched discovered peers), preferring fresh
+                      // numbers over the stale catalog median.
+                      const central = tree?.revenue_estimate?.central;
+                      const mults = peers.map((p) => p.ev_to_revenue).filter((v) => typeof v === 'number');
+                      if (central && mults.length) {
+                        const med = mults.slice().sort((a, b) => a - b)[Math.floor(mults.length / 2)];
+                        pmObj.peer_median_ev_revenue = med;
+                        pmObj.implied_valuation_usd = Math.round(central * med);
+                      }
+                      finalResult.intelligence_brief.mispricing.peer_multiples = pmObj;
                     }
                   } catch (_e) { /* non-fatal */ }
+                  // P6.04: three-layer focal positioning — prefer the LLM's read,
+                  // else synthesize a deterministic one from peer revenues/distances.
+                  finalResult.intelligence_brief.competitive_positioning =
+                    (compEnrich.focal_positioning && typeof compEnrich.focal_positioning === 'object')
+                      ? compEnrich.focal_positioning
+                      : (() => {
+                          const focalRev = tree?.revenue_estimate?.central || 0;
+                          const peerRevs = competitors.map((c) => c.estimated_revenue_usd).filter((v) => v > 0);
+                          const bigger = peerRevs.filter((v) => v > focalRev).length;
+                          const total = peerRevs.length;
+                          const directCount = competitors.filter((c) => c.competitive_distance === 'direct').length;
+                          return {
+                            where_it_sits: `${tree?.company || 'Focal'}${focalRev ? ` (~$${(focalRev / 1e9).toFixed(1)}B)` : ''} sits among ${competitors.length} named peers${total ? `; larger than ${total - bigger} of ${total} with disclosed revenue, ${bigger} bigger` : ''}.`,
+                            strategic_positioning: directCount
+                              ? `${directCount} direct same-segment competitor(s); differentiation rests on brand strength and distribution.`
+                              : 'Limited direct same-segment competition in the captured peer set.',
+                            competitive_pressure: 'Primary pressure comes from the direct peers above; adjacent and tangential players bound the category.',
+                          };
+                        })();
+                  // P-NEW.3: section_confidence was computed at build time with a
+                  // null competitive_context. Refresh the entries that depend on
+                  // the now-attached peer set so they stop reading 1-star.
+                  refreshCompetitiveSectionConfidence(finalResult.intelligence_brief);
                   appendTrace([{
                     kind: 'phase',
                     phase: 'brief',
@@ -3132,9 +3197,61 @@ function drawReconciliationWaterfall(pdf, startY, pageW, margin, contentW, brief
   const deltaColor = deltaPct > 0 ? [220, 120, 80] : [100, 160, 200];
   pdf.setTextColor(...deltaColor);
   pdf.setFontSize(9);
-  pdf.text(`${deltaPct > 0 ? '+' : ''}${deltaPct}%`, margin + 35 + deltaHigh + 3, y - 0.5);
+  // P-NEW.8: when the benchmark is a private estimate, show the gap as a range.
+  const deltaRange = Array.isArray(recon.delta_pct_range) ? recon.delta_pct_range : null;
+  const deltaLabel = deltaRange
+    ? `${deltaRange[0] > 0 ? '+' : ''}${deltaRange[0]}% to ${deltaRange[1] > 0 ? '+' : ''}${deltaRange[1]}%`
+    : `${deltaPct > 0 ? '+' : ''}${deltaPct}%`;
+  pdf.text(deltaLabel, margin + 35 + deltaHigh + 3, y - 0.5);
 
   return y + 4;
+}
+
+function drawRevenueCascade(pdf, startY, pageW, margin, contentW, brief, tree) {
+  // P4.03: parent total → focal segment → focal, as proportional bars. Ported
+  // from the legacy PDF so the brief shows how focal revenue nests inside the
+  // parent. No-op when fewer than two tiers are known.
+  if (!tree) return startY;
+  const anchor = tree.parent_anchor || tree.parent?.parent_anchor || null;
+  const anchorTotal = anchor && anchor.is_public ? (anchor.total_revenue_usd || 0) : 0;
+  const segObj = (anchor?.segments || []).find((s) => s && s.contains_focal);
+  const segRev = segObj && segObj.revenue_usd ? segObj.revenue_usd : 0;
+  const parentRev = tree.parent?.revenue_estimate?.central || 0;
+  const focalRev = tree.revenue_estimate?.central || 0;
+
+  const steps = [];
+  if (anchorTotal > 0) {
+    let top = tree.parent;
+    while (top && top.parent) top = top.parent;
+    const topName = top?.company || tree.parent?.company || 'Parent';
+    steps.push({ label: anchor.ticker ? `${topName} (${anchor.ticker})` : topName, value: anchorTotal, col: [55, 60, 85], tier: 'PARENT' });
+  } else if (parentRev > 0) {
+    steps.push({ label: tree.parent?.company || 'Parent', value: parentRev, col: [55, 60, 85], tier: 'PARENT' });
+  }
+  if (segRev > 0 && segObj?.name) steps.push({ label: segObj.name, value: segRev, col: [120, 140, 200], tier: 'SEGMENT' });
+  if (focalRev > 0) steps.push({ label: tree.company || 'Focal', value: focalRev, col: [70, 110, 180], tier: 'FOCAL' });
+  if (steps.length < 2) return startY;
+
+  const maxV = steps[0].value || 1;
+  const barMaxW = contentW * 0.55;
+  const barH = 7;
+  let y = startY + 2;
+  pdf.setFontSize(10); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(17, 17, 20);
+  pdf.text(sanitizeForPdf('Revenue Cascade (parent -> segment -> focal)'), margin + 2, y);
+  y += 5;
+  steps.forEach((s, i) => {
+    const w = Math.max((s.value / maxV) * barMaxW, 2);
+    if (i > 0) { pdf.setDrawColor(200, 200, 200); pdf.setLineWidth(0.4); pdf.line(margin + 3, y - 3, margin + 3, y); }
+    pdf.setFillColor(...s.col);
+    pdf.rect(margin + 2, y, w, barH, 'F');
+    const pct = i === 0 ? '100%' : `${((s.value / maxV) * 100).toFixed(1)}%`;
+    pdf.setFontSize(8); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(40, 40, 50);
+    pdf.text(sanitizeForPdf(formatUSD(s.value)), margin + 2 + w + 3, y + 3, { baseline: 'middle' });
+    pdf.setFontSize(7); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(120, 120, 130);
+    pdf.text(sanitizeForPdf(`${s.label} - ${s.tier} - ${pct}`), margin + 2 + w + 3, y + 6.2, { baseline: 'middle' });
+    y += barH + 4;
+  });
+  return y + 2;
 }
 
 function drawSignalSentiment(pdf, startY, pageW, margin, contentW, brief) {
@@ -3547,6 +3664,12 @@ async function generateBriefPDF(result, svgImage = null) {
 
   y += 3;
 
+  // Chart 1b: Revenue Cascade (P4.03) — parent → segment → focal
+  ensure(28);
+  y = drawRevenueCascade(pdf, y, pageW, margin, contentW, brief, tree);
+
+  y += 3;
+
   // Chart 2: Signal Sentiment
   ensure(30);
   y = drawSignalSentiment(pdf, y, pageW, margin, contentW, brief);
@@ -3736,41 +3859,49 @@ async function generateBriefPDF(result, svgImage = null) {
   // Competitive context (Phase 4 web-search; null when B2B-niche / no peer set)
   y += 4;
   section('COMPETITIVE CONTEXT');
+  // P6.04: three-layer focal positioning, when available.
+  const cpos = brief.competitive_positioning;
+  if (cpos && (cpos.where_it_sits || cpos.strategic_positioning || cpos.competitive_pressure)) {
+    if (cpos.where_it_sits) text(`Where it sits: ${cpos.where_it_sits}`, { size: 9, color: [60, 60, 80] });
+    if (cpos.strategic_positioning) text(`Strategic positioning: ${cpos.strategic_positioning}`, { size: 9, color: [60, 60, 80] });
+    if (cpos.competitive_pressure) text(`Competitive pressure: ${cpos.competitive_pressure}`, { size: 9, color: [60, 60, 80] });
+    y += 1;
+  }
   if (Array.isArray(brief.competitive_context) && brief.competitive_context.length > 0) {
     brief.competitive_context.forEach((c) => {
       const rev = c.estimated_revenue_usd ? ` ~$${(c.estimated_revenue_usd / 1e6).toFixed(0)}M` : '';
       const dist = c.competitive_distance ? ` [${c.competitive_distance}]` : '';
-      text(`${c.competitor}${c.parent ? ` (${c.parent})` : ''}${rev}${dist}`, { size: 10, style: 'bold' });
+      const evr = (typeof c.ev_to_revenue === 'number') ? ` - ${c.ev_to_revenue}x EV/Rev` : '';
+      text(`${c.competitor}${c.parent ? ` (${c.parent})` : ''}${rev}${dist}${evr}`, { size: 10, style: 'bold' });
       if (c.positioning) text(`   ${c.positioning}`, { size: 9 });
     });
   } else {
     text('No identifiable peer set (B2B-niche or proprietary category).', { size: 10, color: [120, 120, 130] });
   }
 
-  // Strategic notes by audience
+  // Strategic notes by audience. P-NEW.5: render ALL four audience labels — when
+  // a block is missing or only a pending sentinel, surface an explicit N/A line
+  // rather than silently dropping the audience.
   const notes = brief.strategic_notes_by_audience || {};
   const audienceRows = [
     ['For investors', notes.for_investors],
     ['For competitors', notes.for_competitors],
     ['For M&A advisors', notes.for_ma_advisors],
     ['For growth-signal users', notes.for_growth_signal_users],
-  ].filter(([, v]) => v && v !== 'Pending LLM enrichment');
-  // V2.1 R.01 — never silent skip.
+  ];
   y += 4;
   section('STRATEGIC NOTES');
-  if (audienceRows.length > 0) {
-    audienceRows.forEach(([label, note]) => {
-      text(`${label}:`, { size: 10, style: 'bold' });
-      // for_growth_signal_users can be array of ≥4 use cases (V2.1 P3.04)
-      if (Array.isArray(note)) {
-        note.forEach((u) => text(`   - ${u}`, { size: 9 }));
-      } else {
-        text(`   ${note}`, { size: 9 });
-      }
-    });
-  } else {
-    text('No data captured for strategic notes.', { size: 10, color: [120, 120, 130], style: 'italic' });
-  }
+  audienceRows.forEach(([label, note]) => {
+    text(`${label}:`, { size: 10, style: 'bold' });
+    // for_growth_signal_users can be an array of ≥4 use cases (V2.1 P3.04)
+    if (Array.isArray(note) && note.length > 0) {
+      note.forEach((u) => text(`   - ${u}`, { size: 9 }));
+    } else if (note && note !== 'Pending LLM enrichment') {
+      text(`   ${note}`, { size: 9 });
+    } else {
+      text('   N/A - not applicable for this ownership pattern / pending enrichment.', { size: 9, color: [120, 120, 130], style: 'italic' });
+    }
+  });
 
   // V2.1 P7.01 + P9.03 + P9.04 — confidence buckets, limitations, section confidence
   // V2.1 R.01 — never silent skip: always render the header + fallback.
