@@ -289,6 +289,43 @@ Return STRICT JSON in a \`\`\`json ... \`\`\` block:
 }
 \`\`\``;
 
+// Narrative synthesis — turns the structured ownership/revenue result into an
+// investor-grade STORY with a clear arc, NOT a data dump. Strictly grounded:
+// it may only restate facts present in the JSON it is given (no new numbers,
+// no invented owners, no outside knowledge). It writes the connective tissue —
+// thesis, act transitions, and the bottom line — that the rest of the report
+// renders around.
+const NARRATIVE_PROMPT = `You are the lead analyst writing the executive narrative of a corporate-ownership intelligence report for a venture/PE audience. You are handed a fully-resolved JSON result (ownership tree, per-node revenue estimates, reconciliation, positioning, risk signals). Your job is to make it READ LIKE A STORY with a clear arc — a sharp thesis, honest reasoning, and an actionable takeaway — not a list of facts.
+
+ABSOLUTE GROUNDING RULES (read first):
+- Use ONLY facts present in the provided JSON. Never introduce a number, owner, date, brand, or claim that is not in the data.
+- If a value is null/unknown, say so plainly ("revenue could not be verified") — do NOT guess or fill gaps with outside knowledge.
+- Never restate the model identifier or that you are an AI. Write as a human analyst.
+- Quantify with the EXACT figures from the JSON (revenue_estimate.central, reconciliation.ratio, sibling ranks). Round for readability but never change magnitudes.
+- Honesty over polish: if coverage is low or confidence is "low", the narrative must acknowledge it. A trustworthy "we don't know" beats a confident fabrication.
+
+VOICE: crisp, declarative, senior-analyst. Short sentences. No hedging filler ("it appears that", "one might say"). No marketing fluff. Concrete > vague.
+
+THE ARC you are writing for (each field maps to one beat of the report):
+1. thesis — ONE punchy sentence (max ~30 words) that captures who owns the focal, how big it is, and its competitive standing. This is the headline a partner reads first.
+2. opening — 2-3 sentences expanding the thesis into the setup: what the focal is, where it sits in the corporate family, why this ownership picture matters.
+3. transition_ownership — 1-2 sentences introducing the ownership chain as a REVELATION ("the brand you see is the tip of…"). Name the ultimate parent.
+4. transition_revenue — 1-2 sentences pivoting to the financial reality check (how big the focal really is vs. its parent/segment, what reconciliation shows).
+5. transition_positioning — 1-2 sentences framing the competitive read (sibling rank, segment role: is it the family's growth bet, cash cow, or laggard?).
+6. transition_risk — 1-2 sentences setting up the verdict (how much to trust this picture, given confidence/coverage/verification).
+7. bottom_line — 2-3 sentences: the "so what" for an investor. The single most important implication + what it means for a deal/competitive decision. End decisively.
+
+STRICT JSON OUTPUT, NO PROSE OUTSIDE THE JSON, NO MARKDOWN FENCES:
+{
+  "thesis": str,
+  "opening": str,
+  "transition_ownership": str,
+  "transition_revenue": str,
+  "transition_positioning": str,
+  "transition_risk": str,
+  "bottom_line": str
+}`;
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function b64urlEncode(bytes) {
@@ -540,6 +577,7 @@ const STEPS = [
   { id: 'revenue', label: 'Revenue' },
   { id: 'anchor', label: 'Anchor' },
   { id: 'synthesis', label: 'Synthesis' },
+  { id: 'narrative', label: 'Narrative' },
 ];
 
 function stepState(stepId, phase, loading, result) {
@@ -553,9 +591,56 @@ function stepState(stepId, phase, loading, result) {
   }
   if (phase === 'synthesis') {
     if (stepId === 'synthesis') return 'active';
+    if (stepId === 'narrative') return 'pending';
+    return 'done';
+  }
+  if (phase === 'narrative') {
+    if (stepId === 'narrative') return 'active';
     return 'done';
   }
   return 'pending';
+}
+
+// Prune the synthesized result down to the facts the narrative LLM needs, so we
+// don't blow the token budget shipping every signal/source. Mirrors the report's
+// own data points (the narrative may only restate what's here).
+function narrativeInput(result) {
+  const t = result.ownership_tree || {};
+  const pa = result.positioning_analysis || {};
+  const node = (n) => n && ({
+    company: n.company,
+    revenue_central: n.revenue_estimate?.central ?? null,
+    revenue_low: n.revenue_estimate?.low ?? null,
+    revenue_high: n.revenue_estimate?.high ?? null,
+    confidence: n.revenue_estimate?.confidence ?? n.confidence ?? null,
+    requires_review: n.requires_review || false,
+  });
+  const chain = [];
+  let cp = t.parent;
+  while (cp) { chain.unshift(node(cp)); cp = cp.parent; }
+  return {
+    focal: node(t),
+    focal_segment: t.focal_segment || null,
+    node_type: t.node_type || null,
+    parent_chain_root_to_parent: chain,
+    co_owners: (t.co_owners || []).map((c) => ({ company: c.company, ownership_role: c.ownership_role, stake_pct: c.stake_pct ?? null, voting_pct: c.voting_pct ?? null })),
+    siblings: (t.siblings || []).map(node),
+    cousins_count: (t.intra_parent_cousins || []).length,
+    acquisition: t.acquisition ? { acquired_by: t.acquisition.acquired_by, year: t.acquisition.year, price_display: t.acquisition.price_display ?? null, deal_type: t.acquisition.deal_type ?? null } : null,
+    pending_acquisition: t.pending_acquisition ? { acquirer: t.pending_acquisition.acquirer, expected_close_date: t.pending_acquisition.expected_close_date ?? null } : null,
+    positioning: {
+      focal_vs_parent_ratio: pa.focal_vs_parent_ratio ?? null,
+      focal_vs_siblings: pa.focal_vs_siblings ?? null,
+      growth_signals: pa.growth_signals ?? null,
+    },
+    reconciliation: pa.reconciliation ? {
+      coverage_ratio: pa.reconciliation.ratio ?? null,
+      benchmark_label: pa.reconciliation.parent_benchmark_label ?? null,
+      explanation: pa.reconciliation.explanation ?? null,
+      circular: pa.reconciliation.circular || false,
+    } : null,
+    strategic_notes: pa.strategic_notes || [],
+  };
 }
 
 export default function App() {
@@ -826,6 +911,29 @@ export default function App() {
       entities.forEach((e) => { entitiesByCompany[(e.company || '').toLowerCase().trim()] = e; });
       const synthesized = synthesize(ownership, byCompany, parentAnchor, entitiesByCompany);
       const finalResult = { ...synthesized, _entities: entities, _revenueResults: revenueResults, _parentAnchor: parentAnchor };
+
+      // ── Narrative phase: turn the structured result into an investor-grade
+      // story (thesis → transitions → bottom line). Always runs on Gemini (pure
+      // prose, no web search needed). Best-effort: a failure leaves narrative
+      // null and the report falls back to its deterministic copy.
+      setPhase('narrative');
+      appendTrace([{ kind: 'phase', phase: 'narrative', label: 'writing executive narrative (Gemini)' }]);
+      try {
+        const narrResp = await callLLM({
+          provider: 'gemini',
+          model: 'gemini-2.5-flash',
+          system: NARRATIVE_PROMPT,
+          user: `Write the executive narrative for this resolved ownership result. Use ONLY these facts:\n\n${JSON.stringify(narrativeInput(finalResult), null, 2)}`,
+          maxTokens: 2048,
+        });
+        appendTrace(narrResp.trace.map((t) => ({ ...t, tag: 'narrative' })));
+        const narrative = safeExtractJSON(narrResp.text);
+        if (narrative && narrative.thesis) finalResult.narrative = narrative;
+        else appendTrace([{ kind: 'phase', phase: 'narrative', label: 'narrative parse failed — using deterministic copy' }]);
+      } catch (e) {
+        appendTrace([{ kind: 'error', tag: 'narrative', message: e.message }]);
+      }
+
       setResult(finalResult);
       appendTrace([{ kind: 'phase', phase: 'done', label: 'investigation complete' }]);
 
@@ -2415,6 +2523,29 @@ async function generatePDF(result) {
   const focal = tree.company;
   const pa = tree.pending_acquisition;
   const acq = tree.acquisition;
+  const revEstTop = tree.revenue_estimate || {};
+
+  // Narrative arc (Gemini-written, grounded in the data). When absent — no API
+  // key, parse failure, or an older saved investigation — fall back to a
+  // deterministic sentence built from the same numbers so the report still
+  // reads as a story rather than breaking.
+  const N = result.narrative || {};
+  const fallbackThesis = () => {
+    const ownerBit = tree.parent ? `owned by ${tree.parent.company}` : 'standalone';
+    const revBit = revEstTop.central > 0 ? `~${formatUSD(revEstTop.central)} in estimated revenue` : 'undisclosed revenue';
+    const segBit = tree.focal_segment ? `, in its ${tree.focal_segment} segment` : '';
+    return `${focal} is ${ownerBit}${segBit}, with ${revBit}.`;
+  };
+  const narr = {
+    thesis: N.thesis || fallbackThesis(),
+    opening: N.opening || (positioning.strategic_notes && positioning.strategic_notes[0]) || '',
+    transition_ownership: N.transition_ownership || '',
+    transition_revenue: N.transition_revenue || '',
+    transition_positioning: N.transition_positioning || '',
+    transition_risk: N.transition_risk || '',
+    bottom_line: N.bottom_line || '',
+  };
+
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -2481,6 +2612,23 @@ async function generatePDF(result) {
     pdf.setDrawColor(...C.border); pdf.setLineWidth(0.3);
     pdf.line(margin, y, margin + contentW, y);
     y += 4;
+  };
+
+  // Narrative connective tissue between acts: an italic lead-in with a short
+  // accent rail. No-ops on empty strings so a missing narrative leaves no gap.
+  const transition = (str) => {
+    if (!str || !str.trim()) return;
+    font(9.5, 'italic');
+    const lines = pdf.splitTextToSize(sanitize(str), contentW - 8);
+    const blockH = lines.length * 4.4 + 3;
+    ensure(blockH + 2);
+    const tY = y;
+    pdf.setFillColor(...C.accent);
+    pdf.rect(margin, tY, 1.6, lines.length * 4.4, 'F');
+    pdf.setTextColor(...C.muted);
+    let ly = tY;
+    lines.forEach((ln) => { pdf.text(ln, margin + 5, ly, { baseline: 'top' }); ly += 4.4; });
+    y = tY + blockH;
   };
 
   // Inline pill; returns the width consumed so callers can chain pills on one row.
@@ -2580,6 +2728,32 @@ async function generatePDF(result) {
   section('Executive Summary');
   const revEst = tree.revenue_estimate || {};
 
+  // ── Act 1 — The thesis. A prominent, accented callout that states the whole
+  // story in one line, followed by the opening prose. This is the headline a
+  // partner reads first.
+  {
+    font(13, 'bold');
+    const thesisLines = pdf.splitTextToSize(sanitize(narr.thesis), contentW - 12);
+    const thesisH = 8 + thesisLines.length * 6 + 4;
+    ensure(thesisH);
+    const tY = y;
+    pdf.setFillColor(...C.accent);
+    pdf.roundedRect(margin, tY, contentW, thesisH, 2.5, 2.5, 'F');
+    // Left accent rail
+    pdf.setFillColor(...C.accentHover);
+    pdf.rect(margin, tY, 2.5, thesisH, 'F');
+    font(7, 'bold'); pdf.setTextColor(...C.tint);
+    pdf.text('THE THESIS', margin + 7, tY + 6, { baseline: 'middle' });
+    font(13, 'bold'); pdf.setTextColor(...C.white);
+    let thY = tY + 12;
+    thesisLines.forEach((ln) => { pdf.text(ln, margin + 7, thY, { baseline: 'top' }); thY += 6; });
+    y = tY + thesisH + 4;
+
+    if (narr.opening) {
+      text(narr.opening, { size: 10, color: C.text, gap: 4 });
+    }
+  }
+
   // Deal Brief box — structured at-a-glance summary
   {
     const briefRows = [
@@ -2671,8 +2845,10 @@ async function generatePDF(result) {
     }
   }
 
-  // ─── Risk Assessment Dashboard ───
-  {
+  // ─── Risk Assessment (Act 5 — the verdict) ───
+  // Defined here, but invoked near the end of the report so the risk grade reads
+  // as the conclusion of the story rather than a stat block up top.
+  const renderRiskVerdict = () => {
     const G = C.activeFg, Y = C.warning, R = C.danger;       // semaphore colors
     const Gb = C.activeBg, Yb = C.warnBg, Rb = C.dangerBg;   // backgrounds
     const conf = revEst.confidence;
@@ -2720,6 +2896,7 @@ async function generatePDF(result) {
         : { col: G, bg: Gb, label: 'LOW', rec: 'Strong data quality; proceed' };
 
     section('Risk Assessment');
+    transition(narr.transition_risk);
     const rowH = 9;
     risks.forEach((r) => {
       ensure(rowH);
@@ -2749,7 +2926,7 @@ async function generatePDF(result) {
     font(7.5, 'italic'); pdf.setTextColor(...C.muted);
     pdf.text(truncateToWidth(gradeMeta.rec, contentW - 92), margin + contentW - 4, y + 4.5, { align: 'right', baseline: 'middle' });
     y += 12;
-  }
+  };
 
   // UBO stake sub-block (mirrors the detail panel's "Ownership stake" card).
   if (tree.stake && (tree.stake.equity_pct != null || tree.stake.voting_pct != null || tree.stake.evidence)) {
@@ -2992,6 +3169,7 @@ async function generatePDF(result) {
   // Ownership pyramid (top-down: root → focal) — ENHANCED with visual hierarchy
   if (chain.length > 0) {
     section('Ownership Hierarchy');
+    transition(narr.transition_ownership);
     text(`${chain.length + 1} ownership level${chain.length > 0 ? 's' : ''} from ultimate parent to ${focal}.`,
       { size: 8.5, style: 'italic', color: C.muted, gap: 3 });
     const levels = [...chain, tree];
@@ -3208,6 +3386,7 @@ async function generatePDF(result) {
   });
   if (breakdownRows.length > 0) {
     section('Revenue Breakdown');
+    transition(narr.transition_revenue);
 
     // Revenue cascade (parent → segment → focal) — ENHANCED visualization
     {
@@ -3473,6 +3652,7 @@ async function generatePDF(result) {
   // ─── Positioning Analysis ───
   if (positioning.focal_vs_parent_ratio || siblings.length > 0 || positioning.growth_signals) {
     section('Positioning Analysis');
+    transition(narr.transition_positioning);
     if (positioning.focal_vs_parent_ratio) text(`Parent ratio: ${positioning.focal_vs_parent_ratio}`, { size: 9.5, color: C.text, gap: 1 });
     if (siblings.length > 0) {
       // Build the ranking from data (avoids the ★ glyph and right-margin overflow
@@ -3486,6 +3666,29 @@ async function generatePDF(result) {
       text(list, { size: 9, color: C.muted });
     }
     if (positioning.growth_signals) text(`Growth signals: ${positioning.growth_signals}`, { size: 9, color: C.muted });
+  }
+
+  // ─── Act 5 — The verdict (risk grade, moved here as the story's climax) ───
+  renderRiskVerdict();
+
+  // ─── Act 6 — The bottom line ("so what" for the investor) ───
+  if (narr.bottom_line) {
+    font(11, 'bold');
+    const blLines = pdf.splitTextToSize(sanitize(narr.bottom_line), contentW - 12);
+    const blH = 9 + blLines.length * 5 + 4;
+    ensure(blH + 4);
+    y += 2;
+    const blY = y;
+    pdf.setFillColor(...C.ink);
+    pdf.roundedRect(margin, blY, contentW, blH, 2.5, 2.5, 'F');
+    pdf.setFillColor(...C.accent);
+    pdf.rect(margin, blY, 2.5, blH, 'F');
+    font(7, 'bold'); pdf.setTextColor(...C.accent);
+    pdf.text('THE BOTTOM LINE', margin + 7, blY + 6, { baseline: 'middle' });
+    font(10.5, 'normal'); pdf.setTextColor(...C.white);
+    let bly = blY + 12;
+    blLines.forEach((ln) => { pdf.text(ln, margin + 7, bly, { baseline: 'top' }); bly += 5; });
+    y = blY + blH + 4;
   }
 
   // ─── Strategic Notes ───
