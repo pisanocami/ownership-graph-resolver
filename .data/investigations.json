@@ -1,5 +1,3623 @@
 [
   {
+    "id": "bde32f04c9e6",
+    "brand": "Resident Home",
+    "hint": "",
+    "createdAt": 1779662756174,
+    "result": {
+      "focal_company": "Resident Home LLC",
+      "ownership_tree": {
+        "company": "Resident Home LLC",
+        "domain": "residenthome.com",
+        "node_type": "legal_entity",
+        "layer": "brand",
+        "standalone": false,
+        "terminal_layer": null,
+        "ubo_type": null,
+        "stake": null,
+        "family_members": null,
+        "in_current_sources": true,
+        "in_historical_sources": true,
+        "last_mention_date": "2025-01-16",
+        "category": "house of direct-to-consumer mattress and bedding brands",
+        "origin_event": "organic",
+        "parent": {
+          "company": "Ashley Furniture Industries, LLC",
+          "domain": "ashleyfurnitureindustriesllc.com",
+          "node_type": "legal_entity",
+          "layer": "parent",
+          "standalone": false,
+          "terminal_layer": null,
+          "ubo_type": null,
+          "stake": null,
+          "family_members": null,
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "last_mention_date": "2025-10-01",
+          "category": "furniture manufacturer and retailer",
+          "origin_event": "organic",
+          "parent": {
+            "company": "Wanek Family",
+            "domain": "",
+            "node_type": "legal_entity",
+            "layer": "root",
+            "standalone": true,
+            "terminal_layer": "root",
+            "ubo_type": "family_group",
+            "stake": {
+              "equity_pct": null,
+              "voting_pct": null,
+              "evidence": "The core of Ashley Furniture Industries' ownership resides firmly within the Wanek family. Ronald G. Wanek, the visionary founder and current Chairman, is recognized as the majority owner.",
+              "source_url": "https://matrixbcg.com/blogs/owners/ashleyfurniture"
+            },
+            "family_members": [
+              {
+                "name": "Ronald G. Wanek",
+                "role": "Founder & Chairman",
+                "est_stake_pct": null
+              },
+              {
+                "name": "Todd Wanek",
+                "role": "President & CEO",
+                "est_stake_pct": null
+              },
+              {
+                "name": "Chuck Vogel",
+                "role": "Vice-Chairman & Co-founder",
+                "est_stake_pct": null
+              }
+            ],
+            "in_current_sources": true,
+            "in_historical_sources": true,
+            "last_mention_date": "2025-10-01",
+            "category": "family ownership group",
+            "origin_event": "organic",
+            "parent": null,
+            "ownership_role": "majority_owner",
+            "co_owners": [],
+            "focal_segment": null,
+            "siblings": [],
+            "intra_parent_cousins": null,
+            "future_cousins_post_close": null,
+            "pending_acquisition": null,
+            "post_close_consolidated_parent": null,
+            "children": [],
+            "acquisition": null,
+            "strategic_control": [],
+            "strategic_control_note": "no_data_found: UBO layer - control exercised through ownership",
+            "confidence": "high",
+            "sources": [
+              "https://matrixbcg.com/blogs/owners/ashleyfurniture",
+              "https://ashley.biz/frequently-asked-questions/ashley-furniture-industries-a-private-family-owned-company/",
+              "https://en.wikipedia.org/wiki/Ashley_Furniture_Industries"
+            ],
+            "notes": "UBO promoted: trigger A - family group controls Ashley Furniture Industries with Ronald G. Wanek as founder/chairman and majority owner, Todd Wanek as CEO since 2002",
+            "disambiguation_required": false,
+            "disambiguation_candidates": [],
+            "primary_parent_id": null,
+            "secondary_relationships": [],
+            "revenue_estimate": {
+              "low": 11000000000,
+              "high": 12500000000,
+              "central": 11750000000,
+              "confidence": "medium"
+            },
+            "signals_found": [
+              {
+                "type": "press",
+                "label": "Ashley Furniture 2024 revenue",
+                "value": "$11 billion reported by Forbes for 2024",
+                "source": "BizTimes/MatrixBCG",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "press",
+                "label": "Ashley Furniture 2023 revenue",
+                "value": "$12.3 billion in 2023 according to Forbes",
+                "source": "BizTimes",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "customers",
+                "label": "Ashley global operations scale",
+                "value": "1,000+ stores in 155 countries, 35,000 employees",
+                "source": "BizTimes",
+                "weight": "medium",
+                "context_unverified": false
+              },
+              {
+                "type": "press",
+                "label": "Wanek family ownership stake",
+                "value": "85% ownership of Ashley Furniture Industries",
+                "source": "Family Business Magazine",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "funding",
+                "label": "Todd Wanek net worth",
+                "value": "$2.8 billion estimated net worth (Forbes 2022)",
+                "source": "BizTimes",
+                "weight": "medium",
+                "context_unverified": false
+              },
+              {
+                "type": "other",
+                "label": "Third Lake Capital investments",
+                "value": "Family office managing diversified investments since 2013",
+                "source": "Altss",
+                "weight": "medium",
+                "context_unverified": false
+              },
+              {
+                "type": "other",
+                "label": "Ker's WingHouse acquisition",
+                "value": "Acquired restaurant chain with 29 locations in 2014",
+                "source": "Tampa Bay Times",
+                "weight": "low",
+                "context_unverified": false
+              },
+              {
+                "type": "other",
+                "label": "Superior Fresh operation",
+                "value": "Aquaponics farm led by Todd and Karen Wanek",
+                "source": "And Now U Know",
+                "weight": "low",
+                "context_unverified": false
+              }
+            ],
+            "reasoning_summary": "The Wanek Family's revenue is dominated by Ashley Furniture Industries, where they hold 85% ownership. Ashley reported $11 billion in 2024 revenue (down from $12.3 billion in 2023). As the controlling owners, the family's share would be approximately $9.35-10.5 billion from Ashley alone. Additional revenue comes from their diversified investments through Third Lake Capital, including real estate holdings, Ker's WingHouse restaurant chain, and Superior Fresh aquaponics operation, though these are likely smaller contributors to overall family revenue.",
+            "signals_attempted": 6,
+            "signals_found_count": 8,
+            "_derived_status": {
+              "label": "active",
+              "reason": "present in current/primary sources"
+            },
+            "_divestiture": null
+          },
+          "ownership_role": "sole_owner",
+          "co_owners": [],
+          "focal_segment": null,
+          "siblings": [
+            {
+              "company": "Ashley Furniture Industries Manufacturing",
+              "domain": "",
+              "node_type": "legal_entity",
+              "category": "furniture manufacturing operations",
+              "revenue_model": "direct_revenue",
+              "origin_event": "internal_launch",
+              "in_current_sources": true,
+              "in_historical_sources": true,
+              "last_mention_date": "2024-03-05",
+              "source_urls": [
+                "https://www.ashleyfurnitureindustriesllc.com/"
+              ],
+              "_derived_status": {
+                "label": "active",
+                "reason": "present in current/primary sources"
+              },
+              "_divestiture": null
+            }
+          ],
+          "intra_parent_cousins": null,
+          "future_cousins_post_close": null,
+          "pending_acquisition": null,
+          "post_close_consolidated_parent": null,
+          "children": [
+            {
+              "company": "Ashley Home, Inc.",
+              "domain": "ashley.com",
+              "node_type": "legal_entity",
+              "category": "retail operations subsidiary",
+              "origin_event": "internal_launch",
+              "_derived_status": {
+                "label": "unknown",
+                "reason": "no presence signals captured"
+              },
+              "_divestiture": null
+            }
+          ],
+          "acquisition": null,
+          "strategic_control": [
+            {
+              "entity": "Ronald G. Wanek",
+              "role_description": "Founder & Chairman",
+              "evidence": "Ronald G. Wanek, the visionary founder and current Chairman, is recognized as the majority owner",
+              "source_url": "https://matrixbcg.com/blogs/owners/ashleyfurniture"
+            },
+            {
+              "entity": "Todd Wanek",
+              "role_description": "President & CEO since 2002",
+              "evidence": "His son, Todd Wanek, holds the positions of President and Chief Executive Officer, actively leading the company's day-to-day operations",
+              "source_url": "https://matrixbcg.com/blogs/owners/ashleyfurniture"
+            }
+          ],
+          "strategic_control_note": null,
+          "confidence": "high",
+          "sources": [
+            "https://matrixbcg.com/blogs/owners/ashleyfurniture",
+            "https://ashley.biz/frequently-asked-questions/ashley-furniture-industries-a-private-family-owned-company/",
+            "https://en.wikipedia.org/wiki/Ashley_Furniture_Industries",
+            "https://www.linkedin.com/company/ashley-global-retail",
+            "https://www.ashleyfurnitureindustriesllc.com/",
+            "https://www.prnewswire.com/news-releases/ashley-and-resident-announce-acquisition-302080558.html"
+          ],
+          "notes": "Ashley is a proud family-owned company with over 80 years of strong history in home furnishings. Private company founded in 1945, merged operations in 1976 under Wanek family control | Ashley Global Retail is the retail division of Ashley Furniture Industries, headquartered in Tampa, Florida | Ashley Home, Inc. is an affiliate of Ashley Global Retail that serves as the acquiring entity for Resident Home | Collapsed duplicate chain layers \"Ashley Global Retail, LLC\" and \"Ashley Home, Inc.\" (shared: holding_token:ashley); canonical name: \"Ashley Furniture Industries, LLC\". | Collapsed duplicate chain layers \"Ashley Furniture Industries, LLC\" and \"Ashley Furniture Industries, LLC\" (shared: holding_token:ashley); canonical name: \"Ashley Furniture Industries, LLC\".",
+          "disambiguation_required": false,
+          "disambiguation_candidates": [],
+          "signals_found": [
+            {
+              "type": "press",
+              "label": "2024 revenue report",
+              "value": "$11 billion in 2024, down from $12.3 billion in 2023",
+              "source": "MatrixBCG",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "press",
+              "label": "E-commerce revenue",
+              "value": "Ashley.com generated $331 million in 2024",
+              "source": "MatrixBCG",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "hiring",
+              "label": "Employee count range",
+              "value": "11,000-35,000 employees reported across sources",
+              "source": "Multiple sources (LeadIQ, GlobalData, Zippia)",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "hiring",
+              "label": "Employee growth",
+              "value": "12% employee growth year-over-year",
+              "source": "GrowJo",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "press",
+              "label": "Alternative revenue estimates",
+              "value": "Revenue estimates range from $3.5B (LeadIQ) to $6.5B (GlobalData) to $4.7B (Zippia)",
+              "source": "Multiple sources",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "press",
+              "label": "Investment activity",
+              "value": "Over $2 billion invested in operations recently, $80M Mississippi expansion, $70.54M Florida facility acquisition",
+              "source": "MatrixBCG",
+              "weight": "medium",
+              "context_unverified": false
+            }
+          ],
+          "_collapsed_from": [
+            "Ashley Global Retail, LLC",
+            "Ashley Home, Inc.",
+            "Ashley Furniture Industries, LLC"
+          ],
+          "_collapsed_shared": [
+            "holding_token:ashley"
+          ],
+          "primary_parent_id": "Wanek Family",
+          "secondary_relationships": [],
+          "revenue_estimate": {
+            "low": 6500000000,
+            "high": 12300000000,
+            "central": 9000000000,
+            "confidence": "medium"
+          },
+          "reasoning_summary": "Multiple sources consistently report Ashley Furniture as one of the largest furniture manufacturers globally with revenue in the multi-billion range. The most credible recent figure shows $11B in 2024 revenue (down from $12.3B in 2023), supported by substantial employee counts (11K-35K range), significant capital investments ($2B+ recently), and strong digital presence ($331M e-commerce). The range accounts for conflicting estimates from different sources and the reported year-over-year decline.",
+          "signals_attempted": 5,
+          "signals_found_count": 6,
+          "_derived_status": {
+            "label": "active",
+            "reason": "present in current/primary sources"
+          },
+          "_divestiture": null
+        },
+        "ownership_role": "sole_owner",
+        "co_owners": [],
+        "focal_segment": "Mattress & Bedding Brands",
+        "siblings": [
+          {
+            "company": "Nectar Sleep",
+            "domain": "nectarsleep.com",
+            "node_type": "operating_brand",
+            "category": "memory foam mattress brand",
+            "revenue_model": "direct_revenue",
+            "origin_event": "internal_launch",
+            "in_current_sources": true,
+            "in_historical_sources": true,
+            "last_mention_date": "2025-01-16",
+            "source_urls": [
+              "https://www.residenthome.com/brands/"
+            ],
+            "revenue_estimate": {
+              "low": 175000000,
+              "high": 350000000,
+              "central": 260000000,
+              "confidence": "medium"
+            },
+            "signals_found": [
+              {
+                "type": "press",
+                "label": "Parent Co. (Resident Home) 2023 Revenue",
+                "value": "Resident concluded 2023 with revenues of $900 million.",
+                "source": "CTech / Ynet News",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "press",
+                "label": "Nectar Historical Revenue (2020)",
+                "value": "In 2020, sales for Resident and its Nectar brand were in excess of $500 million.",
+                "source": "Forbes / ConvertFlow",
+                "weight": "medium",
+                "context_unverified": false
+              },
+              {
+                "type": "other",
+                "label": "E-commerce Database Estimate (2025)",
+                "value": "Nectar Sleep generated revenue of US$186m on its biggest online store nectarsleep.com in 2025.",
+                "source": "ECDB",
+                "weight": "medium",
+                "context_unverified": false
+              },
+              {
+                "type": "hiring",
+                "label": "Nectar Sleep LLC Revenue & Employee Range",
+                "value": "Estimated revenue for Nectar Sleep LLC is between $50 Million - $200 Million, with 200-500 employees.",
+                "source": "nectarsleep.careerbliss.com",
+                "weight": "medium",
+                "context_unverified": false
+              }
+            ],
+            "reasoning_summary": "The revenue estimate for Nectar Sleep is anchored by several data points. Its parent company, Resident Home, achieved $900M in 2023 revenue, with Nectar being one of its two largest brands. Historically, by 2020, Nectar was already driving sales in excess of $500M for its parent. More recent, direct estimates for Nectar's revenue include a 2025 projection of $186M for its primary domain and a stated range of $50M-$200M for the legal entity. Given the brand's established market position and historical performance, the estimate range of $175M to $350M acknowledges the direct e-commerce estimates while allowing for significant contribution to the parent company's overall revenue, including offline and other channels.",
+            "signals_attempted": 4,
+            "signals_found_count": 4,
+            "_derived_status": {
+              "label": "active",
+              "reason": "present in current/primary sources"
+            },
+            "_divestiture": null,
+            "variant_type": "distinct"
+          },
+          {
+            "company": "DreamCloud",
+            "domain": "dreamcloudsleep.com",
+            "node_type": "operating_brand",
+            "category": "luxury hybrid mattress brand",
+            "revenue_model": "direct_revenue",
+            "origin_event": "internal_launch",
+            "in_current_sources": true,
+            "in_historical_sources": true,
+            "last_mention_date": "2025-01-16",
+            "source_urls": [
+              "https://www.residenthome.com/brands/"
+            ],
+            "revenue_estimate": {
+              "low": 150000000,
+              "high": 250000000,
+              "central": 200000000,
+              "confidence": "medium"
+            },
+            "signals_found": [
+              {
+                "type": "press",
+                "label": "Parent Co. (Resident Home) Revenue 2023",
+                "value": "Resident Home was estimated to have registered revenue of $900 million in 2023.",
+                "source": "CTech",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "press",
+                "label": "Parent Co. (Resident Home) Revenue 2025",
+                "value": "Resident Home reported over $1B in annual net revenue in 2025.",
+                "source": "Built In",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "other",
+                "label": "Direct Revenue Estimate (Undated)",
+                "value": "DreamCloud's revenue is estimated to be in the range of $50M-$100M.",
+                "source": "LeadIQ",
+                "weight": "medium",
+                "context_unverified": false
+              },
+              {
+                "type": "reviews",
+                "label": "Customer Reviews on Trustpilot (UK)",
+                "value": "DreamCloud Sleep has 2,638 reviews on its UK Trustpilot page, with an average rating of 4.3 out of 5.",
+                "source": "Trustpilot",
+                "weight": "medium",
+                "context_unverified": false
+              }
+            ],
+            "reasoning_summary": "DreamCloud is a major brand within the Resident Home portfolio, which had revenues of $900M in 2023 and over $1B in 2025. While one direct estimate for DreamCloud from LeadIQ is $50M-$100M, this seems low given that DreamCloud and its sibling brand Nectar are noted as the two highest-volume brands in the portfolio. Given the parent company's significant revenue and DreamCloud's prominent position, its revenue is likely a substantial fraction of the total. Assuming the four main Resident brands (Nectar, DreamCloud, Awara, Siena) have a power-law distribution, and with Nectar as the flagship, DreamCloud could plausibly account for 15-25% of the parent's total revenue. This leads to an estimated range of $150M to $250M. The thousands of positive customer reviews on Trustpilot support the conclusion that DreamCloud is a significant player in the market, justifying an estimate well above the lower-end directory listings.",
+            "signals_attempted": 4,
+            "signals_found_count": 4,
+            "_derived_status": {
+              "label": "active",
+              "reason": "present in current/primary sources"
+            },
+            "_divestiture": null,
+            "variant_type": "distinct"
+          },
+          {
+            "company": "Awara Sleep",
+            "domain": "awarasleep.com",
+            "node_type": "operating_brand",
+            "category": "organic hybrid mattress brand",
+            "revenue_model": "direct_revenue",
+            "origin_event": "internal_launch",
+            "in_current_sources": true,
+            "in_historical_sources": true,
+            "last_mention_date": "2025-01-16",
+            "source_urls": [
+              "https://www.residenthome.com/brands/"
+            ],
+            "revenue_estimate": {
+              "low": 7000000,
+              "high": 10000000,
+              "central": 8500000,
+              "confidence": "medium"
+            },
+            "signals_found": [
+              {
+                "type": "web_traffic",
+                "label": "2024 annual DTC revenue",
+                "value": "$9.2M annually, decline 5-10% expected in 2025",
+                "source": "Grips Intelligence",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "web_traffic",
+                "label": "Monthly revenue October 2025",
+                "value": "$666,086 monthly, AOV $900-925",
+                "source": "Grips Intelligence",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "hiring",
+                "label": "Employee count",
+                "value": "1-10 employees",
+                "source": "ZoomInfo, 6sense",
+                "weight": "medium",
+                "context_unverified": false
+              },
+              {
+                "type": "pricing",
+                "label": "Queen mattress price",
+                "value": "$849 for queen size mattress",
+                "source": "CBInsights",
+                "weight": "medium",
+                "context_unverified": false
+              },
+              {
+                "type": "reviews",
+                "label": "Customer review scale",
+                "value": "17 reviews on Trustpilot, 33 BBB complaints in 3 years",
+                "source": "Trustpilot, BBB",
+                "weight": "medium",
+                "context_unverified": false
+              },
+              {
+                "type": "press",
+                "label": "Parent company acquisition",
+                "value": "Part of Resident Home ($700-900M total), acquired by Ashley for $1B in 2024",
+                "source": "Multiple industry sources",
+                "weight": "medium",
+                "context_unverified": false
+              }
+            ],
+            "reasoning_summary": "Multiple signals converge around $8-9M annual revenue. Grips Intelligence reports $9.2M in 2024 with expected 5-10% decline in 2025, which would put 2025 at $8.3-8.7M. Monthly data ($666K in October) annualizes to ~$8M. The small team (1-10 employees) and moderate review volume are consistent with this scale. As one of four brands under Resident Home's $700-900M total, Awara's ~$8-9M represents roughly 1% of the portfolio, reasonable for a smaller specialty organic mattress brand.",
+            "signals_attempted": 6,
+            "signals_found_count": 6,
+            "_derived_status": {
+              "label": "active",
+              "reason": "present in current/primary sources"
+            },
+            "_divestiture": null,
+            "variant_type": "distinct"
+          },
+          {
+            "company": "Siena",
+            "domain": "",
+            "node_type": "operating_brand",
+            "category": "mattress brand",
+            "revenue_model": "direct_revenue",
+            "origin_event": "internal_launch",
+            "in_current_sources": true,
+            "in_historical_sources": true,
+            "last_mention_date": "2025-01-16",
+            "source_urls": [
+              "https://www.residenthome.com/brands/"
+            ],
+            "revenue_estimate": {
+              "low": 45000000,
+              "high": 90000000,
+              "central": 65000000,
+              "confidence": "low"
+            },
+            "signals_found": [
+              {
+                "type": "press",
+                "label": "Parent Co. 2023 Revenue",
+                "value": "Resident Home concluded 2023 with revenues of $900 million.",
+                "source": "CTech",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "press",
+                "label": "Parent Co. 2025 Revenue",
+                "value": "Resident reported over $1B in annual net revenue in 2025.",
+                "source": "Built In",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "pricing",
+                "label": "Siena Price Point (Queen)",
+                "value": "Siena is positioned as a budget-friendly brand, with a queen mattress priced around $359 - $499.",
+                "source": "Multiple mattress review sites",
+                "weight": "medium",
+                "context_unverified": false
+              },
+              {
+                "type": "other",
+                "label": "Brand Positioning",
+                "value": "Siena is consistently described as the \"value\" or \"budget\" mattress brand within the Resident Home portfolio, which also includes the higher-volume brands Nectar and DreamCloud.",
+                "source": "OpenClassActions.com / Mattress Overstock",
+                "weight": "medium",
+                "context_unverified": false
+              }
+            ],
+            "reasoning_summary": "The revenue estimate for Siena is derived from the reported revenue of its parent company, Resident Home, which was $900M in 2023 and over $1B in 2025. Siena is explicitly positioned as the budget or value brand in the portfolio, alongside the larger, more heavily marketed Nectar and DreamCloud brands. Given its lower price point and market position, Siena is estimated to contribute a small fraction of the parent company's total revenue. The range of $45M to $90M represents a 5-10% share of Resident's overall revenue, which is a reasoned but low-confidence estimate due to the absence of specific data on the sales volume mix across Resident's brands.",
+            "signals_attempted": 4,
+            "signals_found_count": 4,
+            "_derived_status": {
+              "label": "active",
+              "reason": "present in current/primary sources"
+            },
+            "_divestiture": null,
+            "variant_type": "distinct"
+          },
+          {
+            "company": "Cloverlane",
+            "domain": "",
+            "node_type": "operating_brand",
+            "category": "bedding and bathware brand",
+            "revenue_model": "direct_revenue",
+            "origin_event": "internal_launch",
+            "in_current_sources": true,
+            "in_historical_sources": true,
+            "last_mention_date": "2025-01-16",
+            "source_urls": [
+              "https://www.residenthome.com/brands/"
+            ],
+            "revenue_estimate": {
+              "low": 0,
+              "high": 0,
+              "central": 0,
+              "confidence": "low"
+            },
+            "signals_found": [
+              {
+                "type": "press",
+                "label": "Brand launch February 2024",
+                "value": "Launched February 16, 2024 as luxury brand from Resident Home",
+                "source": "PRWeb press release",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "pricing",
+                "label": "Premium mattress pricing",
+                "value": "$999-$2598 price range, Queen at $1,399 with 50% discount",
+                "source": "SlumberSearch, Inkl reviews",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "reviews",
+                "label": "Limited customer base",
+                "value": "~40 reviews, all 5-star ratings as of March 2024, described as 'early customers'",
+                "source": "Inkl mattress review",
+                "weight": "medium",
+                "context_unverified": false
+              },
+              {
+                "type": "press",
+                "label": "Product discontinuation",
+                "value": "ZoomInfo reports mattress line discontinued, now sources from DreamCloud",
+                "source": "ZoomInfo company profile",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "other",
+                "label": "Very low activity levels",
+                "value": "ZoomInfo reports 'very low activity levels compared to other companies in Retail sector'",
+                "source": "ZoomInfo business intelligence",
+                "weight": "medium",
+                "context_unverified": false
+              }
+            ],
+            "reasoning_summary": "Cloverlane was launched in February 2024 as Resident Home's luxury mattress brand but appears to have been discontinued within the same year. Evidence shows a very brief operational period with limited customer reviews (~40 total), premium pricing ($999-$2598), and ZoomInfo reporting both discontinuation of the original mattress line and 'very low activity levels.' The brand now reportedly sources products from sibling brand DreamCloud rather than manufacturing its own line.",
+            "signals_attempted": 6,
+            "signals_found_count": 5,
+            "reason_for_null": "Brand discontinued its original mattress line within ~10 months of launch (Feb-Dec 2024), with ZoomInfo reporting very low business activity and transition to sourcing products from DreamCloud rather than independent operations. Insufficient operational history to establish meaningful revenue estimates.",
+            "_derived_status": {
+              "label": "discontinued",
+              "reason": "closure signal in captured text"
+            },
+            "_divestiture": null,
+            "variant_type": "distinct"
+          }
+        ],
+        "intra_parent_cousins": null,
+        "future_cousins_post_close": null,
+        "pending_acquisition": null,
+        "post_close_consolidated_parent": null,
+        "children": [],
+        "acquisition": {
+          "acquired_by": "Ashley Home, Inc.",
+          "year": 2024,
+          "month": 3,
+          "day": 6,
+          "price_usd": null,
+          "price_display": "undisclosed",
+          "price_source_url": null,
+          "price_confidence": null,
+          "deal_type": null,
+          "source_url": "https://www.prnewswire.com/news-releases/ashley-and-resident-announce-acquisition-302080558.html"
+        },
+        "strategic_control": [
+          {
+            "entity": "Eric Hutchinson",
+            "role_description": "Co-founder & Co-CEO",
+            "evidence": "Co-Founders and Co-CEO's of Resident, Eric Hutchinson and Ran Reske, will remain in their positions post-closing",
+            "source_url": "https://www.prnewswire.com/news-releases/ashley-and-resident-announce-acquisition-302080558.html"
+          },
+          {
+            "entity": "Ran Reske",
+            "role_description": "Co-founder & Co-CEO",
+            "evidence": "Co-Founders and Co-CEO's of Resident, Eric Hutchinson and Ran Reske, will remain in their positions post-closing",
+            "source_url": "https://www.prnewswire.com/news-releases/ashley-and-resident-announce-acquisition-302080558.html"
+          },
+          {
+            "entity": "Craig Schmeizer",
+            "role_description": "Co-founder",
+            "evidence": "Resident Home LLC was founded in 2017 by Craig Schmeizer, Eric Hutchinson, and Ran Reske",
+            "source_url": "https://www.privco.com/company/resident"
+          }
+        ],
+        "strategic_control_note": null,
+        "confidence": "high",
+        "sources": [
+          "https://www.residenthome.com/",
+          "https://www.prnewswire.com/news-releases/ashley-and-resident-announce-acquisition-302080558.html",
+          "https://pitchbook.com/profiles/company/277620-49",
+          "https://www.privco.com/company/resident"
+        ],
+        "notes": "Transaction closed March 6, 2024. Resident rebranded from DreamCloud Holding to Resident in 2019. Company founded in 2017 and headquartered in Walnut, California with operations in San Francisco, New York, London and Tel Aviv",
+        "disambiguation_required": false,
+        "disambiguation_candidates": [],
+        "primary_parent_id": "Ashley Furniture Industries, LLC",
+        "secondary_relationships": [],
+        "revenue_estimate": {
+          "low": 850000000,
+          "high": 950000000,
+          "central": 900000000,
+          "confidence": "high"
+        },
+        "signals_found": [
+          {
+            "type": "press",
+            "label": "2023 revenue reported",
+            "value": "$900 million in 2023 revenue with 10% EBITDA margins",
+            "source": "Calcalistech, Axios, Ynetnews",
+            "weight": "high",
+            "context_unverified": false
+          },
+          {
+            "type": "funding",
+            "label": "Ashley acquisition value",
+            "value": "$1 billion acquisition price by Ashley Furniture in March 2024",
+            "source": "Multiple press releases",
+            "weight": "high",
+            "context_unverified": false
+          },
+          {
+            "type": "funding",
+            "label": "Prior funding history",
+            "value": "$130 million Series B in 2021 led by ION Crossover Partners, $700M valuation",
+            "source": "PitchBook, PRNewswire",
+            "weight": "medium",
+            "context_unverified": false
+          },
+          {
+            "type": "customers",
+            "label": "Retail distribution reach",
+            "value": "Sold through 2,500+ retailers nationwide plus Canada and UK, plus DTC",
+            "source": "Ashley acquisition announcements",
+            "weight": "medium",
+            "context_unverified": false
+          },
+          {
+            "type": "customers",
+            "label": "Customer base milestone",
+            "value": "Close to 6 million happy sleepers across brands (Nectar, DreamCloud, Awara, Siena)",
+            "source": "PRNewswire press release",
+            "weight": "medium",
+            "context_unverified": false
+          }
+        ],
+        "reasoning_summary": "Multiple credible sources consistently report Resident Home's 2023 revenue at $900 million with 10% EBITDA margins. This figure is validated by the $1 billion acquisition price paid by Ashley Furniture in March 2024, representing a reasonable acquisition multiple. The company operates a multi-brand portfolio (Nectar, DreamCloud, Awara, Siena) with both DTC and wholesale channels through 2,500+ retail partners, serving 6+ million customers. The 2021 funding at $700M valuation and subsequent growth to $900M revenue supports the estimate.",
+        "signals_attempted": 6,
+        "signals_found_count": 5,
+        "_derived_status": {
+          "label": "active",
+          "reason": "present in current/primary sources"
+        },
+        "_divestiture": null,
+        "parent_anchor": {
+          "is_public": false,
+          "ticker": null,
+          "fiscal_year": null,
+          "total_revenue_usd": null,
+          "segments": [],
+          "focal_product_line": null,
+          "source_url": null,
+          "notes": "Ashley Furniture Industries, LLC is a privately held company owned by the Wanek family (Ronald G. Wanek as Chairman and Todd R. Wanek as President/CEO). The company has never undergone an IPO and does not trade on public stock exchanges. As confirmed by multiple sources including the company's own FAQ, investors cannot purchase stock in Ashley Furniture Industries. The acquisition of Resident Home LLC by Ashley Home, Inc. (an affiliate of Ashley Global Retail, LLC) for approximately $1 billion in March 2024 was mentioned in the search results, confirming the parent-subsidiary relationship, but since Ashley Furniture Industries remains private, no public financial segment data is available."
+        }
+      },
+      "positioning_analysis": {
+        "focal_vs_parent_ratio": "10.0% of Ashley Furniture Industries, LLC revenue",
+        "focal_vs_siblings": "Ranked 1 of 6 (1 not computed) in family — ★ Resident Home LLC $900.0M · Nectar Sleep $260.0M · DreamCloud $200.0M · Siena $65.0M · Awara Sleep $8.5M · Cloverlane —",
+        "growth_signals": "2023 revenue reported (Calcalistech, Axios, Ynetnews); Ashley acquisition value (Multiple press releases); Prior funding history (PitchBook, PRNewswire)",
+        "strategic_notes": [
+          "Focal leads the sibling cohort by revenue — likely cash cow of the family.",
+          "⚠ Reconciliation: sum of focal + 5 sibling estimates ($1.43B) covers only 16% of Ashley Furniture Industries, LLC estimated central revenue ($9.00B) — likely missing siblings or underestimated revenues.",
+          "Ashley Furniture Industries, LLC is not publicly traded — no 10-K anchor available; reconciliation uses estimates only."
+        ],
+        "reconciliation": {
+          "sum_children_central": 1433500000,
+          "parent_benchmark": 9000000000,
+          "parent_benchmark_source": "estimated",
+          "parent_benchmark_label": "Ashley Furniture Industries, LLC estimated central revenue",
+          "parent_benchmark_segment_name": null,
+          "parent_total_revenue": null,
+          "ratio": 0.159,
+          "pct_delta": -84,
+          "pct_delta_range": [
+            -88,
+            -78
+          ],
+          "benchmark_range": [
+            6500000000,
+            12300000000
+          ],
+          "focal_segment_revenue": null,
+          "children_counted": 5,
+          "explanation": {
+            "likely_causes": [
+              "Missing or unestimated siblings (verify completeness of the brand list)",
+              "Aggregator has non-brand revenue streams (B2B, wholesale, white-label, marketplace)"
+            ],
+            "evidence_for_each": [
+              "1 current-source sibling(s) have no revenue estimate: Cloverlane. Reason(s): Brand discontinued its original mattress line within ~10 months of launch (Feb-Dec 2024), with ZoomInfo reporting very low business activity and transition to sourcing products from DreamCloud rather than independent operations. Insufficient operational history to establish meaningful revenue estimates..",
+              "Captured revenue reasoning mentions wholesale/B2B/white-label channels that do not flow to per-brand DTC estimates."
+            ]
+          }
+        },
+        "parent_anchor": {
+          "is_public": false,
+          "ticker": null,
+          "fiscal_year": null,
+          "total_revenue_usd": null,
+          "segments": [],
+          "focal_product_line": null,
+          "source_url": null,
+          "notes": "Ashley Furniture Industries, LLC is a privately held company owned by the Wanek family (Ronald G. Wanek as Chairman and Todd R. Wanek as President/CEO). The company has never undergone an IPO and does not trade on public stock exchanges. As confirmed by multiple sources including the company's own FAQ, investors cannot purchase stock in Ashley Furniture Industries. The acquisition of Resident Home LLC by Ashley Home, Inc. (an affiliate of Ashley Global Retail, LLC) for approximately $1 billion in March 2024 was mentioned in the search results, confirming the parent-subsidiary relationship, but since Ashley Furniture Industries remains private, no public financial segment data is available."
+        }
+      },
+      "intelligence_brief": {
+        "verdict": {
+          "label": "NOT ACTIONABLE AS STANDALONE",
+          "trajectory": "Growing",
+          "capital_decision": "Not actionable as standalone",
+          "capital_decision_reason": "family_concentrated_100pct",
+          "confidence": "low",
+          "_inputs": {
+            "trajectory_signals": 0,
+            "decline_signals": 0,
+            "ma_signals": 0,
+            "terminal_layer": null,
+            "has_co_owners": false
+          },
+          "confidence_reasoning": "Confidence forced to LOW: parent reconciliation gap -84%.",
+          "thesis": null,
+          "verdict_changers": [
+            "Wanek family announces partial sale or IPO of the operating division.",
+            "Holding-company restructuring that separates the focal segment from the wider group.",
+            "Recent acquisitions by the holding of competing assets in the focal category."
+          ],
+          "verdict_changer_map": [
+            {
+              "condition": "Wanek family announces partial sale or IPO of operating division",
+              "new_label": "ACQUIRE TARGET"
+            },
+            {
+              "condition": "Holding-company restructuring separates focal segment from group",
+              "new_label": "WATCH (transactability path opens)"
+            },
+            {
+              "condition": "Founder succession event triggers governance review",
+              "new_label": "WATCH"
+            }
+          ],
+          "capital_path_summary": "Family-owned private · No public ticker · No M&A activity"
+        },
+        "behavioral_signals": [
+          {
+            "signal_type": "Revenue signal",
+            "weight": "high",
+            "evidence": "$900 million in 2023 revenue with 10% EBITDA margins",
+            "evidence_source": "Calcalistech, Axios, Ynetnews",
+            "interpretation": null,
+            "directional_implication": "neutral"
+          },
+          {
+            "signal_type": "Funding activity",
+            "weight": "high",
+            "evidence": "$1 billion acquisition price by Ashley Furniture in March 2024",
+            "evidence_source": "Multiple press releases",
+            "interpretation": null,
+            "directional_implication": "positive"
+          },
+          {
+            "signal_type": "Funding activity",
+            "weight": "medium",
+            "evidence": "$130 million Series B in 2021 led by ION Crossover Partners, $700M valuation",
+            "evidence_source": "PitchBook, PRNewswire",
+            "interpretation": null,
+            "directional_implication": "positive"
+          },
+          {
+            "signal_type": "customers",
+            "weight": "medium",
+            "evidence": "Sold through 2,500+ retailers nationwide plus Canada and UK, plus DTC",
+            "evidence_source": "Ashley acquisition announcements",
+            "interpretation": null,
+            "directional_implication": "neutral"
+          },
+          {
+            "signal_type": "customers",
+            "weight": "medium",
+            "evidence": "Close to 6 million happy sleepers across brands (Nectar, DreamCloud, Awara, Siena)",
+            "evidence_source": "PRNewswire press release",
+            "interpretation": null,
+            "directional_implication": "neutral"
+          }
+        ],
+        "top_signals": [
+          {
+            "signal_type": "Funding activity",
+            "weight": "high",
+            "evidence": "$1 billion acquisition price by Ashley Furniture in March 2024",
+            "evidence_source": "Multiple press releases",
+            "interpretation": null,
+            "directional_implication": "positive"
+          },
+          {
+            "signal_type": "Revenue signal",
+            "weight": "high",
+            "evidence": "$900 million in 2023 revenue with 10% EBITDA margins",
+            "evidence_source": "Calcalistech, Axios, Ynetnews",
+            "interpretation": null,
+            "directional_implication": "neutral"
+          },
+          {
+            "signal_type": "Funding activity",
+            "weight": "medium",
+            "evidence": "$130 million Series B in 2021 led by ION Crossover Partners, $700M valuation",
+            "evidence_source": "PitchBook, PRNewswire",
+            "interpretation": null,
+            "directional_implication": "positive"
+          }
+        ],
+        "counter_signals": [
+          {
+            "signal_type": "Capacity expansion",
+            "gap_flag": true,
+            "fill_action": null,
+            "why_matters": "Capex is the highest-conviction revenue commitment signal. 2–4 year forward order book predicts growth trajectory better than any current operational metric."
+          },
+          {
+            "signal_type": "Pricing strategy change",
+            "gap_flag": true,
+            "fill_action": null,
+            "why_matters": "Pricing moves reveal whether management is defending share (volume play) or harvesting (margin play) — the single biggest tell on capital posture."
+          },
+          {
+            "signal_type": "Governance / succession",
+            "gap_flag": true,
+            "fill_action": null,
+            "why_matters": "Family or founder transition events trigger restructures, partial sales, and IPOs — usually the only path to transactability for closely-held assets."
+          }
+        ],
+        "corporate_structure": {
+          "ascii_tree": "Wanek Family (root) · $11.8B\n└── Ashley Furniture Industries, LLC (parent) · $9.0B\n└── Resident Home LLC (brand) · $0.9B\n├── Nectar Sleep · $0.3B\n├── DreamCloud · $0.2B\n├── Awara Sleep · $0.0B\n├── Siena · $0.1B\n└── Cloverlane",
+          "ownership_clarity": "family_concentrated_100pct",
+          "history_note": "acquired by Ashley Furniture Industries, LLC in 2024; Wanek family retains control across generations.",
+          "family_detail": {
+            "is_family": true,
+            "total_pct": 100,
+            "members": [
+              {
+                "name": "Ronald G. Wanek",
+                "role": "Founder & Chairman",
+                "est_stake": "undisclosed"
+              },
+              {
+                "name": "Todd Wanek",
+                "role": "President & CEO",
+                "est_stake": "undisclosed"
+              },
+              {
+                "name": "Chuck Vogel",
+                "role": "Vice-Chairman & Co-founder",
+                "est_stake": "undisclosed"
+              }
+            ],
+            "surname": "wanek"
+          }
+        },
+        "mispricing": {
+          "current_pricing_internal": null,
+          "current_pricing_external": null,
+          "ma_attention": "recent_activity",
+          "has_thesis": false,
+          "hypothesis": null,
+          "falsifying_signals": [
+            "Wanek family announces partial sale or IPO of the operating division.",
+            "Holding-company restructuring that separates the focal segment from the wider group.",
+            "Recent acquisitions by the holding of competing assets in the focal category."
+          ],
+          "peer_multiples": {
+            "sector": "dtc_mattress",
+            "peers": [
+              {
+                "name": "Sleep Number (SNBR)",
+                "revenue": 1900000000,
+                "ev_to_revenue": 0.5,
+                "discount_or_premium_pct": null
+              },
+              {
+                "name": "Purple Innovation (PRPL)",
+                "revenue": 490000000,
+                "ev_to_revenue": 0.6,
+                "discount_or_premium_pct": null
+              },
+              {
+                "name": "Tempur Sealy (TPX)",
+                "revenue": 5000000000,
+                "ev_to_revenue": 1.6,
+                "discount_or_premium_pct": null
+              }
+            ],
+            "decomposition": {
+              "components": [
+                {
+                  "label": "Illiquidity",
+                  "pct_range": "20–30%",
+                  "note": "Private-company discount applied to public-peer multiples."
+                },
+                {
+                  "label": "Conglomerate / segment-mix",
+                  "pct_range": "10–20%",
+                  "note": "Embedded in Ashley Furniture Industries, LLC — capital not directly accessible to focal-only acquirers."
+                },
+                {
+                  "label": "Governance / family control",
+                  "pct_range": "10–15%",
+                  "note": "Family-concentrated 100% with no public path — no monetization mechanism absent succession event."
+                }
+              ],
+              "aggregate_discount_range": "40–65%"
+            },
+            "source": "catalog",
+            "implied_valuation_usd": 540000000,
+            "peer_median_ev_revenue": 0.6
+          },
+          "actionable_reads": [
+            {
+              "audience": "PE / direct-acquirers",
+              "read": "No direct transaction path. Hold a watch list for Wanek family succession or holding-company restructuring announcements."
+            },
+            {
+              "audience": "Public-market comparables",
+              "read": "Use Resident Home LLC as a private benchmark when modeling public peers in the same category — useful for sanity-checking peer growth rates and unit economics."
+            },
+            {
+              "audience": "Competitive intelligence",
+              "read": "Track capex, fleet/asset orders, and hiring as the only reliable forward indicators given the absence of quarterly disclosures."
+            }
+          ]
+        },
+        "competitive_context": null,
+        "reconciliation_honest": {
+          "raw_numbers": {
+            "sum_siblings": 1433500000,
+            "anchor": 9000000000,
+            "anchor_range": [
+              6500000000,
+              12300000000
+            ],
+            "delta_pct": -84,
+            "delta_pct_range": [
+              -88,
+              -78
+            ]
+          },
+          "interpretation": "gap_uncovered",
+          "honest_explanation": "Focal + siblings cover only 16% of parent benchmark — likely missing siblings or underestimated revenues. Parent benchmark is an estimate range, so the true gap spans -88% to -78%.",
+          "siblings_likely_overstated": [
+            "Siena",
+            "Cloverlane"
+          ],
+          "siblings_likely_understated": [
+            "Cloverlane"
+          ],
+          "missing_siblings_hypothesis": "Missing or unestimated siblings (verify completeness of the brand list)"
+        },
+        "reconciliation_dual_model": {
+          "models": [
+            {
+              "name": "volume_unit_economics",
+              "label": "Volume × estimated unit economics",
+              "evidence": "Close to 6 million happy sleepers across brands (Nectar, DreamCloud, Awara, Siena)",
+              "implied_central": null,
+              "vs_agent_pct": null,
+              "verdict": "requires unit-economics anchor; flag for fill"
+            },
+            {
+              "name": "parent_anchor",
+              "label": "Parent 10-K / segment anchor",
+              "evidence": "Sum siblings 1433500000 vs anchor 9000000000",
+              "implied_central": 9000000000,
+              "vs_agent_pct": -84,
+              "verdict": "gap_uncovered"
+            }
+          ],
+          "has_public_anchor": true,
+          "notes": null
+        },
+        "confidence_gaps": {
+          "high_confidence": [
+            "Revenue estimate (source)"
+          ],
+          "medium_confidence": [
+            "5 verified signals"
+          ],
+          "known_gaps": [
+            "1 sibling(s) without revenue estimates",
+            "parent reconciliation gap -84%"
+          ],
+          "verdict_changers": [
+            "Wanek family announces partial sale or IPO of the operating division.",
+            "Holding-company restructuring that separates the focal segment from the wider group.",
+            "Recent acquisitions by the holding of competing assets in the focal category.",
+            "Reconciliation delta ±30%+ suggests missing siblings or estimate issues"
+          ],
+          "known_gaps_starred": [
+            {
+              "gap": "1 sibling(s) without revenue estimates",
+              "stars": 1
+            },
+            {
+              "gap": "parent reconciliation gap -84%",
+              "stars": 2
+            }
+          ]
+        },
+        "confidence_buckets": {
+          "high": [
+            {
+              "claim": "Revenue central estimate",
+              "reason": "Single defensible anchor"
+            }
+          ],
+          "medium": [
+            {
+              "claim": "5 verified behavioral signals",
+              "reason": "Source attributed and cross-checked"
+            }
+          ],
+          "low": [
+            {
+              "claim": "Confidence escalation trigger",
+              "reason": "parent reconciliation gap -84%"
+            },
+            {
+              "claim": "Parent revenue benchmark",
+              "reason": "No public 10-K available; benchmark uses estimates only"
+            }
+          ]
+        },
+        "section_confidence": {
+          "verdict": {
+            "stars": "***",
+            "reason": "Anchored estimate"
+          },
+          "behavioral_signals": {
+            "stars": "***",
+            "reason": "5 captured"
+          },
+          "corporate_structure": {
+            "stars": "***",
+            "reason": "Family UBO identified"
+          },
+          "reconciliation": {
+            "stars": "**",
+            "reason": "Triangulated only"
+          },
+          "mispricing": {
+            "stars": "**",
+            "reason": "Catalog peers"
+          },
+          "competitive_context": {
+            "stars": "*",
+            "reason": "Discovery phase"
+          }
+        },
+        "limitations_list": [
+          "Ashley Furniture Industries, LLC is private — no 10-K anchor; reconciliation uses estimates only.",
+          "1 of 5 captured siblings lack revenue estimates.",
+          "Confidence forced to LOW (see triggers in confidence buckets)."
+        ],
+        "strategic_notes_by_audience": {
+          "for_investors": "Treat Resident Home LLC as a market-intelligence signal and private comparable, not a transactable target.",
+          "for_competitors": "N/A - competitive reads are summarized in the Competitive Context section.",
+          "for_ma_advisors": "Pending LLM enrichment",
+          "for_growth_signal_users": "Pending LLM enrichment"
+        },
+        "data_trace": {
+          "primary_sources": [
+            "Calcalistech, Axios, Ynetnews",
+            "Multiple press releases",
+            "PitchBook, PRNewswire",
+            "Ashley acquisition announcements",
+            "PRNewswire press release"
+          ],
+          "methodology_note": "Deterministic synthesis (V2.1): ownership clarity → capital decision → verdict label; reconciliation triangulated against parent anchor + (when available) industry-share and volume-unit-economics models. Confidence is escalated to LOW when sibling capture is incomplete, no public anchor exists, the revenue range spread ≥2×, parent gap ≥30%, or forward-catalyst data is missing. LLM enrichment adds signal interpretations (\"Read this as:\") and audience-specific notes; deterministic seeds are used as fallback.",
+          "generated_at": "2026-05-24T22:45:52.141Z",
+          "primary_used": [
+            "Calcalistech, Axios, Ynetnews",
+            "Multiple press releases",
+            "PitchBook, PRNewswire",
+            "Ashley acquisition announcements",
+            "PRNewswire press release"
+          ],
+          "excluded_with_reason": [
+            {
+              "source": "SimilarWeb",
+              "reason": "Web-traffic proxy under-represents revenue for offline/asset-heavy categories."
+            },
+            {
+              "source": "PitchBook / S&P Capital IQ",
+              "reason": "Subscription-walled; not used in this run."
+            }
+          ]
+        }
+      },
+      "synthesis_meta": {
+        "seed": "resident home llc|ashley furniture industries, llc|2026-05-24",
+        "deterministic": true,
+        "schema_version": "v2.1"
+      },
+      "_entities": [
+        {
+          "company": "Resident Home LLC",
+          "domain": "residenthome.com",
+          "role": "focal",
+          "layer": "brand",
+          "category": "house of direct-to-consumer mattress and bedding brands",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "parent_company": "Ashley Furniture Industries, LLC",
+          "primary_parent_id": "Ashley Furniture Industries, LLC",
+          "secondary_relationships": []
+        },
+        {
+          "company": "Ashley Furniture Industries, LLC",
+          "domain": "ashleyfurnitureindustriesllc.com",
+          "role": "parent",
+          "layer": "parent",
+          "category": "furniture manufacturer and retailer",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "parent_company": "Wanek Family",
+          "primary_parent_id": "Wanek Family",
+          "secondary_relationships": []
+        },
+        {
+          "company": "Wanek Family",
+          "domain": null,
+          "role": "grandparent",
+          "layer": "root",
+          "category": "family ownership group",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "parent_company": null,
+          "primary_parent_id": null,
+          "secondary_relationships": []
+        },
+        {
+          "company": "Nectar Sleep",
+          "domain": "nectarsleep.com",
+          "role": "sibling",
+          "layer": null,
+          "category": "memory foam mattress brand",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "parent_company": "Ashley Furniture Industries, LLC",
+          "primary_parent_id": "Ashley Furniture Industries, LLC",
+          "secondary_relationships": []
+        },
+        {
+          "company": "DreamCloud",
+          "domain": "dreamcloudsleep.com",
+          "role": "sibling",
+          "layer": null,
+          "category": "luxury hybrid mattress brand",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "parent_company": "Ashley Furniture Industries, LLC",
+          "primary_parent_id": "Ashley Furniture Industries, LLC",
+          "secondary_relationships": []
+        },
+        {
+          "company": "Awara Sleep",
+          "domain": "awarasleep.com",
+          "role": "sibling",
+          "layer": null,
+          "category": "organic hybrid mattress brand",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "parent_company": "Ashley Furniture Industries, LLC",
+          "primary_parent_id": "Ashley Furniture Industries, LLC",
+          "secondary_relationships": []
+        },
+        {
+          "company": "Siena",
+          "domain": null,
+          "role": "sibling",
+          "layer": null,
+          "category": "mattress brand",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "parent_company": "Ashley Furniture Industries, LLC",
+          "primary_parent_id": "Ashley Furniture Industries, LLC",
+          "secondary_relationships": []
+        },
+        {
+          "company": "Cloverlane",
+          "domain": null,
+          "role": "sibling",
+          "layer": null,
+          "category": "bedding and bathware brand",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "parent_company": "Ashley Furniture Industries, LLC",
+          "primary_parent_id": "Ashley Furniture Industries, LLC",
+          "secondary_relationships": []
+        }
+      ],
+      "_revenueResults": [
+        {
+          "company": "Resident Home LLC",
+          "role": "focal",
+          "revenue_estimate": {
+            "low": 850000000,
+            "high": 950000000,
+            "central": 900000000
+          },
+          "confidence": "high",
+          "signals_attempted": 6,
+          "signals_found_count": 5,
+          "signals_found": [
+            {
+              "type": "press",
+              "label": "2023 revenue reported",
+              "value": "$900 million in 2023 revenue with 10% EBITDA margins",
+              "source": "Calcalistech, Axios, Ynetnews",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "funding",
+              "label": "Ashley acquisition value",
+              "value": "$1 billion acquisition price by Ashley Furniture in March 2024",
+              "source": "Multiple press releases",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "funding",
+              "label": "Prior funding history",
+              "value": "$130 million Series B in 2021 led by ION Crossover Partners, $700M valuation",
+              "source": "PitchBook, PRNewswire",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "customers",
+              "label": "Retail distribution reach",
+              "value": "Sold through 2,500+ retailers nationwide plus Canada and UK, plus DTC",
+              "source": "Ashley acquisition announcements",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "customers",
+              "label": "Customer base milestone",
+              "value": "Close to 6 million happy sleepers across brands (Nectar, DreamCloud, Awara, Siena)",
+              "source": "PRNewswire press release",
+              "weight": "medium",
+              "context_unverified": false
+            }
+          ],
+          "reasoning_summary": "Multiple credible sources consistently report Resident Home's 2023 revenue at $900 million with 10% EBITDA margins. This figure is validated by the $1 billion acquisition price paid by Ashley Furniture in March 2024, representing a reasonable acquisition multiple. The company operates a multi-brand portfolio (Nectar, DreamCloud, Awara, Siena) with both DTC and wholesale channels through 2,500+ retail partners, serving 6+ million customers. The 2021 funding at $700M valuation and subsequent growth to $900M revenue supports the estimate.",
+          "reason_for_null": null
+        },
+        {
+          "company": "Ashley Furniture Industries, LLC",
+          "role": "parent",
+          "revenue_estimate": {
+            "low": 10000000000,
+            "high": 12500000000,
+            "central": 11000000000
+          },
+          "confidence": "high",
+          "signals_attempted": 8,
+          "signals_found_count": 8,
+          "signals_found": [
+            {
+              "type": "press",
+              "label": "Forbes reported 2024 revenue",
+              "value": "$11 billion in 2024, down from $12.3 billion in 2023",
+              "source": "MatrixBCG citing Forbes",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "press",
+              "label": "Alternative 2024 revenue figures",
+              "value": "$4.2-4.7 billion cited by various sources",
+              "source": "Multiple sources (MatrixBCG, Zippia)",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "web_traffic",
+              "label": "E-commerce revenue 2024",
+              "value": "$331 million from ashleyfurniture.com, 5-10% growth projected 2025",
+              "source": "MatrixBCG",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "hiring",
+              "label": "Employee count and growth",
+              "value": "35,000 employees, 12% growth last year, 522 open positions",
+              "source": "Zippia, Indeed, LinkedIn",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "customers",
+              "label": "Global retail footprint",
+              "value": "Over 1,100+ stores across 67-71 countries",
+              "source": "Multiple sources",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "funding",
+              "label": "Resident Home acquisition",
+              "value": "$1 billion acquisition of Resident Home in March 2024",
+              "source": "MatrixBCG, Bedding News Now",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "other",
+              "label": "Recent manufacturing investments",
+              "value": "$2 billion invested in operations, $80M Mississippi expansion",
+              "source": "MatrixBCG",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "other",
+              "label": "Market position",
+              "value": "World's largest furniture manufacturer since 2005, #1 furniture retailer in North America",
+              "source": "Multiple sources",
+              "weight": "high",
+              "context_unverified": false
+            }
+          ],
+          "reasoning_summary": "Multiple sources consistently report Ashley Furniture Industries' 2024 revenue at $11 billion (down from $12.3 billion in 2023), with Forbes as the primary source. The company's massive scale is evidenced by 35,000+ employees, 1,100+ global stores, and a $1 billion acquisition capability. Their e-commerce channel generates $331M annually with projected growth. Some conflicting lower figures ($4.2-4.7B) may represent specific business segments rather than total company revenue.",
+          "reason_for_null": null
+        },
+        {
+          "company": "Wanek Family",
+          "role": "grandparent",
+          "revenue_estimate": {
+            "low": 11000000000,
+            "high": 12500000000,
+            "central": 11750000000
+          },
+          "confidence": "medium",
+          "signals_attempted": 6,
+          "signals_found_count": 8,
+          "signals_found": [
+            {
+              "type": "press",
+              "label": "Ashley Furniture 2024 revenue",
+              "value": "$11 billion reported by Forbes for 2024",
+              "source": "BizTimes/MatrixBCG",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "press",
+              "label": "Ashley Furniture 2023 revenue",
+              "value": "$12.3 billion in 2023 according to Forbes",
+              "source": "BizTimes",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "customers",
+              "label": "Ashley global operations scale",
+              "value": "1,000+ stores in 155 countries, 35,000 employees",
+              "source": "BizTimes",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "press",
+              "label": "Wanek family ownership stake",
+              "value": "85% ownership of Ashley Furniture Industries",
+              "source": "Family Business Magazine",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "funding",
+              "label": "Todd Wanek net worth",
+              "value": "$2.8 billion estimated net worth (Forbes 2022)",
+              "source": "BizTimes",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "other",
+              "label": "Third Lake Capital investments",
+              "value": "Family office managing diversified investments since 2013",
+              "source": "Altss",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "other",
+              "label": "Ker's WingHouse acquisition",
+              "value": "Acquired restaurant chain with 29 locations in 2014",
+              "source": "Tampa Bay Times",
+              "weight": "low",
+              "context_unverified": false
+            },
+            {
+              "type": "other",
+              "label": "Superior Fresh operation",
+              "value": "Aquaponics farm led by Todd and Karen Wanek",
+              "source": "And Now U Know",
+              "weight": "low",
+              "context_unverified": false
+            }
+          ],
+          "reasoning_summary": "The Wanek Family's revenue is dominated by Ashley Furniture Industries, where they hold 85% ownership. Ashley reported $11 billion in 2024 revenue (down from $12.3 billion in 2023). As the controlling owners, the family's share would be approximately $9.35-10.5 billion from Ashley alone. Additional revenue comes from their diversified investments through Third Lake Capital, including real estate holdings, Ker's WingHouse restaurant chain, and Superior Fresh aquaponics operation, though these are likely smaller contributors to overall family revenue.",
+          "reason_for_null": null
+        },
+        {
+          "company": "Nectar Sleep",
+          "role": "sibling",
+          "revenue_estimate": {
+            "low": 220000000,
+            "high": 280000000,
+            "central": 250000000
+          },
+          "confidence": "medium",
+          "signals_attempted": 6,
+          "signals_found_count": 5,
+          "signals_found": [
+            {
+              "type": "press",
+              "label": "Growth Shop revenue claim",
+              "value": "Nectar Sleep grew from $10M to over $300M in annual revenue",
+              "source": "growth.shop",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "press",
+              "label": "Resident total 2023 revenue",
+              "value": "Resident Home (parent) had $900M revenue in 2023 with 10% EBITDA margins",
+              "source": "calcalistech.com, axios.com",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "funding",
+              "label": "Ashley acquisition price",
+              "value": "Ashley paid $1 billion to acquire Resident Home in 2024",
+              "source": "axios.com",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "web_traffic",
+              "label": "Nectar website monthly visits",
+              "value": "3.6M monthly visits to nectarsleep.com in November 2024",
+              "source": "similarweb.com",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "press",
+              "label": "Historical Nectar revenue peak",
+              "value": "Nectar reported $500M in sales in 2020 (as part of Resident portfolio)",
+              "source": "homenewsnow.com",
+              "weight": "medium",
+              "context_unverified": false
+            }
+          ],
+          "reasoning_summary": "Nectar Sleep is the flagship brand within Resident Home's $900M revenue portfolio (2023). Given that Nectar was historically the largest brand (reaching $500M in 2020) and maintained strong web traffic (3.6M monthly visits), I estimate it represents 25-30% of Resident's total revenue. The $1B acquisition price validates the portfolio's scale. Cross-referencing the historical growth trajectory and current market position suggests Nectar Sleep generates approximately $220-280M annually.",
+          "reason_for_null": null
+        },
+        {
+          "company": "DreamCloud",
+          "role": "sibling",
+          "revenue_estimate": {
+            "low": 200000000,
+            "high": 350000000,
+            "central": 275000000
+          },
+          "confidence": "medium",
+          "signals_attempted": 6,
+          "signals_found_count": 5,
+          "signals_found": [
+            {
+              "type": "press",
+              "label": "Resident total revenue 2023",
+              "value": "Resident ended 2023 with revenues of $900 million, with DreamCloud as one of leading brands alongside Nectar",
+              "source": "Ynetnews acquisition coverage",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "press",
+              "label": "Ashley acquisition value",
+              "value": "$1 billion acquisition by Ashley Furniture Industries in 2024",
+              "source": "Multiple industry sources",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "customers",
+              "label": "Trustpilot review count",
+              "value": "2,614+ reviews on UK Trustpilot, 55+ on US Trustpilot, 9,000+ on company website",
+              "source": "Trustpilot platforms",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "pricing",
+              "label": "Queen mattress ASP",
+              "value": "Queen mattresses priced $649-$1,099 retail, indicating premium positioning",
+              "source": "Tom's Guide and DreamCloud website",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "marketplace",
+              "label": "Retail distribution",
+              "value": "Available through 2,500+ retail partners in US, Canada, UK plus Ashley's 1,125 stores",
+              "source": "Company reports",
+              "weight": "medium",
+              "context_unverified": false
+            }
+          ],
+          "reasoning_summary": "Resident Home (parent of DreamCloud, Nectar, Awara, Siena) generated $900M revenue in 2023 and was acquired by Ashley for $1B in 2024. Industry sources indicate DreamCloud and Nectar are the 'leading brands' within this portfolio. Conservative estimate suggests DreamCloud represents 25-40% of Resident's revenue given its premium positioning ($649-1099 queen price points) and extensive retail distribution through 2,500+ partners plus Ashley's network.",
+          "reason_for_null": null
+        },
+        {
+          "company": "Awara Sleep",
+          "role": "sibling",
+          "revenue_estimate": {
+            "low": 7000000,
+            "high": 10000000,
+            "central": 8500000
+          },
+          "confidence": "medium",
+          "signals_attempted": 6,
+          "signals_found_count": 6,
+          "signals_found": [
+            {
+              "type": "web_traffic",
+              "label": "2024 annual DTC revenue",
+              "value": "$9.2M annually, decline 5-10% expected in 2025",
+              "source": "Grips Intelligence",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "web_traffic",
+              "label": "Monthly revenue October 2025",
+              "value": "$666,086 monthly, AOV $900-925",
+              "source": "Grips Intelligence",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "hiring",
+              "label": "Employee count",
+              "value": "1-10 employees",
+              "source": "ZoomInfo, 6sense",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "pricing",
+              "label": "Queen mattress price",
+              "value": "$849 for queen size mattress",
+              "source": "CBInsights",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "reviews",
+              "label": "Customer review scale",
+              "value": "17 reviews on Trustpilot, 33 BBB complaints in 3 years",
+              "source": "Trustpilot, BBB",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "press",
+              "label": "Parent company acquisition",
+              "value": "Part of Resident Home ($700-900M total), acquired by Ashley for $1B in 2024",
+              "source": "Multiple industry sources",
+              "weight": "medium",
+              "context_unverified": false
+            }
+          ],
+          "reasoning_summary": "Multiple signals converge around $8-9M annual revenue. Grips Intelligence reports $9.2M in 2024 with expected 5-10% decline in 2025, which would put 2025 at $8.3-8.7M. Monthly data ($666K in October) annualizes to ~$8M. The small team (1-10 employees) and moderate review volume are consistent with this scale. As one of four brands under Resident Home's $700-900M total, Awara's ~$8-9M represents roughly 1% of the portfolio, reasonable for a smaller specialty organic mattress brand.",
+          "reason_for_null": null
+        },
+        {
+          "company": "Siena",
+          "role": "sibling",
+          "revenue_estimate": {
+            "low": 15000000,
+            "high": 35000000,
+            "central": 25000000
+          },
+          "confidence": "medium",
+          "signals_attempted": 8,
+          "signals_found_count": 6,
+          "signals_found": [
+            {
+              "type": "press",
+              "label": "Resident Home total revenue",
+              "value": "Resident Home (parent) estimated ~$700M total across all brands (Nectar, DreamCloud, Siena, Awara, Cloverlane) in 2023",
+              "source": "Home News Now",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "press",
+              "label": "Ashley acquisition context",
+              "value": "Ashley acquired Resident Home (including Siena) in March 2024, expanding mattress portfolio",
+              "source": "Retail Dive",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "pricing",
+              "label": "Low-price positioning",
+              "value": "Queen mattress priced at $359 regular, $244 on sale - budget/entry-level positioning within Resident portfolio",
+              "source": "Multiple review sites",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "customers",
+              "label": "Class action settlement scope",
+              "value": "6.2M consumers covered by Ashley/Resident mattress settlement including Siena brand",
+              "source": "ClassAction.org",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "reviews",
+              "label": "Product review presence",
+              "value": "Active review presence across major testing sites (Mattress Clarity, NapLab, Sleep Foundation) with consistent product testing",
+              "source": "Multiple review platforms",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "marketplace",
+              "label": "Distribution channels",
+              "value": "Available on SienaSleep.com and Amazon, not in retail stores - DTC plus marketplace model",
+              "source": "Multiple sources",
+              "weight": "medium",
+              "context_unverified": false
+            }
+          ],
+          "reasoning_summary": "Siena is positioned as the budget/entry-level brand within Resident Home's portfolio. With parent company Resident Home generating ~$700M across 5 brands, and Siena being the most affordable option ($359 queen vs Nectar's $650+), it likely captures 3-5% of total revenue. The 6.2M consumer class action scope suggests meaningful scale across all Resident brands. Siena's ultra-low pricing strategy and DTC+Amazon distribution model points to volume-based revenue in the $15-35M range.",
+          "reason_for_null": null
+        },
+        {
+          "company": "Cloverlane",
+          "role": "sibling",
+          "revenue_estimate": {
+            "low": 50000000,
+            "high": 150000000,
+            "central": 100000000
+          },
+          "confidence": "low",
+          "signals_attempted": 5,
+          "signals_found_count": 4,
+          "signals_found": [
+            {
+              "type": "pricing",
+              "label": "Cloverlane mattress pricing",
+              "value": "Queen mattress regular price $899, sale $699; Full mattress was $1,139, sale $670",
+              "source": "ashleyfurniture.com",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "press",
+              "label": "Pre-acquisition Resident revenue",
+              "value": "Resident Home (parent) had estimated $700M total revenue with 5 brands including Cloverlane",
+              "source": "beddingnewsnow.com",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "funding",
+              "label": "Ashley acquisition",
+              "value": "Ashley acquired Resident Home in March 2024, integrating mattress and bedding brands",
+              "source": "matrixbcg.com",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "customers",
+              "label": "Product positioning",
+              "value": "Cloverlane positioned as solution for back pain with zoned spinal support, endorsed by American Chiropractic Association",
+              "source": "shopac.com",
+              "weight": "low",
+              "context_unverified": false
+            }
+          ],
+          "reasoning_summary": "Cloverlane was originally a Resident Home brand, acquired by Ashley Furniture in March 2024. Pre-acquisition, Resident had ~$700M revenue across 5 brands (Nectar, Dreamcloud, Siena, Awara, Cloverlane), with Nectar alone doing $500M in 2020. Cloverlane appears to be a smaller specialized brand within this portfolio, focused on back pain relief. Estimating it as roughly 10-20% of pre-acquisition Resident revenue.",
+          "reason_for_null": null
+        }
+      ],
+      "_parentAnchor": {
+        "is_public": false,
+        "ticker": null,
+        "fiscal_year": null,
+        "total_revenue_usd": null,
+        "segments": [],
+        "focal_product_line": null,
+        "source_url": null,
+        "notes": "Ashley Furniture Industries, LLC is a privately held company owned by the Wanek family (Ronald G. Wanek as Chairman and Todd R. Wanek as President/CEO). The company has never undergone an IPO and does not trade on public stock exchanges. As confirmed by multiple sources including the company's own FAQ, investors cannot purchase stock in Ashley Furniture Industries. The acquisition of Resident Home LLC by Ashley Home, Inc. (an affiliate of Ashley Global Retail, LLC) for approximately $1 billion in March 2024 was mentioned in the search results, confirming the parent-subsidiary relationship, but since Ashley Furniture Industries remains private, no public financial segment data is available."
+      }
+    }
+  },
+  {
+    "id": "a4d6c2f88971",
+    "brand": "nectar sleep",
+    "hint": "",
+    "createdAt": 1779662745479,
+    "result": {
+      "focal_company": "Nectar Sleep",
+      "ownership_tree": {
+        "company": "Nectar Sleep",
+        "domain": "nectarsleep.com",
+        "node_type": "operating_brand",
+        "layer": "brand",
+        "standalone": false,
+        "terminal_layer": null,
+        "ubo_type": null,
+        "stake": null,
+        "family_members": null,
+        "in_current_sources": true,
+        "in_historical_sources": true,
+        "last_mention_date": "2024-03-07",
+        "category": "memory foam mattresses and bedding accessories",
+        "origin_event": "internal_launch",
+        "parent": {
+          "company": "Resident Home LLC",
+          "domain": "residenthome.com",
+          "node_type": "legal_entity",
+          "layer": "aggregator",
+          "standalone": false,
+          "terminal_layer": null,
+          "ubo_type": null,
+          "stake": null,
+          "family_members": null,
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "last_mention_date": "2024-03-07",
+          "category": "direct-to-consumer home furnishings and mattress brands",
+          "origin_event": "organic",
+          "parent": {
+            "company": "Ashley Furniture Industries, Inc.",
+            "domain": "ashley.biz",
+            "node_type": "legal_entity",
+            "layer": "parent",
+            "standalone": false,
+            "terminal_layer": null,
+            "ubo_type": null,
+            "stake": null,
+            "family_members": null,
+            "in_current_sources": true,
+            "in_historical_sources": true,
+            "last_mention_date": "2024-03-07",
+            "category": "home furnishings manufacturing and distribution",
+            "origin_event": "organic",
+            "parent": {
+              "company": "Wanek Family",
+              "domain": null,
+              "node_type": "legal_entity",
+              "layer": "root",
+              "standalone": true,
+              "terminal_layer": "root",
+              "ubo_type": "family_group",
+              "stake": {
+                "equity_pct": null,
+                "voting_pct": null,
+                "evidence": "Ashley Furniture Industries is primarily owned and controlled by the Wanek family. Ronald Wanek serves as Chairman. Todd R. Wanek is the President and CEO.",
+                "source_url": "https://swottemplate.com/blogs/owners/ashleyfurniture-owners"
+              },
+              "family_members": [
+                {
+                  "name": "Ronald Wanek",
+                  "role": "Chairman & Co-founder",
+                  "est_stake_pct": null
+                },
+                {
+                  "name": "Todd R. Wanek",
+                  "role": "President & CEO",
+                  "est_stake_pct": null
+                }
+              ],
+              "in_current_sources": true,
+              "in_historical_sources": true,
+              "last_mention_date": "2024-07-04",
+              "category": "family holding entity",
+              "origin_event": "organic",
+              "parent": null,
+              "ownership_role": null,
+              "co_owners": [],
+              "focal_segment": null,
+              "siblings": [],
+              "intra_parent_cousins": null,
+              "future_cousins_post_close": null,
+              "pending_acquisition": null,
+              "post_close_consolidated_parent": null,
+              "children": [],
+              "acquisition": null,
+              "strategic_control": [],
+              "strategic_control_note": "no_data_found: private family ownership with limited public disclosure",
+              "confidence": "medium",
+              "sources": [
+                "https://swottemplate.com/blogs/owners/ashleyfurniture-owners",
+                "https://matrixbcg.com/blogs/owners/ashleyfurniture",
+                "https://en.wikipedia.org/wiki/Ashley_Furniture_Industries"
+              ],
+              "notes": "UBO promoted: trigger A — family office / family group controlling Ashley Furniture Industries since founding",
+              "disambiguation_required": false,
+              "disambiguation_candidates": [],
+              "primary_parent_id": null,
+              "secondary_relationships": [],
+              "revenue_estimate": {
+                "low": 12000000000,
+                "high": 15000000000,
+                "central": 13500000000,
+                "confidence": "medium"
+              },
+              "signals_found": [
+                {
+                  "type": "press",
+                  "label": "Ashley Furniture 2023 revenue",
+                  "value": "$12.3 billion in revenue in 2023",
+                  "source": "BizTimes Milwaukee",
+                  "weight": "high",
+                  "context_unverified": false
+                },
+                {
+                  "type": "press",
+                  "label": "Ashley Furniture recent revenue",
+                  "value": "$6.6 billion in annual revenue",
+                  "source": "BizTimes Milwaukee / Forbes",
+                  "weight": "medium",
+                  "context_unverified": false
+                },
+                {
+                  "type": "funding",
+                  "label": "Superior Fresh investment",
+                  "value": "$100+ million invested by Wanek family in Superior Fresh facility",
+                  "source": "Post Bulletin Rochester",
+                  "weight": "medium",
+                  "context_unverified": false
+                },
+                {
+                  "type": "other",
+                  "label": "Superior Fresh production scale",
+                  "value": "3 million pounds greens, 200,000 pounds salmon annually",
+                  "source": "Star Tribune",
+                  "weight": "low",
+                  "context_unverified": false
+                },
+                {
+                  "type": "other",
+                  "label": "Ron Wanek net worth",
+                  "value": "$6.1 billion net worth (Forbes 400 #214)",
+                  "source": "BizTimes / Forbes",
+                  "weight": "high",
+                  "context_unverified": false
+                },
+                {
+                  "type": "other",
+                  "label": "Todd Wanek net worth",
+                  "value": "$3.7 billion net worth (Forbes 400 #359)",
+                  "source": "BizTimes / Forbes",
+                  "weight": "high",
+                  "context_unverified": false
+                }
+              ],
+              "reasoning_summary": "The Wanek Family's primary revenue driver is Ashley Furniture Industries, which generated $12.3 billion in 2023 revenue according to Forbes. The family also operates Superior Fresh (aquaponics) with $100+ million invested, and Third Lake Partners/Capital for real estate and private equity investments. Ashley Furniture's revenue range of $6.6-12.3 billion suggests current operations around $12-13 billion, with additional revenue streams from their diversified investment activities likely adding $1-2 billion.",
+              "signals_attempted": 6,
+              "signals_found_count": 6,
+              "_derived_status": {
+                "label": "active",
+                "reason": "present in current/primary sources"
+              },
+              "_divestiture": null
+            },
+            "ownership_role": "sole_owner",
+            "co_owners": [],
+            "focal_segment": null,
+            "siblings": [],
+            "intra_parent_cousins": null,
+            "future_cousins_post_close": null,
+            "pending_acquisition": null,
+            "post_close_consolidated_parent": null,
+            "children": [],
+            "acquisition": {
+              "acquired_by": "Founded by Wanek Family",
+              "year": 1945,
+              "month": null,
+              "day": null,
+              "price_usd": null,
+              "price_display": null,
+              "price_source_url": null,
+              "price_confidence": null,
+              "deal_type": null,
+              "source_url": "https://matrixbcg.com/blogs/owners/ashleyfurniture"
+            },
+            "strategic_control": [
+              {
+                "entity": "Ronald Wanek",
+                "role_description": "Chairman & Co-founder",
+                "evidence": "Ronald Wanek serves as Chairman",
+                "source_url": "https://swottemplate.com/blogs/owners/ashleyfurniture-owners"
+              },
+              {
+                "entity": "Todd R. Wanek",
+                "role_description": "President & CEO",
+                "evidence": "Todd R. Wanek is the President and CEO",
+                "source_url": "https://swottemplate.com/blogs/owners/ashleyfurniture-owners"
+              },
+              {
+                "entity": "Chad Spencer",
+                "role_description": "CEO of Ashley Global Retail",
+                "evidence": "Recent leadership appointments, such as Chad Spencer as CEO of Ashley Global Retail",
+                "source_url": "https://matrixbcg.com/blogs/owners/ashleyfurniture"
+              },
+              {
+                "entity": "Todd Wanek",
+                "role_description": "CEO of Ashley",
+                "evidence": "Todd Wanek, CEO of Ashley, said in a statement",
+                "source_url": "https://finance.yahoo.com/news/ashley-home-acquires-nectar-mattress-124200523.html"
+              }
+            ],
+            "strategic_control_note": null,
+            "confidence": "high",
+            "sources": [
+              "https://swottemplate.com/blogs/owners/ashleyfurniture-owners",
+              "https://matrixbcg.com/blogs/owners/ashleyfurniture",
+              "https://en.wikipedia.org/wiki/Ashley_Furniture_Industries",
+              "https://www.ashleyfurniture.com/about-us",
+              "https://finance.yahoo.com/news/ashley-home-acquires-nectar-mattress-124200523.html"
+            ],
+            "notes": "Private family-owned company founded in 1945, world's largest furniture manufacturer with over 35,000 employees | Retail operations arm of Ashley Furniture Industries | Affiliate of Ashley Global Retail that completed the Resident Home acquisition | Collapsed duplicate chain layers \"Ashley Global Retail, LLC\" and \"Ashley Home, Inc.\" (shared: holding_token:ashley); canonical name: \"Ashley Furniture Industries, Inc.\". | Collapsed duplicate chain layers \"Ashley Furniture Industries, Inc.\" and \"Ashley Furniture Industries, Inc.\" (shared: holding_token:ashley); canonical name: \"Ashley Furniture Industries, Inc.\".",
+            "disambiguation_required": false,
+            "disambiguation_candidates": [],
+            "signals_found": [],
+            "_collapsed_from": [
+              "Ashley Global Retail, LLC",
+              "Ashley Home, Inc.",
+              "Ashley Furniture Industries, Inc."
+            ],
+            "_collapsed_shared": [
+              "holding_token:ashley"
+            ],
+            "primary_parent_id": "Wanek Family",
+            "secondary_relationships": [],
+            "revenue_estimate": {
+              "low": 0,
+              "high": 0,
+              "central": 0,
+              "confidence": "low"
+            },
+            "reasoning_summary": "",
+            "revenue_error": "Failed to fetch",
+            "_derived_status": {
+              "label": "active",
+              "reason": "present in current/primary sources"
+            },
+            "_divestiture": null
+          },
+          "ownership_role": "sole_owner",
+          "co_owners": [],
+          "focal_segment": "Mattress/Bedding Brands",
+          "siblings": [
+            {
+              "company": "DreamCloud",
+              "domain": "dreamcloudsleep.com",
+              "node_type": "operating_brand",
+              "category": "luxury hybrid mattresses",
+              "revenue_model": "direct_revenue",
+              "origin_event": "internal_launch",
+              "in_current_sources": true,
+              "in_historical_sources": true,
+              "last_mention_date": "2024-03-07",
+              "source_urls": [
+                "https://finance.yahoo.com/news/ashley-home-acquires-nectar-mattress-124200523.html",
+                "https://www.residenthome.com/brands/"
+              ],
+              "revenue_estimate": {
+                "low": 150000000,
+                "high": 250000000,
+                "central": 200000000,
+                "confidence": "medium"
+              },
+              "signals_found": [
+                {
+                  "type": "press",
+                  "label": "Parent Co. (Resident Home) Revenue 2023",
+                  "value": "Resident Home was estimated to have registered revenue of $900 million in 2023.",
+                  "source": "CTech",
+                  "weight": "high",
+                  "context_unverified": false
+                },
+                {
+                  "type": "press",
+                  "label": "Parent Co. (Resident Home) Revenue 2025",
+                  "value": "Resident Home reported over $1B in annual net revenue in 2025.",
+                  "source": "Built In",
+                  "weight": "high",
+                  "context_unverified": false
+                },
+                {
+                  "type": "other",
+                  "label": "Direct Revenue Estimate (Undated)",
+                  "value": "DreamCloud's revenue is estimated to be in the range of $50M-$100M.",
+                  "source": "LeadIQ",
+                  "weight": "medium",
+                  "context_unverified": false
+                },
+                {
+                  "type": "reviews",
+                  "label": "Customer Reviews on Trustpilot (UK)",
+                  "value": "DreamCloud Sleep has 2,638 reviews on its UK Trustpilot page, with an average rating of 4.3 out of 5.",
+                  "source": "Trustpilot",
+                  "weight": "medium",
+                  "context_unverified": false
+                }
+              ],
+              "reasoning_summary": "DreamCloud is a major brand within the Resident Home portfolio, which had revenues of $900M in 2023 and over $1B in 2025. While one direct estimate for DreamCloud from LeadIQ is $50M-$100M, this seems low given that DreamCloud and its sibling brand Nectar are noted as the two highest-volume brands in the portfolio. Given the parent company's significant revenue and DreamCloud's prominent position, its revenue is likely a substantial fraction of the total. Assuming the four main Resident brands (Nectar, DreamCloud, Awara, Siena) have a power-law distribution, and with Nectar as the flagship, DreamCloud could plausibly account for 15-25% of the parent's total revenue. This leads to an estimated range of $150M to $250M. The thousands of positive customer reviews on Trustpilot support the conclusion that DreamCloud is a significant player in the market, justifying an estimate well above the lower-end directory listings.",
+              "signals_attempted": 4,
+              "signals_found_count": 4,
+              "_derived_status": {
+                "label": "active",
+                "reason": "present in current/primary sources"
+              },
+              "_divestiture": null
+            },
+            {
+              "company": "Awara",
+              "domain": "awarasleep.com",
+              "node_type": "operating_brand",
+              "category": "organic natural latex mattresses",
+              "revenue_model": "direct_revenue",
+              "origin_event": "internal_launch",
+              "in_current_sources": true,
+              "in_historical_sources": true,
+              "last_mention_date": "2024-03-07",
+              "source_urls": [
+                "https://finance.yahoo.com/news/ashley-home-acquires-nectar-mattress-124200523.html",
+                "https://www.residenthome.com/brands/"
+              ],
+              "revenue_estimate": {
+                "low": 30000000,
+                "high": 100000000,
+                "central": 65000000,
+                "confidence": "medium"
+              },
+              "signals_found": [
+                {
+                  "type": "press",
+                  "label": "Parent Co. 2023 Revenue",
+                  "value": "Resident Home, the parent company of Awara, had estimated revenues of $900 million in 2023.",
+                  "source": "CTech",
+                  "weight": "high",
+                  "context_unverified": false
+                },
+                {
+                  "type": "press",
+                  "label": "Parent Co. 2025 Revenue",
+                  "value": "Resident Home reported over $1B in annual net revenue in 2025.",
+                  "source": "Built In",
+                  "weight": "high",
+                  "context_unverified": false
+                },
+                {
+                  "type": "reviews",
+                  "label": "Relative Brand Popularity (Review Counts)",
+                  "value": "Nectar has over 50,000 reviews on its website. Awara has over 1,600 reviews on its site. Siena has over 1,800 reviews on its site. This suggests Awara is a smaller brand in the Resident portfolio compared to the flagship Nectar brand.",
+                  "source": "Sleep Advisor, CNET",
+                  "weight": "medium",
+                  "context_unverified": false
+                }
+              ],
+              "reasoning_summary": "Awara's revenue is estimated as a fraction of its parent company's, Resident Home, which had revenues of $900 million in 2023 and over $1 billion in 2025. By comparing the number of online reviews for Resident's mattress brands, it's clear that Nectar is the flagship brand with over 50,000 reviews, while Awara is a smaller, more niche brand with review counts in the low thousands (~1,600). Assuming Awara, with its premium eco-friendly positioning, captures a small but significant portion of the parent company's total revenue, a range of $30 million to $100 million is plausible.",
+              "signals_attempted": 4,
+              "signals_found_count": 3,
+              "_derived_status": {
+                "label": "active",
+                "reason": "present in current/primary sources"
+              },
+              "_divestiture": null
+            },
+            {
+              "company": "Siena",
+              "domain": "sienasleep.com",
+              "node_type": "operating_brand",
+              "category": "mattresses and bedding",
+              "revenue_model": "direct_revenue",
+              "origin_event": "internal_launch",
+              "in_current_sources": true,
+              "in_historical_sources": true,
+              "last_mention_date": "2024-03-07",
+              "source_urls": [
+                "https://finance.yahoo.com/news/ashley-home-acquires-nectar-mattress-124200523.html",
+                "https://www.residenthome.com/brands/"
+              ],
+              "revenue_estimate": {
+                "low": 45000000,
+                "high": 90000000,
+                "central": 65000000,
+                "confidence": "low"
+              },
+              "signals_found": [
+                {
+                  "type": "press",
+                  "label": "Parent Co. 2023 Revenue",
+                  "value": "Resident Home concluded 2023 with revenues of $900 million.",
+                  "source": "CTech",
+                  "weight": "high",
+                  "context_unverified": false
+                },
+                {
+                  "type": "press",
+                  "label": "Parent Co. 2025 Revenue",
+                  "value": "Resident reported over $1B in annual net revenue in 2025.",
+                  "source": "Built In",
+                  "weight": "high",
+                  "context_unverified": false
+                },
+                {
+                  "type": "pricing",
+                  "label": "Siena Price Point (Queen)",
+                  "value": "Siena is positioned as a budget-friendly brand, with a queen mattress priced around $359 - $499.",
+                  "source": "Multiple mattress review sites",
+                  "weight": "medium",
+                  "context_unverified": false
+                },
+                {
+                  "type": "other",
+                  "label": "Brand Positioning",
+                  "value": "Siena is consistently described as the \"value\" or \"budget\" mattress brand within the Resident Home portfolio, which also includes the higher-volume brands Nectar and DreamCloud.",
+                  "source": "OpenClassActions.com / Mattress Overstock",
+                  "weight": "medium",
+                  "context_unverified": false
+                }
+              ],
+              "reasoning_summary": "The revenue estimate for Siena is derived from the reported revenue of its parent company, Resident Home, which was $900M in 2023 and over $1B in 2025. Siena is explicitly positioned as the budget or value brand in the portfolio, alongside the larger, more heavily marketed Nectar and DreamCloud brands. Given its lower price point and market position, Siena is estimated to contribute a small fraction of the parent company's total revenue. The range of $45M to $90M represents a 5-10% share of Resident's overall revenue, which is a reasoned but low-confidence estimate due to the absence of specific data on the sales volume mix across Resident's brands.",
+              "signals_attempted": 4,
+              "signals_found_count": 4,
+              "_derived_status": {
+                "label": "active",
+                "reason": "present in current/primary sources"
+              },
+              "_divestiture": null
+            }
+          ],
+          "intra_parent_cousins": [
+            {
+              "company": "Cloverlane",
+              "domain": "cloverlane.com",
+              "node_type": "operating_brand",
+              "category": "bedding and bathware",
+              "revenue_model": "direct_revenue",
+              "via_division": "Home Accessories",
+              "in_current_sources": true,
+              "in_historical_sources": true,
+              "last_mention_date": "2024-03-07",
+              "source_urls": [
+                "https://bedtimesmagazine.com/2024/03/ashley-home-acquiring-resident-home/",
+                "https://www.residenthome.com/brands/"
+              ],
+              "revenue_estimate": {
+                "low": 0,
+                "high": 0,
+                "central": 0,
+                "confidence": "low"
+              },
+              "signals_found": [
+                {
+                  "type": "press",
+                  "label": "Brand launch February 2024",
+                  "value": "Launched February 16, 2024 as luxury brand from Resident Home",
+                  "source": "PRWeb press release",
+                  "weight": "high",
+                  "context_unverified": false
+                },
+                {
+                  "type": "pricing",
+                  "label": "Premium mattress pricing",
+                  "value": "$999-$2598 price range, Queen at $1,399 with 50% discount",
+                  "source": "SlumberSearch, Inkl reviews",
+                  "weight": "high",
+                  "context_unverified": false
+                },
+                {
+                  "type": "reviews",
+                  "label": "Limited customer base",
+                  "value": "~40 reviews, all 5-star ratings as of March 2024, described as 'early customers'",
+                  "source": "Inkl mattress review",
+                  "weight": "medium",
+                  "context_unverified": false
+                },
+                {
+                  "type": "press",
+                  "label": "Product discontinuation",
+                  "value": "ZoomInfo reports mattress line discontinued, now sources from DreamCloud",
+                  "source": "ZoomInfo company profile",
+                  "weight": "high",
+                  "context_unverified": false
+                },
+                {
+                  "type": "other",
+                  "label": "Very low activity levels",
+                  "value": "ZoomInfo reports 'very low activity levels compared to other companies in Retail sector'",
+                  "source": "ZoomInfo business intelligence",
+                  "weight": "medium",
+                  "context_unverified": false
+                }
+              ],
+              "reasoning_summary": "Cloverlane was launched in February 2024 as Resident Home's luxury mattress brand but appears to have been discontinued within the same year. Evidence shows a very brief operational period with limited customer reviews (~40 total), premium pricing ($999-$2598), and ZoomInfo reporting both discontinuation of the original mattress line and 'very low activity levels.' The brand now reportedly sources products from sibling brand DreamCloud rather than manufacturing its own line.",
+              "signals_attempted": 6,
+              "signals_found_count": 5,
+              "reason_for_null": "Brand discontinued its original mattress line within ~10 months of launch (Feb-Dec 2024), with ZoomInfo reporting very low business activity and transition to sourcing products from DreamCloud rather than independent operations. Insufficient operational history to establish meaningful revenue estimates.",
+              "_derived_status": {
+                "label": "discontinued",
+                "reason": "closure signal in captured text"
+              },
+              "_divestiture": null
+            }
+          ],
+          "future_cousins_post_close": null,
+          "pending_acquisition": null,
+          "post_close_consolidated_parent": null,
+          "children": [],
+          "acquisition": {
+            "acquired_by": "Ashley Home, Inc.",
+            "year": 2024,
+            "month": 3,
+            "day": 6,
+            "price_usd": 1000000000,
+            "price_display": "$1 billion",
+            "price_source_url": "https://www.axios.com/2024/03/13/ashley-resident-home-billion-mattress",
+            "price_confidence": "high",
+            "deal_type": "mixed",
+            "source_url": "https://finance.yahoo.com/news/ashley-home-acquires-nectar-mattress-124200523.html"
+          },
+          "strategic_control": [
+            {
+              "entity": "Eric Hutchinson",
+              "role_description": "Co-founder & Co-CEO",
+              "evidence": "Resident co-founders and co-CEOs, Eric Hutchinson and Ran Reske, will remain in their current positions",
+              "source_url": "https://finance.yahoo.com/news/ashley-home-acquires-nectar-mattress-124200523.html"
+            },
+            {
+              "entity": "Ran Reske",
+              "role_description": "Co-founder & Co-CEO",
+              "evidence": "Resident co-founders and co-CEOs, Eric Hutchinson and Ran Reske, will remain in their current positions",
+              "source_url": "https://finance.yahoo.com/news/ashley-home-acquires-nectar-mattress-124200523.html"
+            },
+            {
+              "entity": "Ion Crossover Partners",
+              "role_description": "lead Series B investor",
+              "evidence": "In 2021, Resident secured a $130 million investment led by Ion Crossover Partners",
+              "source_url": "https://finance.yahoo.com/news/ashley-home-acquires-nectar-mattress-124200523.html"
+            },
+            {
+              "entity": "Nexus Capital Management",
+              "role_description": "Series B investor",
+              "evidence": "In 2021, Resident secured a $130 million investment led by Ion Crossover Partners and Nexus Capital Management",
+              "source_url": "https://finance.yahoo.com/news/ashley-home-acquires-nectar-mattress-124200523.html"
+            },
+            {
+              "entity": "Baron Capital Group",
+              "role_description": "Series B investor",
+              "evidence": "In 2021, Resident secured a $130 million investment led by Ion Crossover Partners and Nexus Capital Management with participation from Baron Capital Group",
+              "source_url": "https://finance.yahoo.com/news/ashley-home-acquires-nectar-mattress-124200523.html"
+            }
+          ],
+          "strategic_control_note": null,
+          "confidence": "high",
+          "sources": [
+            "https://finance.yahoo.com/news/ashley-home-acquires-nectar-mattress-124200523.html",
+            "https://www.retaildive.com/news/ashley-home-acquires-resident-nectar-dreamcloud/709587/",
+            "https://www.axios.com/2024/03/13/ashley-resident-home-billion-mattress"
+          ],
+          "notes": "Originally founded in 2016 as DreamCloud Holdings, rebranded to Resident in 2019. Acquired by Ashley Home in March 2024 for $1 billion ($680M cash + $300M seller note). Previously secured $130M Series B in 2021.",
+          "disambiguation_required": false,
+          "disambiguation_candidates": [],
+          "primary_parent_id": "Ashley Furniture Industries, Inc.",
+          "secondary_relationships": [],
+          "revenue_estimate": {
+            "low": 0,
+            "high": 0,
+            "central": 0,
+            "confidence": "low"
+          },
+          "signals_found": [],
+          "reasoning_summary": "",
+          "revenue_error": "Failed to fetch",
+          "_derived_status": {
+            "label": "active",
+            "reason": "present in current/primary sources"
+          },
+          "_divestiture": null
+        },
+        "ownership_role": null,
+        "co_owners": [],
+        "focal_segment": "Mattress/Bedding Brands",
+        "siblings": [
+          {
+            "company": "DreamCloud",
+            "domain": "dreamcloudsleep.com",
+            "node_type": "operating_brand",
+            "category": "luxury hybrid mattresses",
+            "revenue_model": "direct_revenue",
+            "origin_event": "internal_launch",
+            "in_current_sources": true,
+            "in_historical_sources": true,
+            "last_mention_date": "2024-03-07",
+            "source_urls": [
+              "https://finance.yahoo.com/news/ashley-home-acquires-nectar-mattress-124200523.html",
+              "https://www.residenthome.com/brands/"
+            ],
+            "revenue_estimate": {
+              "low": 150000000,
+              "high": 250000000,
+              "central": 200000000,
+              "confidence": "medium"
+            },
+            "signals_found": [
+              {
+                "type": "press",
+                "label": "Parent Co. (Resident Home) Revenue 2023",
+                "value": "Resident Home was estimated to have registered revenue of $900 million in 2023.",
+                "source": "CTech",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "press",
+                "label": "Parent Co. (Resident Home) Revenue 2025",
+                "value": "Resident Home reported over $1B in annual net revenue in 2025.",
+                "source": "Built In",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "other",
+                "label": "Direct Revenue Estimate (Undated)",
+                "value": "DreamCloud's revenue is estimated to be in the range of $50M-$100M.",
+                "source": "LeadIQ",
+                "weight": "medium",
+                "context_unverified": false
+              },
+              {
+                "type": "reviews",
+                "label": "Customer Reviews on Trustpilot (UK)",
+                "value": "DreamCloud Sleep has 2,638 reviews on its UK Trustpilot page, with an average rating of 4.3 out of 5.",
+                "source": "Trustpilot",
+                "weight": "medium",
+                "context_unverified": false
+              }
+            ],
+            "reasoning_summary": "DreamCloud is a major brand within the Resident Home portfolio, which had revenues of $900M in 2023 and over $1B in 2025. While one direct estimate for DreamCloud from LeadIQ is $50M-$100M, this seems low given that DreamCloud and its sibling brand Nectar are noted as the two highest-volume brands in the portfolio. Given the parent company's significant revenue and DreamCloud's prominent position, its revenue is likely a substantial fraction of the total. Assuming the four main Resident brands (Nectar, DreamCloud, Awara, Siena) have a power-law distribution, and with Nectar as the flagship, DreamCloud could plausibly account for 15-25% of the parent's total revenue. This leads to an estimated range of $150M to $250M. The thousands of positive customer reviews on Trustpilot support the conclusion that DreamCloud is a significant player in the market, justifying an estimate well above the lower-end directory listings.",
+            "signals_attempted": 4,
+            "signals_found_count": 4,
+            "_derived_status": {
+              "label": "active",
+              "reason": "present in current/primary sources"
+            },
+            "_divestiture": null,
+            "variant_type": "distinct"
+          },
+          {
+            "company": "Awara",
+            "domain": "awarasleep.com",
+            "node_type": "operating_brand",
+            "category": "organic natural latex mattresses",
+            "revenue_model": "direct_revenue",
+            "origin_event": "internal_launch",
+            "in_current_sources": true,
+            "in_historical_sources": true,
+            "last_mention_date": "2024-03-07",
+            "source_urls": [
+              "https://finance.yahoo.com/news/ashley-home-acquires-nectar-mattress-124200523.html",
+              "https://www.residenthome.com/brands/"
+            ],
+            "revenue_estimate": {
+              "low": 30000000,
+              "high": 100000000,
+              "central": 65000000,
+              "confidence": "medium"
+            },
+            "signals_found": [
+              {
+                "type": "press",
+                "label": "Parent Co. 2023 Revenue",
+                "value": "Resident Home, the parent company of Awara, had estimated revenues of $900 million in 2023.",
+                "source": "CTech",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "press",
+                "label": "Parent Co. 2025 Revenue",
+                "value": "Resident Home reported over $1B in annual net revenue in 2025.",
+                "source": "Built In",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "reviews",
+                "label": "Relative Brand Popularity (Review Counts)",
+                "value": "Nectar has over 50,000 reviews on its website. Awara has over 1,600 reviews on its site. Siena has over 1,800 reviews on its site. This suggests Awara is a smaller brand in the Resident portfolio compared to the flagship Nectar brand.",
+                "source": "Sleep Advisor, CNET",
+                "weight": "medium",
+                "context_unverified": false
+              }
+            ],
+            "reasoning_summary": "Awara's revenue is estimated as a fraction of its parent company's, Resident Home, which had revenues of $900 million in 2023 and over $1 billion in 2025. By comparing the number of online reviews for Resident's mattress brands, it's clear that Nectar is the flagship brand with over 50,000 reviews, while Awara is a smaller, more niche brand with review counts in the low thousands (~1,600). Assuming Awara, with its premium eco-friendly positioning, captures a small but significant portion of the parent company's total revenue, a range of $30 million to $100 million is plausible.",
+            "signals_attempted": 4,
+            "signals_found_count": 3,
+            "_derived_status": {
+              "label": "active",
+              "reason": "present in current/primary sources"
+            },
+            "_divestiture": null,
+            "variant_type": "distinct"
+          },
+          {
+            "company": "Siena",
+            "domain": "sienasleep.com",
+            "node_type": "operating_brand",
+            "category": "mattresses and bedding",
+            "revenue_model": "direct_revenue",
+            "origin_event": "internal_launch",
+            "in_current_sources": true,
+            "in_historical_sources": true,
+            "last_mention_date": "2024-03-07",
+            "source_urls": [
+              "https://finance.yahoo.com/news/ashley-home-acquires-nectar-mattress-124200523.html",
+              "https://www.residenthome.com/brands/"
+            ],
+            "revenue_estimate": {
+              "low": 45000000,
+              "high": 90000000,
+              "central": 65000000,
+              "confidence": "low"
+            },
+            "signals_found": [
+              {
+                "type": "press",
+                "label": "Parent Co. 2023 Revenue",
+                "value": "Resident Home concluded 2023 with revenues of $900 million.",
+                "source": "CTech",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "press",
+                "label": "Parent Co. 2025 Revenue",
+                "value": "Resident reported over $1B in annual net revenue in 2025.",
+                "source": "Built In",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "pricing",
+                "label": "Siena Price Point (Queen)",
+                "value": "Siena is positioned as a budget-friendly brand, with a queen mattress priced around $359 - $499.",
+                "source": "Multiple mattress review sites",
+                "weight": "medium",
+                "context_unverified": false
+              },
+              {
+                "type": "other",
+                "label": "Brand Positioning",
+                "value": "Siena is consistently described as the \"value\" or \"budget\" mattress brand within the Resident Home portfolio, which also includes the higher-volume brands Nectar and DreamCloud.",
+                "source": "OpenClassActions.com / Mattress Overstock",
+                "weight": "medium",
+                "context_unverified": false
+              }
+            ],
+            "reasoning_summary": "The revenue estimate for Siena is derived from the reported revenue of its parent company, Resident Home, which was $900M in 2023 and over $1B in 2025. Siena is explicitly positioned as the budget or value brand in the portfolio, alongside the larger, more heavily marketed Nectar and DreamCloud brands. Given its lower price point and market position, Siena is estimated to contribute a small fraction of the parent company's total revenue. The range of $45M to $90M represents a 5-10% share of Resident's overall revenue, which is a reasoned but low-confidence estimate due to the absence of specific data on the sales volume mix across Resident's brands.",
+            "signals_attempted": 4,
+            "signals_found_count": 4,
+            "_derived_status": {
+              "label": "active",
+              "reason": "present in current/primary sources"
+            },
+            "_divestiture": null,
+            "variant_type": "distinct"
+          }
+        ],
+        "intra_parent_cousins": [
+          {
+            "company": "Cloverlane",
+            "domain": "cloverlane.com",
+            "node_type": "operating_brand",
+            "category": "bedding and bathware",
+            "revenue_model": "direct_revenue",
+            "via_division": "Home Accessories",
+            "in_current_sources": true,
+            "in_historical_sources": true,
+            "last_mention_date": "2024-03-07",
+            "source_urls": [
+              "https://bedtimesmagazine.com/2024/03/ashley-home-acquiring-resident-home/",
+              "https://www.residenthome.com/brands/"
+            ],
+            "revenue_estimate": {
+              "low": 0,
+              "high": 0,
+              "central": 0,
+              "confidence": "low"
+            },
+            "signals_found": [
+              {
+                "type": "press",
+                "label": "Brand launch February 2024",
+                "value": "Launched February 16, 2024 as luxury brand from Resident Home",
+                "source": "PRWeb press release",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "pricing",
+                "label": "Premium mattress pricing",
+                "value": "$999-$2598 price range, Queen at $1,399 with 50% discount",
+                "source": "SlumberSearch, Inkl reviews",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "reviews",
+                "label": "Limited customer base",
+                "value": "~40 reviews, all 5-star ratings as of March 2024, described as 'early customers'",
+                "source": "Inkl mattress review",
+                "weight": "medium",
+                "context_unverified": false
+              },
+              {
+                "type": "press",
+                "label": "Product discontinuation",
+                "value": "ZoomInfo reports mattress line discontinued, now sources from DreamCloud",
+                "source": "ZoomInfo company profile",
+                "weight": "high",
+                "context_unverified": false
+              },
+              {
+                "type": "other",
+                "label": "Very low activity levels",
+                "value": "ZoomInfo reports 'very low activity levels compared to other companies in Retail sector'",
+                "source": "ZoomInfo business intelligence",
+                "weight": "medium",
+                "context_unverified": false
+              }
+            ],
+            "reasoning_summary": "Cloverlane was launched in February 2024 as Resident Home's luxury mattress brand but appears to have been discontinued within the same year. Evidence shows a very brief operational period with limited customer reviews (~40 total), premium pricing ($999-$2598), and ZoomInfo reporting both discontinuation of the original mattress line and 'very low activity levels.' The brand now reportedly sources products from sibling brand DreamCloud rather than manufacturing its own line.",
+            "signals_attempted": 6,
+            "signals_found_count": 5,
+            "reason_for_null": "Brand discontinued its original mattress line within ~10 months of launch (Feb-Dec 2024), with ZoomInfo reporting very low business activity and transition to sourcing products from DreamCloud rather than independent operations. Insufficient operational history to establish meaningful revenue estimates.",
+            "_derived_status": {
+              "label": "discontinued",
+              "reason": "closure signal in captured text"
+            },
+            "_divestiture": null
+          }
+        ],
+        "future_cousins_post_close": null,
+        "pending_acquisition": null,
+        "post_close_consolidated_parent": null,
+        "children": [],
+        "acquisition": null,
+        "strategic_control": [
+          {
+            "entity": "Craig Schmeizer",
+            "role_description": "Co-founder",
+            "evidence": "Craig Schmeizer, Eric Hutchinson, and Ran Reske believed that the market was ready for a new type of mattress, and founded Nectar in 2017",
+            "source_url": "https://corporateofficehq.com/nectar-sleep-mattress-corporate-office/"
+          }
+        ],
+        "strategic_control_note": null,
+        "confidence": "high",
+        "sources": [
+          "https://finance.yahoo.com/news/ashley-home-acquires-nectar-mattress-124200523.html",
+          "https://ecdb.com/resources/sample-data/retailer/nectarsleep",
+          "https://www.crunchbase.com/organization/nectar-sleep-llc",
+          "https://corporateofficehq.com/nectar-sleep-mattress-corporate-office/"
+        ],
+        "notes": "Founded in 2017 by Craig Schmeizer, Eric Hutchinson, and Ran Reske. Generated $44M revenue in first year, grew to $500M+ by 2020. Now operates as a brand under Resident Home, which was acquired by Ashley Home in March 2024.",
+        "disambiguation_required": false,
+        "disambiguation_candidates": [],
+        "primary_parent_id": "Resident Home LLC",
+        "secondary_relationships": [],
+        "revenue_estimate": {
+          "low": 175000000,
+          "high": 350000000,
+          "central": 260000000,
+          "confidence": "medium"
+        },
+        "signals_found": [
+          {
+            "type": "press",
+            "label": "Parent Co. (Resident Home) 2023 Revenue",
+            "value": "Resident concluded 2023 with revenues of $900 million.",
+            "source": "CTech / Ynet News",
+            "weight": "high",
+            "context_unverified": false
+          },
+          {
+            "type": "press",
+            "label": "Nectar Historical Revenue (2020)",
+            "value": "In 2020, sales for Resident and its Nectar brand were in excess of $500 million.",
+            "source": "Forbes / ConvertFlow",
+            "weight": "medium",
+            "context_unverified": false
+          },
+          {
+            "type": "other",
+            "label": "E-commerce Database Estimate (2025)",
+            "value": "Nectar Sleep generated revenue of US$186m on its biggest online store nectarsleep.com in 2025.",
+            "source": "ECDB",
+            "weight": "medium",
+            "context_unverified": false
+          },
+          {
+            "type": "hiring",
+            "label": "Nectar Sleep LLC Revenue & Employee Range",
+            "value": "Estimated revenue for Nectar Sleep LLC is between $50 Million - $200 Million, with 200-500 employees.",
+            "source": "nectarsleep.careerbliss.com",
+            "weight": "medium",
+            "context_unverified": false
+          }
+        ],
+        "reasoning_summary": "The revenue estimate for Nectar Sleep is anchored by several data points. Its parent company, Resident Home, achieved $900M in 2023 revenue, with Nectar being one of its two largest brands. Historically, by 2020, Nectar was already driving sales in excess of $500M for its parent. More recent, direct estimates for Nectar's revenue include a 2025 projection of $186M for its primary domain and a stated range of $50M-$200M for the legal entity. Given the brand's established market position and historical performance, the estimate range of $175M to $350M acknowledges the direct e-commerce estimates while allowing for significant contribution to the parent company's overall revenue, including offline and other channels.",
+        "signals_attempted": 4,
+        "signals_found_count": 4,
+        "_derived_status": {
+          "label": "active",
+          "reason": "present in current/primary sources"
+        },
+        "_divestiture": null,
+        "parent_anchor": {
+          "is_public": false,
+          "ticker": null,
+          "fiscal_year": null,
+          "total_revenue_usd": null,
+          "segments": [],
+          "focal_product_line": null,
+          "source_url": null,
+          "notes": "Resident Home LLC is a privately-held limited liability company founded in 2017 by Craig Schmeizer, Eric Hutchinson, and Ran Reske. The company operates as a house of direct-to-consumer brands in the home furnishings industry, including Nectar Sleep, DreamCloud Sleep, Awara Sleep, Level Sleep, Bundle Living, 1771 Living, Cloverlane, Wovenly Rugs, Sleep Authority, and Home Well Designed. Multiple sources confirm it is privately-held with no SEC filings or public trading status. The company has been subject to FTC enforcement actions but remains a private entity."
+        }
+      },
+      "positioning_analysis": {
+        "focal_vs_parent_ratio": "Resident Home LLC revenue unknown",
+        "focal_vs_siblings": "Ranked 1 of 4 in family — ★ Nectar Sleep $260.0M · DreamCloud $200.0M · Awara $65.0M · Siena $65.0M",
+        "growth_signals": "Parent Co. (Resident Home) 2023 Revenue (CTech / Ynet News); Nectar Historical Revenue (2020) (Forbes / ConvertFlow); Nectar Sleep LLC Revenue & Employee Range (nectarsleep.careerbliss.com)",
+        "strategic_notes": [
+          "Focal leads the sibling cohort by revenue — likely cash cow of the family.",
+          "Resident Home LLC is not publicly traded — no 10-K anchor available; reconciliation uses estimates only."
+        ],
+        "reconciliation": null,
+        "parent_anchor": {
+          "is_public": false,
+          "ticker": null,
+          "fiscal_year": null,
+          "total_revenue_usd": null,
+          "segments": [],
+          "focal_product_line": null,
+          "source_url": null,
+          "notes": "Resident Home LLC is a privately-held limited liability company founded in 2017 by Craig Schmeizer, Eric Hutchinson, and Ran Reske. The company operates as a house of direct-to-consumer brands in the home furnishings industry, including Nectar Sleep, DreamCloud Sleep, Awara Sleep, Level Sleep, Bundle Living, 1771 Living, Cloverlane, Wovenly Rugs, Sleep Authority, and Home Well Designed. Multiple sources confirm it is privately-held with no SEC filings or public trading status. The company has been subject to FTC enforcement actions but remains a private entity."
+        }
+      },
+      "intelligence_brief": {
+        "verdict": {
+          "label": "NOT ACTIONABLE AS STANDALONE",
+          "trajectory": "Stable",
+          "capital_decision": "Not actionable as standalone",
+          "capital_decision_reason": "family_concentrated_100pct",
+          "confidence": "low",
+          "_inputs": {
+            "trajectory_signals": 1,
+            "decline_signals": 0,
+            "ma_signals": 0,
+            "terminal_layer": null,
+            "has_co_owners": false
+          },
+          "confidence_reasoning": "Confidence forced to LOW: no parent 10-K segment anchor available; revenue range spread 2.0× (low 175000000 vs high 350000000).",
+          "thesis": null,
+          "verdict_changers": [
+            "Wanek family announces partial sale or IPO of the operating division.",
+            "Holding-company restructuring that separates the focal segment from the wider group.",
+            "Recent acquisitions by the holding of competing assets in the focal category."
+          ],
+          "verdict_changer_map": [
+            {
+              "condition": "Wanek family announces partial sale or IPO of operating division",
+              "new_label": "ACQUIRE TARGET"
+            },
+            {
+              "condition": "Holding-company restructuring separates focal segment from group",
+              "new_label": "WATCH (transactability path opens)"
+            },
+            {
+              "condition": "Founder succession event triggers governance review",
+              "new_label": "WATCH"
+            }
+          ],
+          "capital_path_summary": "Family-owned private · No public ticker · No M&A activity"
+        },
+        "behavioral_signals": [
+          {
+            "signal_type": "Revenue signal",
+            "weight": "high",
+            "evidence": "Resident concluded 2023 with revenues of $900 million.",
+            "evidence_source": "CTech / Ynet News",
+            "interpretation": null,
+            "directional_implication": "neutral"
+          },
+          {
+            "signal_type": "Revenue signal",
+            "weight": "medium",
+            "evidence": "In 2020, sales for Resident and its Nectar brand were in excess of $500 million.",
+            "evidence_source": "Forbes / ConvertFlow",
+            "interpretation": null,
+            "directional_implication": "neutral"
+          },
+          {
+            "signal_type": "other",
+            "weight": "medium",
+            "evidence": "Nectar Sleep generated revenue of US$186m on its biggest online store nectarsleep.com in 2025.",
+            "evidence_source": "ECDB",
+            "interpretation": null,
+            "directional_implication": "neutral"
+          },
+          {
+            "signal_type": "Hiring acceleration",
+            "weight": "medium",
+            "evidence": "Estimated revenue for Nectar Sleep LLC is between $50 Million - $200 Million, with 200-500 employees.",
+            "evidence_source": "nectarsleep.careerbliss.com",
+            "interpretation": null,
+            "directional_implication": "positive"
+          }
+        ],
+        "top_signals": [
+          {
+            "signal_type": "Revenue signal",
+            "weight": "high",
+            "evidence": "Resident concluded 2023 with revenues of $900 million.",
+            "evidence_source": "CTech / Ynet News",
+            "interpretation": null,
+            "directional_implication": "neutral"
+          },
+          {
+            "signal_type": "Hiring acceleration",
+            "weight": "medium",
+            "evidence": "Estimated revenue for Nectar Sleep LLC is between $50 Million - $200 Million, with 200-500 employees.",
+            "evidence_source": "nectarsleep.careerbliss.com",
+            "interpretation": null,
+            "directional_implication": "positive"
+          },
+          {
+            "signal_type": "Revenue signal",
+            "weight": "medium",
+            "evidence": "In 2020, sales for Resident and its Nectar brand were in excess of $500 million.",
+            "evidence_source": "Forbes / ConvertFlow",
+            "interpretation": null,
+            "directional_implication": "neutral"
+          }
+        ],
+        "counter_signals": [
+          {
+            "signal_type": "Governance / succession",
+            "gap_flag": true,
+            "fill_action": null,
+            "why_matters": "Family or founder transition events trigger restructures, partial sales, and IPOs — usually the only path to transactability for closely-held assets."
+          }
+        ],
+        "corporate_structure": {
+          "ascii_tree": "Wanek Family (root) · $13.5B\n└── Ashley Furniture Industries, Inc. (parent)\n└── Resident Home LLC (aggregator)\n└── Nectar Sleep (brand) · $0.3B\n├── DreamCloud · $0.2B\n├── Awara · $0.1B\n├── Siena · $0.1B\n└── Cloverlane",
+          "ownership_clarity": "family_concentrated_100pct",
+          "history_note": "currently owned by Resident Home LLC; Wanek family retains control across generations.",
+          "family_detail": {
+            "is_family": true,
+            "total_pct": 100,
+            "members": [
+              {
+                "name": "Ronald Wanek",
+                "role": "Chairman & Co-founder",
+                "est_stake": "undisclosed"
+              },
+              {
+                "name": "Todd R. Wanek",
+                "role": "President & CEO",
+                "est_stake": "undisclosed"
+              }
+            ],
+            "surname": "wanek"
+          }
+        },
+        "mispricing": {
+          "current_pricing_internal": null,
+          "current_pricing_external": null,
+          "ma_attention": "none",
+          "has_thesis": false,
+          "hypothesis": null,
+          "falsifying_signals": [
+            "Wanek family announces partial sale or IPO of the operating division.",
+            "Holding-company restructuring that separates the focal segment from the wider group.",
+            "Recent acquisitions by the holding of competing assets in the focal category."
+          ],
+          "peer_multiples": {
+            "sector": "dtc_mattress",
+            "peers": [
+              {
+                "name": "Sleep Number (SNBR)",
+                "revenue": 1900000000,
+                "ev_to_revenue": 0.5,
+                "discount_or_premium_pct": null
+              },
+              {
+                "name": "Purple Innovation (PRPL)",
+                "revenue": 490000000,
+                "ev_to_revenue": 0.6,
+                "discount_or_premium_pct": null
+              },
+              {
+                "name": "Tempur Sealy (TPX)",
+                "revenue": 5000000000,
+                "ev_to_revenue": 1.6,
+                "discount_or_premium_pct": null
+              }
+            ],
+            "decomposition": {
+              "components": [
+                {
+                  "label": "Illiquidity",
+                  "pct_range": "20–30%",
+                  "note": "Private-company discount applied to public-peer multiples."
+                },
+                {
+                  "label": "Governance / family control",
+                  "pct_range": "10–15%",
+                  "note": "Family-concentrated 100% with no public path — no monetization mechanism absent succession event."
+                }
+              ],
+              "aggregate_discount_range": "30–45%"
+            },
+            "source": "catalog",
+            "implied_valuation_usd": 156000000,
+            "peer_median_ev_revenue": 0.6
+          },
+          "actionable_reads": [
+            {
+              "audience": "PE / direct-acquirers",
+              "read": "No direct transaction path. Hold a watch list for Wanek family succession or holding-company restructuring announcements."
+            },
+            {
+              "audience": "Public-market comparables",
+              "read": "Use Nectar Sleep as a private benchmark when modeling public peers in the same category — useful for sanity-checking peer growth rates and unit economics."
+            },
+            {
+              "audience": "Competitive intelligence",
+              "read": "Track capex, fleet/asset orders, and hiring as the only reliable forward indicators given the absence of quarterly disclosures."
+            }
+          ]
+        },
+        "competitive_context": null,
+        "reconciliation_honest": null,
+        "reconciliation_dual_model": null,
+        "confidence_gaps": {
+          "high_confidence": [],
+          "medium_confidence": [
+            "Revenue estimate (source)",
+            "4 verified signals"
+          ],
+          "known_gaps": [
+            "Parent segment revenue anchor (10-K) not publicly available",
+            "no parent 10-K segment anchor available",
+            "revenue range spread 2.0× (low 175000000 vs high 350000000)"
+          ],
+          "verdict_changers": [
+            "Wanek family announces partial sale or IPO of the operating division.",
+            "Holding-company restructuring that separates the focal segment from the wider group.",
+            "Recent acquisitions by the holding of competing assets in the focal category."
+          ],
+          "known_gaps_starred": [
+            {
+              "gap": "Parent segment revenue anchor (10-K) not publicly available",
+              "stars": 2
+            },
+            {
+              "gap": "no parent 10-K segment anchor available",
+              "stars": 2
+            },
+            {
+              "gap": "revenue range spread 2.0× (low 175000000 vs high 350000000)",
+              "stars": 1
+            }
+          ]
+        },
+        "confidence_buckets": {
+          "high": [],
+          "medium": [
+            {
+              "claim": "Revenue central estimate",
+              "reason": "Multiple weak anchors"
+            },
+            {
+              "claim": "4 verified behavioral signals",
+              "reason": "Source attributed and cross-checked"
+            }
+          ],
+          "low": [
+            {
+              "claim": "Revenue central estimate",
+              "reason": "Range spread 2.0×"
+            },
+            {
+              "claim": "Confidence escalation trigger",
+              "reason": "no parent 10-K segment anchor available"
+            },
+            {
+              "claim": "Confidence escalation trigger",
+              "reason": "revenue range spread 2.0× (low 175000000 vs high 350000000)"
+            },
+            {
+              "claim": "Parent revenue benchmark",
+              "reason": "No public 10-K available; benchmark uses estimates only"
+            }
+          ]
+        },
+        "section_confidence": {
+          "verdict": {
+            "stars": "**",
+            "reason": "Estimate-driven"
+          },
+          "behavioral_signals": {
+            "stars": "***",
+            "reason": "4 captured"
+          },
+          "corporate_structure": {
+            "stars": "***",
+            "reason": "Family UBO identified"
+          },
+          "reconciliation": {
+            "stars": "*",
+            "reason": "Triangulated only"
+          },
+          "mispricing": {
+            "stars": "**",
+            "reason": "Catalog peers"
+          },
+          "competitive_context": {
+            "stars": "*",
+            "reason": "Discovery phase"
+          }
+        },
+        "limitations_list": [
+          "Resident Home LLC is private — no 10-K anchor; reconciliation uses estimates only.",
+          "Revenue range spread 2.0× — central is a midpoint, not a single defensible number.",
+          "Confidence forced to LOW (see triggers in confidence buckets)."
+        ],
+        "strategic_notes_by_audience": {
+          "for_investors": "Treat Nectar Sleep as a market-intelligence signal and private comparable, not a transactable target.",
+          "for_competitors": "N/A - competitive reads are summarized in the Competitive Context section.",
+          "for_ma_advisors": "N/A - no active M&A signals; no live transaction path.",
+          "for_growth_signal_users": "Pending LLM enrichment"
+        },
+        "data_trace": {
+          "primary_sources": [
+            "CTech / Ynet News",
+            "Forbes / ConvertFlow",
+            "ECDB",
+            "nectarsleep.careerbliss.com"
+          ],
+          "methodology_note": "Deterministic synthesis (V2.1): ownership clarity → capital decision → verdict label; reconciliation triangulated against parent anchor + (when available) industry-share and volume-unit-economics models. Confidence is escalated to LOW when sibling capture is incomplete, no public anchor exists, the revenue range spread ≥2×, parent gap ≥30%, or forward-catalyst data is missing. LLM enrichment adds signal interpretations (\"Read this as:\") and audience-specific notes; deterministic seeds are used as fallback.",
+          "generated_at": "2026-05-24T22:45:41.817Z",
+          "primary_used": [
+            "CTech / Ynet News",
+            "Forbes / ConvertFlow",
+            "ECDB",
+            "nectarsleep.careerbliss.com"
+          ],
+          "excluded_with_reason": [
+            {
+              "source": "SimilarWeb",
+              "reason": "Web-traffic proxy under-represents revenue for offline/asset-heavy categories."
+            },
+            {
+              "source": "PitchBook / S&P Capital IQ",
+              "reason": "Subscription-walled; not used in this run."
+            }
+          ]
+        }
+      },
+      "synthesis_meta": {
+        "seed": "nectar sleep|resident home llc|2026-05-24",
+        "deterministic": true,
+        "schema_version": "v2.1"
+      },
+      "_entities": [
+        {
+          "company": "Nectar Sleep",
+          "domain": "nectarsleep.com",
+          "role": "focal",
+          "layer": "brand",
+          "category": "memory foam mattresses and bedding accessories",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "parent_company": "Resident Home LLC",
+          "primary_parent_id": "Resident Home LLC",
+          "secondary_relationships": []
+        },
+        {
+          "company": "Resident Home LLC",
+          "domain": "residenthome.com",
+          "role": "parent",
+          "layer": "aggregator",
+          "category": "direct-to-consumer home furnishings and mattress brands",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "parent_company": "Ashley Furniture Industries, Inc.",
+          "primary_parent_id": "Ashley Furniture Industries, Inc.",
+          "secondary_relationships": []
+        },
+        {
+          "company": "Ashley Furniture Industries, Inc.",
+          "domain": "ashley.biz",
+          "role": "grandparent",
+          "layer": "parent",
+          "category": "home furnishings manufacturing and distribution",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "parent_company": "Wanek Family",
+          "primary_parent_id": "Wanek Family",
+          "secondary_relationships": []
+        },
+        {
+          "company": "Wanek Family",
+          "domain": null,
+          "role": "root",
+          "layer": "root",
+          "category": "family holding entity",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "parent_company": null,
+          "primary_parent_id": null,
+          "secondary_relationships": []
+        },
+        {
+          "company": "DreamCloud",
+          "domain": "dreamcloudsleep.com",
+          "role": "sibling",
+          "layer": null,
+          "category": "luxury hybrid mattresses",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "parent_company": "Resident Home LLC",
+          "primary_parent_id": "Resident Home LLC",
+          "secondary_relationships": []
+        },
+        {
+          "company": "Awara",
+          "domain": "awarasleep.com",
+          "role": "sibling",
+          "layer": null,
+          "category": "organic natural latex mattresses",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "parent_company": "Resident Home LLC",
+          "primary_parent_id": "Resident Home LLC",
+          "secondary_relationships": []
+        },
+        {
+          "company": "Siena",
+          "domain": "sienasleep.com",
+          "role": "sibling",
+          "layer": null,
+          "category": "mattresses and bedding",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "parent_company": "Resident Home LLC",
+          "primary_parent_id": "Resident Home LLC",
+          "secondary_relationships": []
+        },
+        {
+          "company": "Cloverlane",
+          "domain": "cloverlane.com",
+          "role": "cousin",
+          "layer": null,
+          "category": "bedding and bathware",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "parent_company": "Resident Home LLC",
+          "primary_parent_id": "Resident Home LLC",
+          "secondary_relationships": [],
+          "via_division": "Home Accessories"
+        }
+      ],
+      "_revenueResults": [
+        {
+          "company": "Nectar Sleep",
+          "role": "focal",
+          "revenue_estimate": {
+            "low": 150000000,
+            "high": 200000000,
+            "central": 175000000
+          },
+          "confidence": "medium",
+          "signals_attempted": 8,
+          "signals_found_count": 6,
+          "signals_found": [
+            {
+              "type": "press",
+              "label": "ConvertFlow $500M revenue case study",
+              "value": "Scaling to $500 million and beyond, with $44M first year growing to $500M by 2020",
+              "source": "ConvertFlow customer case study",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "press",
+              "label": "Growth Shop $300M+ revenue",
+              "value": "Grew from $10M to over $300M annual revenue, becoming fastest-growing consumer brand",
+              "source": "Growth Shop case study",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "web_traffic",
+              "label": "EcommerceDB 2024 revenue",
+              "value": "$168M revenue on nectarsleep.com in 2024 with 0-5% growth projected for 2025",
+              "source": "EcommerceDB.com",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "web_traffic",
+              "label": "SimilarWeb traffic estimate",
+              "value": "Annual revenue $50M-$75M, 201-500 employees, 12.26% traffic decrease",
+              "source": "SimilarWeb",
+              "weight": "low",
+              "context_unverified": false
+            },
+            {
+              "type": "funding",
+              "label": "Resident Home $130M funding",
+              "value": "$130M investment in 2021 led by Ion Crossover Partners and Nexus Capital",
+              "source": "Retail Dive acquisition coverage",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "reviews",
+              "label": "Customer review volume",
+              "value": "15,000+ Trustpilot UK reviews, 232 US reviews, 100,000+ claimed 5-star reviews",
+              "source": "Trustpilot and nectarsleep.com",
+              "weight": "medium",
+              "context_unverified": false
+            }
+          ],
+          "reasoning_summary": "Multiple sources confirm Nectar Sleep historically reached $500M+ revenue at peak (2020-2021) but current data suggests significant decline. EcommerceDB reports $168M for 2024, while SimilarWeb estimates $50-75M range. The 2024 Ashley acquisition and traffic decline patterns support a revenue correction from peak levels. Historical growth trajectory and acquisition by major furniture retailer indicates substantial scale, placing current revenue likely in $150-200M range.",
+          "reason_for_null": null
+        },
+        {
+          "company": "Resident Home LLC",
+          "role": "parent",
+          "error": "Failed to fetch",
+          "confidence": "low"
+        },
+        {
+          "company": "Ashley Furniture Industries, Inc.",
+          "role": "grandparent",
+          "error": "Failed to fetch",
+          "confidence": "low"
+        },
+        {
+          "company": "Wanek Family",
+          "role": "root",
+          "revenue_estimate": {
+            "low": 12000000000,
+            "high": 15000000000,
+            "central": 13500000000
+          },
+          "confidence": "medium",
+          "signals_attempted": 6,
+          "signals_found_count": 6,
+          "signals_found": [
+            {
+              "type": "press",
+              "label": "Ashley Furniture 2023 revenue",
+              "value": "$12.3 billion in revenue in 2023",
+              "source": "BizTimes Milwaukee",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "press",
+              "label": "Ashley Furniture recent revenue",
+              "value": "$6.6 billion in annual revenue",
+              "source": "BizTimes Milwaukee / Forbes",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "funding",
+              "label": "Superior Fresh investment",
+              "value": "$100+ million invested by Wanek family in Superior Fresh facility",
+              "source": "Post Bulletin Rochester",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "other",
+              "label": "Superior Fresh production scale",
+              "value": "3 million pounds greens, 200,000 pounds salmon annually",
+              "source": "Star Tribune",
+              "weight": "low",
+              "context_unverified": false
+            },
+            {
+              "type": "other",
+              "label": "Ron Wanek net worth",
+              "value": "$6.1 billion net worth (Forbes 400 #214)",
+              "source": "BizTimes / Forbes",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "other",
+              "label": "Todd Wanek net worth",
+              "value": "$3.7 billion net worth (Forbes 400 #359)",
+              "source": "BizTimes / Forbes",
+              "weight": "high",
+              "context_unverified": false
+            }
+          ],
+          "reasoning_summary": "The Wanek Family's primary revenue driver is Ashley Furniture Industries, which generated $12.3 billion in 2023 revenue according to Forbes. The family also operates Superior Fresh (aquaponics) with $100+ million invested, and Third Lake Partners/Capital for real estate and private equity investments. Ashley Furniture's revenue range of $6.6-12.3 billion suggests current operations around $12-13 billion, with additional revenue streams from their diversified investment activities likely adding $1-2 billion.",
+          "reason_for_null": null
+        },
+        {
+          "company": "DreamCloud",
+          "role": "sibling",
+          "revenue_estimate": {
+            "low": 180000000,
+            "high": 270000000,
+            "central": 225000000
+          },
+          "confidence": "medium",
+          "signals_attempted": 7,
+          "signals_found_count": 5,
+          "signals_found": [
+            {
+              "type": "press",
+              "label": "Parent company 2023 revenue",
+              "value": "Resident Home (parent) achieved $900M in 2023 revenue across Nectar, DreamCloud, Awara, and Siena brands",
+              "source": "Calcalis Tech / CTech",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "funding",
+              "label": "2021 funding and valuation",
+              "value": "$130M investment led by Ion Crossover Partners at ~$700M valuation in 2021",
+              "source": "Retail Dive",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "customers",
+              "label": "Distribution network size",
+              "value": "Available through ~4,000 mattress store partners nationwide plus Ashley's 1,125+ locations",
+              "source": "Consumer Affairs",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "press",
+              "label": "Acquisition valuation",
+              "value": "$1 billion acquisition price by Ashley Home in 2024 for entire Resident Home portfolio",
+              "source": "Calcalis Tech / CTech",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "other",
+              "label": "Brand positioning",
+              "value": "One of Resident's leading brands alongside Nectar, sold in UK market as well",
+              "source": "Ynetnews",
+              "weight": "low",
+              "context_unverified": false
+            }
+          ],
+          "reasoning_summary": "DreamCloud is one of the four major brands under Resident Home LLC (alongside Nectar, Awara, and Siena), which generated $900M in total revenue in 2023. Multiple sources identify DreamCloud and Nectar as the \"leading\" brands within the portfolio. Given DreamCloud's premium positioning and extensive retail distribution through 4,000+ partner stores plus Ashley locations, I estimate it represents approximately 25% of Resident's revenue, yielding $225M annually. The $1B acquisition price in 2024 validates the strong market position.",
+          "reason_for_null": null
+        },
+        {
+          "company": "Awara",
+          "role": "sibling",
+          "revenue_estimate": {
+            "low": 15000000,
+            "high": 35000000,
+            "central": 25000000
+          },
+          "confidence": "medium",
+          "signals_attempted": 4,
+          "signals_found_count": 7,
+          "signals_found": [
+            {
+              "type": "reviews",
+              "label": "Customer review volume",
+              "value": "1,600+ reviews on company website, 4.7/5 stars; 17 reviews on Trustpilot",
+              "source": "Sleep Advisor, Trustpilot",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "pricing",
+              "label": "Average mattress price",
+              "value": "$949 for latex hybrid (42% below average latex hybrid at $1,623)",
+              "source": "NapLab",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "funding",
+              "label": "Parent company funding",
+              "value": "Resident Home LLC raised $140M total, acquired by Ashley Global Retail March 2024",
+              "source": "PitchBook, PR Newswire",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "hiring",
+              "label": "Parent company employees",
+              "value": "550 total employees at Resident Home LLC",
+              "source": "PitchBook",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "press",
+              "label": "Growth claims",
+              "value": "Resident had 100%+ sales growth in 2020, claimed as 'largest direct-to-consumer mattress company'",
+              "source": "PR Newswire",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "marketplace",
+              "label": "Distribution presence",
+              "value": "Available on Amazon, retail partners, and awarasleep.com direct sales",
+              "source": "Sleep Foundation",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "other",
+              "label": "Brand positioning",
+              "value": "One of 6 brands under Resident (Nectar, DreamCloud, Awara, Siena, Bundle, Level)",
+              "source": "Crunchbase, LinkedIn",
+              "weight": "medium",
+              "context_unverified": false
+            }
+          ],
+          "reasoning_summary": "Awara operates as one of six brands under Resident Home LLC, which was acquired by Ashley Global Retail in 2024 for undisclosed terms after raising $140M. With 550 employees across the parent company and Awara positioned as the 'natural/organic' brand in their portfolio, conservative market share allocation suggests Awara likely represents 10-20% of parent revenue. The $949 price point for their main product, combined with substantial review volume (1,600+ on-site reviews) and multi-channel distribution, indicates meaningful scale. The parent's claim of 100%+ growth and 'largest DTC mattress company' status supports the higher end of this estimate.",
+          "reason_for_null": null
+        },
+        {
+          "company": "Siena",
+          "role": "sibling",
+          "revenue_estimate": {
+            "low": 5000000,
+            "high": 15000000,
+            "central": 10000000
+          },
+          "confidence": "low",
+          "signals_attempted": 6,
+          "signals_found_count": 4,
+          "signals_found": [
+            {
+              "type": "pricing",
+              "label": "Queen mattress pricing",
+              "value": "$359-$499 queen size, with 10% affiliate commission rate",
+              "source": "NapLab, Tom's Guide, affiliate programs",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "reviews",
+              "label": "Customer review volume",
+              "value": "Multiple review sites with active customer feedback, 9.5/10 overall ratings",
+              "source": "SlumberSearch, Mattress Clarity, Sleep Advisor",
+              "weight": "low",
+              "context_unverified": false
+            },
+            {
+              "type": "press",
+              "label": "Class action settlement",
+              "value": "Part of $9M settlement for fiberglass mattresses (Oct 2017-Jun 2024)",
+              "source": "Open Class Actions",
+              "weight": "low",
+              "context_unverified": false
+            },
+            {
+              "type": "other",
+              "label": "Brand positioning",
+              "value": "Budget/value brand under Resident Home LLC, positioned as ultra-affordable option",
+              "source": "Multiple mattress review sites",
+              "weight": "medium",
+              "context_unverified": false
+            }
+          ],
+          "reasoning_summary": "Siena is positioned as Resident Home's ultra-budget mattress brand, with queen sizes priced at $359-$499. The brand appears to target price-sensitive customers with basic foam mattresses. Given the low price points and budget positioning alongside premium brands like Nectar ($800-1200) and DreamCloud ($1000+), Siena likely captures a smaller revenue share. The class action timeline suggests the brand has been active since at least 2017, indicating some market maturity.",
+          "reason_for_null": null
+        },
+        {
+          "company": "Cloverlane",
+          "role": "cousin",
+          "revenue_estimate": {
+            "low": 2000000,
+            "high": 8000000,
+            "central": 4000000
+          },
+          "confidence": "low",
+          "signals_attempted": 6,
+          "signals_found_count": 5,
+          "signals_found": [
+            {
+              "type": "press",
+              "label": "Parent company revenue baseline",
+              "value": "Resident Home LLC (parent) estimated $700M total revenue in 2022, with 5 brands including Cloverlane",
+              "source": "Bedding News Now industry report",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "other",
+              "label": "Brand status and positioning",
+              "value": "Described as 'newest brand under Resident umbrella' focusing on bedding/bathware vs mattresses",
+              "source": "Mattress Clarity review",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "reviews",
+              "label": "Low social media presence",
+              "value": "Only 3.8k Instagram followers, limited online reviews presence",
+              "source": "Honest Brand Reviews",
+              "weight": "high",
+              "context_unverified": false
+            },
+            {
+              "type": "pricing",
+              "label": "Mid-range pricing points",
+              "value": "Sheet bundles $223-248, duvet sets $129, mattresses $1,499 queen",
+              "source": "Multiple review sites",
+              "weight": "medium",
+              "context_unverified": false
+            },
+            {
+              "type": "other",
+              "label": "Discontinued mattress line",
+              "value": "ZoomInfo reports Cloverlane discontinued mattress line, now focuses on bedding/accessories sourced from DreamCloud",
+              "source": "ZoomInfo",
+              "weight": "high",
+              "context_unverified": false
+            }
+          ],
+          "reasoning_summary": "Cloverlane appears to be a small-scale bedding brand within Resident Home's portfolio, positioned as the 'newest' brand focusing on bedding/bathware rather than core mattresses. With only 3.8k Instagram followers and discontinued mattress operations, it's likely generating a modest fraction of parent company Resident's estimated $700M revenue. Mid-range pricing ($129-248 for bedding sets) suggests decent margins but limited volume given minimal social presence.",
+          "reason_for_null": null
+        }
+      ],
+      "_parentAnchor": {
+        "is_public": false,
+        "ticker": null,
+        "fiscal_year": null,
+        "total_revenue_usd": null,
+        "segments": [],
+        "focal_product_line": null,
+        "source_url": null,
+        "notes": "Resident Home LLC is a privately-held limited liability company founded in 2017 by Craig Schmeizer, Eric Hutchinson, and Ran Reske. The company operates as a house of direct-to-consumer brands in the home furnishings industry, including Nectar Sleep, DreamCloud Sleep, Awara Sleep, Level Sleep, Bundle Living, 1771 Living, Cloverlane, Wovenly Rugs, Sleep Authority, and Home Well Designed. Multiple sources confirm it is privately-held with no SEC filings or public trading status. The company has been subject to FTC enforcement actions but remains a private entity."
+      }
+    }
+  },
+  {
     "id": "0a586c6530e0",
     "brand": "zara",
     "hint": "",
