@@ -3488,6 +3488,43 @@ async function generatePDF(result) {
     if (positioning.growth_signals) text(`Growth signals: ${positioning.growth_signals}`, { size: 9, color: C.muted });
   }
 
+  // ─── Strategic Notes ───
+  // Mirror the in-app notes panel so PDF readers don't lose plain-language
+  // context (prior-JV history, chain-normalization, reconciliation explanations).
+  // Warning-style entries (leading "⚠") get an amber accent; neutral entries
+  // get muted text — same visual treatment as the in-app banners/notes panel.
+  {
+    const rawNotes = Array.isArray(positioning.strategic_notes)
+      ? positioning.strategic_notes
+      : [positioning.strategic_notes].filter(Boolean);
+    const notes = rawNotes.filter((n) => n && n !== 'No distinctive structural signals captured.');
+    if (notes.length > 0) {
+      section('Strategic Notes');
+      notes.forEach((n) => {
+        const isWarn = typeof n === 'string' && n.startsWith('⚠');
+        const body = isWarn ? n.replace(/^⚠\s*/, '') : n;
+        if (isWarn) {
+          // Amber accent strip + warn-tinted background, matching the in-app banner.
+          const size = 9.5, lineH = size * 0.42;
+          const lines = pdf.splitTextToSize(sanitize(body), contentW - 8);
+          const boxH = lines.length * lineH + 4;
+          ensure(boxH + 2);
+          const boxY = y;
+          pdf.setFillColor(...C.warnBg);
+          pdf.rect(margin, boxY, contentW, boxH, 'F');
+          pdf.setFillColor(...C.warning);
+          pdf.rect(margin, boxY, 1.6, boxH, 'F');
+          font(size, 'normal'); pdf.setTextColor(...C.warning);
+          let ty = boxY + 2;
+          lines.forEach((ln) => { pdf.text(ln, margin + 5, ty, { baseline: 'top' }); ty += lineH; });
+          y = boxY + boxH + 2;
+        } else {
+          text(`· ${body}`, { size: 9.5, color: C.muted, gap: 1.5 });
+        }
+      });
+    }
+  }
+
   // ─── Revenue Consistency Alerts ───
   const reviewNodes = [
     { node: tree, role: 'focal' },
