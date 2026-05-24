@@ -2710,6 +2710,53 @@ async function generatePDF(result) {
         const srcs = Array.isArray(co.source_urls) ? co.source_urls.filter(isSafeUrl).slice(0, 2) : [];
         srcs.forEach((u) => text(u, { size: 7.5, color: C.accentHover, x: margin + 3, maxW: contentW - 6, gap: 0.5 }));
       });
+
+      // Co-owner stake breakdown visualization
+      const stakeData = [
+        { name: parent?.company || 'Parent', econ: node.stake?.equity_pct, voting: node.stake?.voting_pct },
+        ...cos.map((co) => ({ name: co.company, econ: co.stake_pct, voting: co.voting_pct })),
+      ].filter((s) => s.econ != null || s.voting != null);
+
+      if (stakeData.length > 1) {
+        ensure(stakeData.length * 5 + 8);
+        y += 2;
+        font(9, 'bold'); pdf.setTextColor(...C.ink);
+        pdf.text('Ownership Breakdown', margin + 3, y, { baseline: 'top' }); y += 5;
+
+        const barMaxW = contentW * 0.6;
+        const barH = 4;
+        stakeData.forEach((s) => {
+          ensure(barH + 2);
+          const barY = y;
+          let xPos = margin + 3;
+
+          // Economic stake bar (solid)
+          if (s.econ != null && s.econ > 0) {
+            pdf.setFillColor(...C.accent);
+            const w = (s.econ / 100) * barMaxW;
+            pdf.rect(xPos, barY, w, barH, 'F');
+          }
+
+          // Voting stake bar (outline)
+          if (s.voting != null && s.voting > 0) {
+            const w = (s.voting / 100) * barMaxW;
+            pdf.setDrawColor(...[180, 83, 9]); // warning orange
+            pdf.setLineWidth(0.5);
+            pdf.rect(xPos, barY, w, barH);
+          }
+
+          pdf.setDrawColor(...C.border); pdf.setLineWidth(0.2);
+          pdf.rect(xPos, barY, barMaxW, barH);
+
+          // Label
+          const label = `${s.name} ${s.econ != null ? `(${s.econ}% econ` : ''}${s.voting != null ? `, ${s.voting}% voting)` : ')'}`;
+          font(7.5, 'normal'); pdf.setTextColor(...C.muted);
+          pdf.text(label, xPos + barMaxW + 3, barY + barH / 2 + 0.2, { baseline: 'middle' });
+
+          y = barY + barH + 2;
+        });
+        y += 1;
+      }
     });
   }
 
@@ -2856,8 +2903,15 @@ async function generatePDF(result) {
     const st = deriveStatus(n).label;
     const [, fg] = statusColors(st);
     const rev = n.revenue_estimate;
+    // Color-code by risk: requires_review=red, pending_acquisition=orange, normal=text
+    let companyColor = C.text;
+    if (n.requires_review) {
+      companyColor = C.danger;
+    } else if (n.pending_acquisition && n.pending_acquisition.acquirer) {
+      companyColor = C.warning;
+    }
     return [
-      { text: n.company, bold: n === tree },
+      { text: n.company, bold: n === tree, color: companyColor },
       n.category || '—',
       (rev && rev.central > 0) ? formatUSD(rev.central) : '—',
       (rev && rev.confidence) || '—',
@@ -2995,8 +3049,14 @@ async function generatePDF(result) {
         const st = deriveStatus(c).label;
         const [, fg] = statusColors(st);
         const rev = c.revenue_estimate;
+        let companyColor = C.text;
+        if (c.requires_review) {
+          companyColor = C.danger;
+        } else if (c.pending_acquisition && c.pending_acquisition.acquirer) {
+          companyColor = C.warning;
+        }
         return [
-          c.company || '—',
+          { text: c.company || '—', color: companyColor },
           c.category || '—',
           (rev && rev.central > 0) ? formatUSD(rev.central) : '—',
           (rev && rev.confidence) || '—',
