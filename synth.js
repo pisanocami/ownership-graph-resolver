@@ -435,6 +435,34 @@ export function guardConglomerateRevenueOnSubAffiliate(tree) {
       const token = sharedHoldingToken(descendant, ancestor);
       if (!token) continue;
       if (!approxRevenueMatch(dCentral, aCentral)) continue;
+      // X.04 anchor same-segment guard (Task #58 / audit gap):
+      // A descendant that has its OWN independent revenue evidence (signals
+      // tied to its own segment in the ancestor's filings, e.g. YouTube ads
+      // broken out in Alphabet's 10-K, or LinkedIn broken out in Microsoft's
+      // segment report) is a legitimately distinct segment whose number
+      // happens to round-match the consolidated parent. Re-routing it would
+      // erase a real, separately-reported figure. Only re-route when there
+      // are zero context-verified own-signals to defend the descendant's
+      // standalone number.
+      const ownSignals = Array.isArray(descendant.signals_found)
+        ? descendant.signals_found.filter((s) => s && !s.context_unverified)
+        : [];
+      if (ownSignals.length > 0) {
+        descendant.revenue_anchor_guard = {
+          would_have_rerouted_to: ancestor.company,
+          reason: 'descendant_has_independent_segment_signals',
+          own_signal_count: ownSignals.length,
+        };
+        reroutes.push({
+          from: descendant.company,
+          to: ancestor.company,
+          central: dCentral,
+          token,
+          skipped: true,
+          reason: 'same_segment_guard',
+        });
+        break;
+      }
       // Clear the descendant's misattributed conglomerate-level revenue.
       descendant.revenue_estimate_rerouted = { ...descendant.revenue_estimate };
       descendant.revenue_estimate = { low: 0, high: 0, central: 0, confidence: 'low' };
@@ -1147,7 +1175,26 @@ function buildReconciliationExplanation({ ratio, tree, siblings, parentAnchor })
 // Deterministic local synthesis. Chosen over a 3rd LLM call because (a) the
 // positioning math is mechanical (ratios, ranking) and (b) it avoids token cost
 // and JSON-parse risk of a synthesis call given two large prior outputs.
-export function synthesize(ownership, revenueByCompany, parentAnchor = null, entitiesByCompany = {}) {
+// ─── X.03 deterministic synthesis seed (Task #58 audit gap) ───────────────
+// synthesize() is intentionally pure given its inputs (no Math.random, no
+// Date.now, no Object iteration order surprises that affect outputs). The
+// `options.seed` parameter is plumbed through and stamped onto the result so
+// callers can prove run-to-run identity, and so the in-session revenue cache
+// (createRevenueCache) can key against the same seed.
+export function createRevenueCache() {
+  const store = new Map();
+  const norm = (k) => String(k || '').toLowerCase().trim();
+  return {
+    has: (k) => store.has(norm(k)),
+    get: (k) => store.get(norm(k)),
+    set: (k, v) => { store.set(norm(k), v); return v; },
+    size: () => store.size,
+    clear: () => store.clear(),
+  };
+}
+
+export function synthesize(ownership, revenueByCompany, parentAnchor = null, entitiesByCompany = {}, options = {}) {
+  const seed = options.seed != null ? String(options.seed) : null;
   // Defensive normalization: even if the model honored the chain-collapse
   // instruction, re-run the rule downstream so two-layer duplicates are never
   // displayed (Bug #5). Round 2 (Task #40) extends this with revenue-aware
@@ -1176,7 +1223,11 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
   // figure as a strict ancestor when they share a distinctive brand token.
   const reroutes = guardConglomerateRevenueOnSubAffiliate(tree);
   reroutes.forEach((r) => {
-    notes.push(`Chain normalized: ${formatUSD(r.central)} attached to "${r.from}" matched its ancestor "${r.to}" exactly and shared the "${r.token}" brand token — re-routed to "${r.to}" (the conglomerate total cannot legitimately sit on a sub-affiliate operational layer).`);
+    if (r.skipped) {
+      notes.push(`Anchor same-segment guard: "${r.from}" matched its ancestor "${r.to}" on the "${r.token}" brand token, but "${r.from}" has its own context-verified signals — kept its standalone estimate (likely a separately-reported segment, not a misattributed conglomerate total).`);
+    } else {
+      notes.push(`Chain normalized: ${formatUSD(r.central)} attached to "${r.from}" matched its ancestor "${r.to}" exactly and shared the "${r.token}" brand token — re-routed to "${r.to}" (the conglomerate total cannot legitimately sit on a sub-affiliate operational layer).`);
+    }
   });
 
   // Normalize per-layer strategic_control (Bundle C): every node in the chain
@@ -1593,5 +1644,10 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
       parent_anchor: parentAnchor || null,
     },
     intelligence_brief,
+    synthesis_meta: {
+      seed,
+      deterministic: true,
+      schema_version: 'v2.1',
+    },
   };
 }
