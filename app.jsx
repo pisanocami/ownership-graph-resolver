@@ -2624,6 +2624,86 @@ async function generatePDF(result) {
     }
   }
 
+  // ─── Risk Assessment Dashboard ───
+  {
+    const G = C.activeFg, Y = C.warning, R = C.danger;       // semaphore colors
+    const Gb = C.activeBg, Yb = C.warnBg, Rb = C.dangerBg;   // backgrounds
+    const conf = revEst.confidence;
+    const ratio = recon && recon.ratio;
+    const risks = [
+      {
+        label: 'Ownership Verification',
+        ...(tree.context_unverified_all
+          ? { lvl: 'HIGH', col: R, bg: Rb, note: 'Ownership chain largely unverified' }
+          : tree.context_unverified_some
+            ? { lvl: 'MED', col: Y, bg: Yb, note: 'Some layers lack independent confirmation' }
+            : { lvl: 'LOW', col: G, bg: Gb, note: 'Ownership chain verified end-to-end' }),
+      },
+      {
+        label: 'Revenue Confidence',
+        ...(conf === 'high'
+          ? { lvl: 'LOW', col: G, bg: Gb, note: `Central ${revEst.central > 0 ? formatUSD(revEst.central) : '—'}, high confidence` }
+          : conf === 'medium'
+            ? { lvl: 'MED', col: Y, bg: Yb, note: `Central ${revEst.central > 0 ? formatUSD(revEst.central) : '—'}, medium confidence` }
+            : { lvl: 'HIGH', col: R, bg: Rb, note: 'Low/unknown confidence; verify estimate' }),
+      },
+      {
+        label: 'Parent Alignment',
+        ...(ratio == null
+          ? { lvl: 'N/A', col: C.muted, bg: C.surface, note: 'No parent benchmark available' }
+          : (ratio >= 0.8 && ratio <= 1.2)
+            ? { lvl: 'LOW', col: G, bg: Gb, note: `${Math.round(ratio * 100)}% coverage — well aligned` }
+            : { lvl: 'MED', col: Y, bg: Yb, note: `${Math.round(ratio * 100)}% coverage — gap to investigate` }),
+      },
+      {
+        label: 'Acquisition Status',
+        ...(pa && pa.acquirer
+          ? { lvl: 'HIGH', col: R, bg: Rb, note: `Pending: ${pa.acquirer} — deal not closed` }
+          : { lvl: 'LOW', col: G, bg: Gb, note: acq && acq.acquired_by ? `Closed: acquired by ${acq.acquired_by}` : 'No pending transaction' }),
+      },
+    ];
+    if (tree.requires_review) {
+      risks.push({ label: 'Revenue Consistency', lvl: 'HIGH', col: R, bg: Rb, note: 'Child revenue exceeds parent — flagged for review' });
+    }
+    // Overall grade = worst level present.
+    const order = { LOW: 0, 'N/A': 0, MED: 1, HIGH: 2 };
+    const worst = risks.reduce((m, r) => (order[r.lvl] > order[m] ? r.lvl : m), 'LOW');
+    const gradeMeta = worst === 'HIGH' ? { col: R, bg: Rb, label: 'HIGH', rec: 'Verify flagged items before underwriting' }
+      : worst === 'MED' ? { col: Y, bg: Yb, label: 'MEDIUM', rec: 'Review gaps; data broadly reliable' }
+        : { col: G, bg: Gb, label: 'LOW', rec: 'Strong data quality; proceed' };
+
+    section('Risk Assessment');
+    const rowH = 9;
+    risks.forEach((r) => {
+      ensure(rowH);
+      pdf.setFillColor(...r.bg);
+      pdf.roundedRect(margin, y, contentW, rowH - 1.5, 1.5, 1.5, 'F');
+      pdf.setFillColor(...r.col);
+      pdf.circle(margin + 4, y + (rowH - 1.5) / 2, 1.6, 'F');
+      font(9, 'bold'); pdf.setTextColor(...C.ink);
+      pdf.text(r.label, margin + 9, y + (rowH - 1.5) / 2 + 0.2, { baseline: 'middle' });
+      font(8, 'normal'); pdf.setTextColor(...C.muted);
+      pdf.text(truncateToWidth(r.note, contentW - 110), margin + 62, y + (rowH - 1.5) / 2 + 0.2, { baseline: 'middle' });
+      font(8, 'bold'); pdf.setTextColor(...r.col);
+      pdf.text(r.lvl, margin + contentW - 4, y + (rowH - 1.5) / 2 + 0.2, { align: 'right', baseline: 'middle' });
+      y += rowH;
+    });
+    // Overall grade bar
+    ensure(11);
+    y += 1;
+    pdf.setFillColor(...gradeMeta.bg);
+    pdf.roundedRect(margin, y, contentW, 9, 1.5, 1.5, 'F');
+    pdf.setDrawColor(...gradeMeta.col); pdf.setLineWidth(0.5);
+    pdf.roundedRect(margin, y, contentW, 9, 1.5, 1.5);
+    font(9, 'bold'); pdf.setTextColor(...C.ink);
+    pdf.text('OVERALL RISK GRADE', margin + 5, y + 4.5, { baseline: 'middle' });
+    font(11, 'bold'); pdf.setTextColor(...gradeMeta.col);
+    pdf.text(gradeMeta.label, margin + 62, y + 4.5, { baseline: 'middle' });
+    font(7.5, 'italic'); pdf.setTextColor(...C.muted);
+    pdf.text(truncateToWidth(gradeMeta.rec, contentW - 92), margin + contentW - 4, y + 4.5, { align: 'right', baseline: 'middle' });
+    y += 12;
+  }
+
   // UBO stake sub-block (mirrors the detail panel's "Ownership stake" card).
   if (tree.stake && (tree.stake.equity_pct != null || tree.stake.voting_pct != null || tree.stake.evidence)) {
     ensure(14);
@@ -2856,12 +2936,39 @@ async function generatePDF(result) {
   while (cp) { chain.unshift(cp); cp = cp.parent; }
   const siblings = tree.siblings || [];
 
-  // Depth visualization
+  // Ownership pyramid (top-down: root → focal)
   if (chain.length > 0) {
     section('Ownership Hierarchy');
-    const depthStr = `${chain.length + 1} level${chain.length > 0 ? 's' : ''}`;
-    const chainStr = [...chain.map((n) => n.company || '?'), focal].join(' → ');
-    text(chainStr, { size: 8.5, color: C.muted, gap: 1.5 });
+    text(`${chain.length + 1} ownership level${chain.length > 0 ? 's' : ''} from ultimate parent to ${focal}.`,
+      { size: 8.5, style: 'italic', color: C.muted, gap: 3 });
+    const levels = [...chain, tree];
+    const boxH = 14, vGap = 9;
+    const maxW = contentW * 0.82, minW = contentW * 0.42;
+    levels.forEach((node, idx) => {
+      ensure(boxH + vGap);
+      const t = levels.length > 1 ? idx / (levels.length - 1) : 0;
+      const w = maxW - (maxW - minW) * t;
+      const x = margin + (contentW - w) / 2;
+      const isFocal = node === tree;
+      pdf.setFillColor(...(isFocal ? C.accent : C.surface));
+      pdf.setDrawColor(...(isFocal ? C.accentHover : C.border));
+      pdf.setLineWidth(isFocal ? 0.6 : 0.3);
+      pdf.roundedRect(x, y, w, boxH, 1.8, 1.8, 'FD');
+      font(9.5, 'bold'); pdf.setTextColor(...(isFocal ? C.white : C.ink));
+      pdf.text(truncateToWidth(node.company || '?', w - 40), x + 4, y + 5.5, { baseline: 'middle' });
+      const rv = node.revenue_estimate;
+      font(8.5, 'bold'); pdf.setTextColor(...(isFocal ? C.tint : C.muted));
+      pdf.text(rv && rv.central > 0 ? formatUSD(rv.central) : '—', x + w - 4, y + 5.5, { align: 'right', baseline: 'middle' });
+      font(6.8, 'normal'); pdf.setTextColor(...(isFocal ? C.tint : C.subtle));
+      pdf.text(isFocal ? 'FOCAL' : (idx === 0 ? 'ULTIMATE PARENT' : `LEVEL ${idx + 1}`), x + 4, y + 10.5, { baseline: 'middle' });
+      // connector
+      if (idx < levels.length - 1) {
+        pdf.setDrawColor(...C.border); pdf.setLineWidth(0.4);
+        pdf.line(margin + contentW / 2, y + boxH, margin + contentW / 2, y + boxH + vGap);
+      }
+      y += boxH + vGap;
+    });
+    y += 1;
   }
 
   const drawEntityBox = (x, yy, w, h, node, focal = false) => {
@@ -2994,6 +3101,37 @@ async function generatePDF(result) {
   });
   if (breakdownRows.length > 0) {
     section('Revenue Breakdown');
+
+    // Revenue cascade (parent → segment → focal) — shows how much of the parent the focal represents.
+    {
+      const parentRev = tree.parent?.revenue_estimate?.central || 0;
+      const segRev = (tree.parent?.parent_anchor?.segments || tree.parent_anchor?.segments || [])
+        .find((s) => s.contains_focal)?.revenue_usd || 0;
+      const focalRev = revEst.central || 0;
+      const steps = [];
+      if (parentRev > 0) steps.push({ label: tree.parent?.company || 'Parent', value: parentRev, col: C.ink });
+      if (segRev > 0) steps.push({ label: tree.focal_segment || 'Segment', value: segRev, col: C.accentHover });
+      if (focalRev > 0) steps.push({ label: focal, value: focalRev, col: C.accent });
+      if (steps.length >= 2) {
+        const maxV = steps[0].value;
+        const barMaxW = contentW * 0.62, barH = 7;
+        font(9, 'bold'); pdf.setTextColor(...C.ink);
+        ensure(6 + steps.length * (barH + 3));
+        pdf.text('Revenue Cascade', margin, y, { baseline: 'top' }); y += 5;
+        steps.forEach((s, i) => {
+          ensure(barH + 3);
+          const w = Math.max((s.value / maxV) * barMaxW, 1);
+          pdf.setFillColor(...s.col);
+          pdf.rect(margin, y, w, barH, 'F');
+          const pct = i === 0 ? '100%' : `${((s.value / maxV) * 100).toFixed(1)}% of parent`;
+          font(7.5, 'normal'); pdf.setTextColor(...C.muted);
+          pdf.text(`${truncateToWidth(s.label, 50)}  ${formatUSD(s.value)} (${pct})`, margin + w + 3, y + barH / 2 + 0.2, { baseline: 'middle' });
+          y += barH + 3;
+        });
+        y += 2;
+      }
+    }
+
     table(['Company', 'Category', 'Revenue (Range)', 'Conf.', 'Status'], breakdownRows, [46, 48, 45, 22, 32]);
 
     // Confidence distribution chart (stacked bar for top 4)
