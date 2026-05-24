@@ -1025,3 +1025,290 @@ test('Issue #3: an individual/UBO root is NOT sent for a revenue lookup', () => 
   const ents = collectEntities(ownership);
   assert.equal(ents.find((e) => e.company === 'Wanek Family'), undefined, 'natural-person/family root is skipped');
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// Sprint 3 fixes
+// ════════════════════════════════════════════════════════════════════════════
+
+// ─── Issue #12: sub-product line mis-reported as the segment anchor ───────────
+
+test('Issue #12: LinkedIn — a segment smaller than its siblings is distrusted, falls back to parent total', () => {
+  // The parent-anchor agent mis-reported "LinkedIn $17.81B" as the focal segment
+  // while Office/Dynamics sit at the Productivity & Business Processes level. The
+  // pre-fix benchmark of sum($84.81B) vs $17.81B produced a 477% nonsense ratio.
+  const ownership = {
+    company: 'LinkedIn', domain: 'linkedin.com', node_type: 'operating_brand',
+    focal_segment: 'Productivity and Business Processes',
+    siblings: [
+      { company: 'Microsoft Office', domain: 'office.com', in_current_sources: true },
+      { company: 'Microsoft Dynamics', domain: 'dynamics.microsoft.com', in_current_sources: true },
+    ],
+    parent: { company: 'Microsoft', domain: 'microsoft.com', node_type: 'legal_entity', parent: null },
+  };
+  const revenueByCompany = {
+    'linkedin': { revenue_estimate: { low: 16e9, high: 19e9, central: 17.81e9 }, confidence: 'high', signals_found: [], reasoning_summary: '' },
+    'microsoft office': { revenue_estimate: { low: 55e9, high: 65e9, central: 60e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+    'microsoft dynamics': { revenue_estimate: { low: 6e9, high: 8e9, central: 7e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+  };
+  const parentAnchor = {
+    is_public: true, fiscal_year: 2025, total_revenue_usd: 281_700_000_000,
+    segments: [{ name: 'LinkedIn', revenue_usd: 17_810_000_000, contains_focal: true }],
+  };
+  const out = synthesize(ownership, revenueByCompany, parentAnchor, {});
+  const recon = out.positioning_analysis.reconciliation;
+  assert.ok(recon, 'reconciliation fires');
+  assert.equal(recon.parent_benchmark_source, '10-K', 'falls back to parent total, not the sub-line segment');
+  assert.equal(recon.parent_benchmark, 281_700_000_000, 'benchmark is the consolidated total');
+  assert.ok(recon.ratio < 1, `ratio is sane against the parent total (got ${recon.ratio}, must be < 1)`);
+  const notes = out.positioning_analysis.strategic_notes.join(' | ');
+  assert.match(notes, /sub-product line/i, 'guardrail note explains the mislabeled segment');
+});
+
+test('Issue #12: YouTube — "YouTube ads" sub-line distrusted vs Alphabet consolidated total', () => {
+  const ownership = {
+    company: 'YouTube', domain: 'youtube.com', node_type: 'operating_brand',
+    focal_segment: 'Google Services',
+    siblings: [
+      { company: 'Google Search', in_current_sources: true },
+      { company: 'Google Play', in_current_sources: true },
+    ],
+    parent: { company: 'Google LLC', domain: 'google.com', node_type: 'legal_entity', parent: null },
+  };
+  const revenueByCompany = {
+    'youtube': { revenue_estimate: { low: 30e9, high: 33e9, central: 31.51e9 }, confidence: 'high', signals_found: [], reasoning_summary: '' },
+    'google search': { revenue_estimate: { low: 170e9, high: 180e9, central: 175e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+    'google play': { revenue_estimate: { low: 45e9, high: 55e9, central: 50e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+  };
+  const parentAnchor = {
+    is_public: true, fiscal_year: 2023, total_revenue_usd: 307_390_000_000,
+    segments: [{ name: 'YouTube ads', revenue_usd: 31_510_000_000, contains_focal: true }],
+  };
+  const out = synthesize(ownership, revenueByCompany, parentAnchor, {});
+  const recon = out.positioning_analysis.reconciliation;
+  assert.equal(recon.parent_benchmark_source, '10-K', 'distrusts the tiny YouTube-ads sub-line');
+  assert.ok(recon.ratio < 1.2, `sane ratio vs the parent total (got ${recon.ratio})`);
+});
+
+// ─── Issue #7-bis: overshoot vs a REAL segment is surfaced, never rescaled ────
+
+test('Issue #7-bis: an overshoot vs a real segment anchor is flagged, not auto-corrected', () => {
+  // Siblings legitimately exceed the focal's segment (~+60%). Surface a warning,
+  // but the raw centrals must survive — no "Auto-corrected … ×" scaling.
+  const ownership = {
+    company: 'Brand A', node_type: 'operating_brand', focal_segment: 'Segment X',
+    siblings: [{ company: 'Brand B', in_current_sources: true }],
+    parent: { company: 'BigCo', node_type: 'legal_entity', parent: null },
+  };
+  const revenueByCompany = {
+    'brand a': { revenue_estimate: { low: 9e9, high: 11e9, central: 10e9 }, confidence: 'high', signals_found: [], reasoning_summary: '' },
+    'brand b': { revenue_estimate: { low: 5e9, high: 7e9, central: 6e9 }, confidence: 'high', signals_found: [], reasoning_summary: '' },
+  };
+  // Real segment $10B; sum $16B → ratio 1.6 overshoot, but sum < 2× segment so the segment stays trusted.
+  const parentAnchor = { is_public: true, fiscal_year: 2024, total_revenue_usd: 50e9, segments: [{ name: 'Segment X', revenue_usd: 10e9, contains_focal: true }] };
+  const out = synthesize(ownership, revenueByCompany, parentAnchor, {});
+  const focal = out.ownership_tree;
+  assert.equal(focal.revenue_estimate.central, 10e9, 'focal raw preserved');
+  assert.equal(focal.siblings[0].revenue_estimate.central, 6e9, 'sibling raw preserved');
+  const notes = out.positioning_analysis.strategic_notes.join(' | ');
+  assert.doesNotMatch(notes, /auto-?corrected|scaled (up|down|by)/i, 'no scaling note');
+  const recon = out.positioning_analysis.reconciliation;
+  assert.equal(recon.parent_benchmark_source, 'segment', 'real segment trusted (sum < 2× segment)');
+  assert.ok(recon.ratio > 1.5, `overshoot ratio preserved (got ${recon.ratio})`);
+});
+
+// ─── Issue #9-bis: panel denominator data (parent total ≠ focal segment) ──────
+
+test('Issue #9-bis: reconciliation exposes parent_total distinct from the focal segment', () => {
+  const ownership = {
+    company: 'Tiffany', node_type: 'operating_brand', focal_segment: 'Watches & Jewelry',
+    siblings: [{ company: 'Bulgari', in_current_sources: true }],
+    parent: { company: 'LVMH', node_type: 'legal_entity', parent: null },
+  };
+  const revenueByCompany = {
+    'tiffany': { revenue_estimate: { low: 4e9, high: 5e9, central: 4.5e9 }, confidence: 'high', signals_found: [], reasoning_summary: '' },
+    'bulgari': { revenue_estimate: { low: 3e9, high: 4e9, central: 3.5e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+  };
+  const parentAnchor = { is_public: true, fiscal_year: 2024, total_revenue_usd: 84_680_000_000, segments: [{ name: 'Watches & Jewelry', revenue_usd: 11_810_000_000, contains_focal: true }] };
+  const out = synthesize(ownership, revenueByCompany, parentAnchor, {});
+  const recon = out.positioning_analysis.reconciliation;
+  assert.equal(recon.parent_total_revenue, 84_680_000_000, 'parent consolidated total preserved (panel denominator)');
+  assert.equal(recon.focal_segment_revenue, 11_810_000_000, 'focal segment revenue preserved');
+  assert.notEqual(recon.parent_total_revenue, recon.focal_segment_revenue, 'panel denominator is the parent total, not the focal segment');
+});
+
+// ─── Issue #2-bis: broadened co_owners activation ─────────────────────────────
+
+test('Issue #2-bis: concentrated strategic blocs surface as co_owners with stakes (Aston Martin)', () => {
+  const ownership = {
+    company: 'Aston Martin Lagonda', domain: 'astonmartin.com', node_type: 'legal_entity',
+    ownership_role: 'controlling_holder',
+    co_owners: [
+      { company: 'Public Investment Fund', ownership_role: 'strategic_investor', stake_pct: 20.5, entity_type: 'government', evidence: 'PIF ~20.5% per 2024 disclosures.', source_urls: [] },
+      { company: 'Geely', ownership_role: 'strategic_investor', stake_pct: 17, entity_type: 'corporation', evidence: 'Geely ~17%.', source_urls: [] },
+      { company: 'Mercedes-Benz', ownership_role: 'strategic_partner', stake_pct: 20, entity_type: 'corporation', evidence: 'Mercedes ~20% (technology partnership).', source_urls: [] },
+    ],
+    parent: { company: 'Yew Tree Consortium', node_type: 'legal_entity', ownership_role: 'controlling_holder', parent: null },
+  };
+  const revenueByCompany = {
+    'aston martin lagonda': { revenue_estimate: { low: 1.5e9, high: 2e9, central: 1.8e9 }, confidence: 'high', signals_found: [], reasoning_summary: '' },
+  };
+  const coEnts = collectEntities(ownership).filter((e) => e.role === 'co_owner');
+  assert.equal(coEnts.length, 3, 'all 3 strategic blocs collected as co_owners (cap raised to 5)');
+  const out = synthesize(ownership, revenueByCompany, null, {});
+  const note = out.positioning_analysis.strategic_notes.find((n) => /Multi-owner structure/.test(n));
+  assert.ok(note, 'multi-owner note present');
+  assert.match(note, /Public Investment Fund/);
+  assert.match(note, /Geely/);
+  assert.match(note, /Mercedes-Benz/);
+  assert.match(note, /20\.5% econ/, 'equity stake surfaced');
+});
+
+test('Issue #2-bis: individual super-voting holders surface as co_owners with voting_pct (Page+Brin)', () => {
+  const ownership = {
+    company: 'Alphabet', domain: 'abc.xyz', node_type: 'legal_entity', ownership_role: 'voting_control',
+    co_owners: [
+      { company: 'Sergey Brin', ownership_role: 'super_voting_holder', voting_pct: 25.3, entity_type: 'individual', evidence: 'Class B ~25.3% voting.', source_urls: [] },
+    ],
+    parent: { company: 'Larry Page', node_type: 'individual', ubo_type: 'individual', stake: { voting_pct: 27.4 }, parent: null },
+  };
+  const revenueByCompany = { 'alphabet': { revenue_estimate: { low: 300e9, high: 310e9, central: 307e9 }, confidence: 'high', signals_found: [], reasoning_summary: '' } };
+  const out = synthesize(ownership, revenueByCompany, null, {});
+  const note = out.positioning_analysis.strategic_notes.find((n) => /Multi-owner structure/.test(n));
+  assert.ok(note, 'multi-owner note present');
+  assert.match(note, /Sergey Brin/);
+  assert.match(note, /25\.3% vote/, 'voting stake surfaced');
+});
+
+// ─── Issue #10: "not computed" siblings render as "—", not $0 ─────────────────
+
+test('Issue #10: siblings without an estimate render as "—", never $0, and are not ranked as zero', () => {
+  const ownership = {
+    company: 'Bud Light', domain: 'budlight.com', node_type: 'operating_brand',
+    siblings: [
+      { company: 'Budweiser', in_current_sources: true },
+      { company: 'Michelob Ultra', in_current_sources: true },
+      { company: 'Natural Light', in_current_sources: true },
+    ],
+    parent: { company: 'Anheuser-Busch InBev', node_type: 'legal_entity', parent: null },
+  };
+  const revenueByCompany = {
+    'bud light': { revenue_estimate: { low: 5e9, high: 7e9, central: 6e9 }, confidence: 'high', signals_found: [], reasoning_summary: '' },
+  };
+  const out = synthesize(ownership, revenueByCompany, null, {});
+  const vs = out.positioning_analysis.focal_vs_siblings;
+  assert.match(vs, /—/, 'uncomputed siblings show an em-dash');
+  assert.doesNotMatch(vs, /\$0\b/, 'no sibling shows $0');
+  assert.match(vs, /3 not computed/, 'uncomputed count surfaced');
+  assert.match(vs, /★ Bud Light \$6\.00B/, 'focal ranked first with its real revenue');
+});
+
+// ─── Issue #4-bis: distribution-channel brands carry no standalone revenue ────
+
+test('Issue #4-bis: a distribution channel (Chrome) is skipped for revenue and never shown standalone', () => {
+  const ownership = {
+    company: 'YouTube', domain: 'youtube.com', node_type: 'operating_brand', focal_segment: 'Google Services',
+    siblings: [
+      { company: 'Google Chrome', domain: 'google.com/chrome', revenue_model: 'distribution_channel', in_current_sources: true },
+      { company: 'Google Pixel', domain: 'store.google.com', revenue_model: 'direct_revenue', in_current_sources: true },
+    ],
+    parent: { company: 'Google LLC', node_type: 'legal_entity', parent: null },
+  };
+  // A stray $120B Chrome figure exists upstream — it must be refused outright.
+  const revenueByCompany = {
+    'youtube': { revenue_estimate: { low: 30e9, high: 33e9, central: 31.5e9 }, confidence: 'high', signals_found: [], reasoning_summary: '' },
+    'google chrome': { revenue_estimate: { low: 110e9, high: 130e9, central: 120e9 }, confidence: 'low', signals_found: [], reasoning_summary: '' },
+    'google pixel': { revenue_estimate: { low: 5e9, high: 6e9, central: 5.5e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+  };
+  const ents = collectEntities(ownership);
+  assert.equal(ents.find((e) => e.company === 'Google Chrome'), undefined, 'Chrome is not sent for revenue inference');
+  assert.ok(ents.find((e) => e.company === 'Google Pixel'), 'Pixel (direct_revenue) is still collected');
+
+  const out = synthesize(ownership, revenueByCompany, null, {});
+  const chrome = out.ownership_tree.siblings.find((s) => s.company === 'Google Chrome');
+  assert.equal(chrome.revenue_estimate, undefined, 'Chrome gets NO standalone revenue despite the stray $120B');
+  assert.match(chrome.reason_for_null, /distribution channel/i, 'Chrome explains the dash');
+  const vs = out.positioning_analysis.focal_vs_siblings;
+  assert.doesNotMatch(vs, /120/, 'the $120B figure never reaches the ranking');
+});
+
+// ─── Issue #5-bis: declared segment revenue from signals anchors a gap ────────
+
+test('Issue #5-bis: a segment revenue declared in signals anchors a within-segment gap (Royal Canin)', () => {
+  const ownership = {
+    company: 'Royal Canin', domain: 'royalcanin.com', node_type: 'operating_brand', focal_segment: 'Mars Petcare',
+    siblings: [
+      { company: 'Pedigree', in_current_sources: true },
+      { company: 'Whiskas', in_current_sources: true },
+    ],
+    parent: { company: 'Mars, Incorporated', node_type: 'legal_entity', parent: null },
+  };
+  const revenueByCompany = {
+    'royal canin': { revenue_estimate: { low: 5e9, high: 7e9, central: 6e9 }, confidence: 'high', signals_found: [{ type: 'press', label: 'segment size', value: 'Mars Petcare segment ~$22B in 2023', source: 'press', weight: 'medium', context_unverified: false }], reasoning_summary: 'Royal Canin sits in the Mars Petcare segment ($22B).' },
+    'pedigree': { revenue_estimate: { low: 3e9, high: 4e9, central: 3.77e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+    'whiskas': { revenue_estimate: { low: 1.5e9, high: 2.5e9, central: 2e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+    // Mars total estimate gives the benchmark a value (Mars is private → no 10-K).
+    'mars, incorporated': { revenue_estimate: { low: 45e9, high: 55e9, central: 50e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+  };
+  const out = synthesize(ownership, revenueByCompany, { is_public: false, total_revenue_usd: null, segments: [] }, {});
+  const recon = out.positioning_analysis.reconciliation;
+  assert.ok(recon, 'reconciliation fires against the estimated parent total');
+  assert.equal(recon.segment_anchor_from_signals, 22e9, 'declared "Mars Petcare $22B" parsed from signals');
+  const notes = out.positioning_analysis.strategic_notes.join(' | ');
+  assert.match(notes, /Mars Petcare segment declared \$22\.00B in signals/, 'within-segment gap note surfaced');
+  assert.match(notes, /uncaptured Mars Petcare brands/);
+});
+
+// ─── Issue #11: sibling-capture floor warning ─────────────────────────────────
+
+test('Issue #11: too few siblings under a large parent raises an incompleteness warning (Snickers)', () => {
+  const ownership = {
+    company: 'Snickers', node_type: 'operating_brand', focal_segment: 'Mars Wrigley',
+    siblings: [],
+    parent: { company: 'Mars, Incorporated', node_type: 'legal_entity', parent: null },
+  };
+  const revenueByCompany = {
+    'snickers': { revenue_estimate: { low: 2e9, high: 4e9, central: 3e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+    'mars, incorporated': { revenue_estimate: { low: 45e9, high: 50e9, central: 47e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+  };
+  const out = synthesize(ownership, revenueByCompany, null, {});
+  const notes = out.positioning_analysis.strategic_notes.join(' | ');
+  assert.match(notes, /Only 0 siblings captured under Mars, Incorporated/, 'incompleteness warning fires');
+  assert.match(notes, /reconciliation coverage is a floor/);
+});
+
+test('Issue #11: a well-covered conglomerate (≥ floor siblings) raises no incompleteness warning', () => {
+  const ownership = {
+    company: 'Royal Canin', node_type: 'operating_brand', focal_segment: 'Mars Petcare',
+    siblings: [
+      { company: 'Pedigree', in_current_sources: true },
+      { company: 'Whiskas', in_current_sources: true },
+      { company: 'Iams', in_current_sources: true },
+      { company: 'Nutro', in_current_sources: true },
+      { company: 'Banfield', in_current_sources: true },
+    ],
+    parent: { company: 'Mars, Incorporated', node_type: 'legal_entity', parent: null },
+  };
+  const revenueByCompany = {
+    'royal canin': { revenue_estimate: { low: 5e9, high: 7e9, central: 6e9 }, confidence: 'high', signals_found: [], reasoning_summary: '' },
+    'mars, incorporated': { revenue_estimate: { low: 45e9, high: 55e9, central: 50e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+  };
+  const out = synthesize(ownership, revenueByCompany, null, {});
+  const notes = out.positioning_analysis.strategic_notes.join(' | ');
+  assert.doesNotMatch(notes, /sibling set may be incomplete/, 'no incompleteness warning with 5 siblings');
+});
+
+// ─── Issue #6-bis: stock-swap acquisition price flows through synthesis ───────
+
+test('Issue #6-bis: a stock-swap acquisition price survives synthesis intact', () => {
+  const ownership = {
+    company: 'YouTube', domain: 'youtube.com', node_type: 'operating_brand',
+    acquisition: { acquired_by: 'Google', year: 2006, price_usd: 1_650_000_000, price_display: '$1.65B', deal_type: 'stock_swap', source_url: 'https://example.com' },
+    parent: { company: 'Google LLC', node_type: 'legal_entity', parent: null },
+  };
+  const revenueByCompany = { 'youtube': { revenue_estimate: { low: 30e9, high: 33e9, central: 31.5e9 }, confidence: 'high', signals_found: [], reasoning_summary: '' } };
+  const out = synthesize(ownership, revenueByCompany, null, {});
+  const acq = out.ownership_tree.acquisition;
+  assert.equal(acq.deal_type, 'stock_swap');
+  assert.equal(acq.price_usd, 1_650_000_000);
+  assert.equal(acq.price_display, '$1.65B');
+});
