@@ -56,7 +56,20 @@ Rules:
 
 Step 4 — Recurse to root. Stop conditions: ultimate parent identifiable, PE firm (mark terminal_layer:"private_equity" and stop), or no evidence. Recurse through current_legal_parent only, never through the pending acquirer.
 
-Step 5 — Siblings. List brands at the same layer of the CURRENT LEGAL PARENT, ONLY with verifiable source. The "siblings" field is ALWAYS current_siblings_under_current_parent — do not contaminate it with brands of the post-close acquirer. If you want to surface the acquirer's portfolio for context, place them in the SEPARATE field "future_cousins_post_close" (and only when pending_acquisition is non-null). For EACH sibling capture: a free-text "category" describing what it sells (e.g. "premium hybrid mattress", "rugs", "B2B billing SaaS" — whatever the sources say; "" if unknown), and presence signals: in_current_sources (true if it appears in a PRIMARY/current source), in_historical_sources (true if it appears in a SECONDARY/older source), and last_mention_date (most recent date you saw it referenced, or null). Do NOT label a sibling active/legacy/discontinued — only report the raw flags and date; classification happens downstream.
+Step 5 — Siblings (SEGMENT-FILTERED — read carefully). Siblings are brands at the SAME layer of the CURRENT LEGAL PARENT **and inside the same business segment / division as the focal**. They are NOT "every brand the parent owns".
+
+SEGMENT-FILTER RULE (Bug #3 regression — applies to ALL multi-division aggregators, e.g. LVMH, P&G, Unilever, Inditex, Kering, Estée Lauder, Richemont, AB InBev, Kellanova, Diageo, Nestlé):
+  a) First, identify the focal's segment/division within the parent's own reporting structure. Sources: the parent's IR / "our brands" page (which usually groups by division), the parent's latest 10-K / 20-F segment breakdown (use parent_anchor.segments[].contains_focal when it exists downstream), or a reputable financial summary. E.g. Tiffany & Co. → LVMH "Watches & Jewelry"; Tide → P&G "Fabric & Home Care" (laundry sub-segment); Zara → Inditex (single-segment, so all brands are siblings).
+  b) Populate "siblings" with ONLY brands that share that segment (Tiffany siblings = Bulgari, Chaumet, Fred, Repossi, TAG Heuer, Hublot — NOT Louis Vuitton, Dior, Givenchy, Fendi). For Tide: siblings = Ariel, Gain — NOT Downy/Dawn/Febreze/Mr. Clean.
+  c) Brands of OTHER segments of the same parent are NOT siblings. Place them in the NEW field "intra_parent_cousins" with their own segment in "via_division" (e.g. {"company":"Louis Vuitton","via_division":"Fashion & Leather Goods", ...}). These are real cousins inside the same family but a different business line.
+  d) Capture the focal's own division in "focal_segment" (top-level field) so the UI/reconciliation can label it.
+  e) If the parent has NO declared segments (private with no disclosure, or genuinely single-segment), keep ALL portfolio brands as siblings and set "focal_segment": null. Note this in "notes".
+
+MEGA-AGGREGATOR HEURISTIC: If your initial brand-list for siblings would exceed 10 entries, that is a strong signal you are missing a segment cut. STOP, run an extra search for the parent's segment / division structure ("[parent] business segments", "[parent] divisions"), apply the filter, and report in "notes" that you segmented (e.g. "Segmented LVMH portfolio by division; siblings restricted to Watches & Jewelry.").
+
+The "siblings" field is ALWAYS current_siblings_under_current_parent_AND_same_segment — never the acquirer's portfolio while a deal is pending (those go in "future_cousins_post_close" as before).
+
+For EACH sibling AND each intra_parent_cousin capture: a free-text "category" describing what it sells (e.g. "premium hybrid mattress", "rugs", "B2B billing SaaS" — whatever the sources say; "" if unknown), and presence signals: in_current_sources (true if it appears in a PRIMARY/current source), in_historical_sources (true if it appears in a SECONDARY/older source), and last_mention_date (most recent date you saw it referenced, or null). Do NOT label a sibling active/legacy/discontinued — only report the raw flags and date; classification happens downstream.
 
 SOURCE PRIORITIZATION (apply when listing siblings and children):
 PRIMARY (current state, last ~24 months): the aggregator's official brand portfolio / "our brands" page, press releases dated within the last 24 months, and communications about the most recent acquisition. These reflect the CURRENT lineup.
@@ -103,7 +116,9 @@ STRICT JSON OUTPUT, NO PROSE, NO MARKDOWN FENCES:
   "last_mention_date": str|null,       // most recent date referenced (ISO-ish) or null
   "category": str,                     // free text from sources; "" if unknown. NOT an enum.
   "parent": {recursive} | null,             // ALWAYS the current legal parent. Never the post-close acquirer of an unclosed deal.
-  "siblings": [{"company": str, "domain": str, "node_type": str, "category": str, "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}],   // current_siblings_under_current_parent — brands of the current legal parent ONLY.
+  "focal_segment": str | null,              // The parent's segment/division that contains the focal (e.g. "Watches & Jewelry", "Fabric & Home Care"). null when parent has no segment disclosure or is single-segment.
+  "siblings": [{"company": str, "domain": str, "node_type": str, "category": str, "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}],   // current_siblings_under_current_parent AND inside focal_segment ONLY.
+  "intra_parent_cousins": [{"company": str, "domain": str, "node_type": str, "category": str, "via_division": str, "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}] | null,   // Brands of the SAME parent but in a DIFFERENT segment/division than the focal. via_division names that other segment. null when parent has no segments declared.
   "future_cousins_post_close": [{"company": str, "domain": str, "category": str, "source_urls": [url]}] | null,   // ONLY when pending_acquisition is non-null. Brands of the announced acquirer that would become cousins post-close. Empty/null otherwise.
   "pending_acquisition": {                  // null if no announced-but-unclosed deal
     "acquirer": str,
@@ -1451,13 +1466,18 @@ function TreeView({ tree, selectedKey, onSelect }) {
       <TreeNode node={tree} role="focal" selectedKey={selectedKey} onSelect={onSelect} />
       {(tree.siblings || []).length > 0 && (
         <>
-          <div className="tree-section-label">Siblings</div>
+          <div className="tree-section-label">
+            Siblings{tree.focal_segment ? <span style={{ marginLeft: 8, color: 'var(--text-subtle)', textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>· same segment: {tree.focal_segment}</span> : null}
+          </div>
           <div className="tree-grid">
             {tree.siblings.map((s, i) => (
               <TreeNode key={`s${i}`} node={s} role="sibling" selectedKey={selectedKey} onSelect={onSelect} />
             ))}
           </div>
         </>
+      )}
+      {Array.isArray(tree.intra_parent_cousins) && tree.intra_parent_cousins.length > 0 && (
+        <CousinsSection cousins={tree.intra_parent_cousins} selectedKey={selectedKey} onSelect={onSelect} parentName={tree.parent?.company} />
       )}
       {(tree.children || []).length > 0 && (
         <>
@@ -1480,6 +1500,64 @@ function StatusBadge({ node }) {
   if (label === 'active') return null;
   const cls = label === 'discontinued' ? 'chip-danger' : label === 'legacy' ? 'chip-warning' : '';
   return <span className={`chip ${cls}`}>{label}</span>;
+}
+
+// Bug #3: render brands of the same parent but DIFFERENT segment as a
+// collapsible secondary section, grouped by `via_division`, with parent context.
+function CousinsSection({ cousins, selectedKey, onSelect, parentName }) {
+  const [open, setOpen] = useState(false);
+  const groups = useMemo(() => {
+    const g = new Map();
+    cousins.forEach((c) => {
+      const k = c.via_division || 'Other division';
+      if (!g.has(k)) g.set(k, []);
+      g.get(k).push(c);
+    });
+    return Array.from(g.entries());
+  }, [cousins]);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8, marginTop: 16,
+          background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+          color: 'var(--text-muted)', font: 'inherit',
+        }}
+      >
+        <span style={{ color: 'var(--text-subtle)', fontSize: 11 }}>{open ? '▾' : '▸'}</span>
+        <span className="tree-section-label" style={{ margin: 0 }}>
+          Cousins (same parent, other divisions)
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--text-subtle)' }}>
+          · {cousins.length} brand{cousins.length === 1 ? '' : 's'}{parentName ? ` of ${parentName}` : ''}
+        </span>
+      </button>
+      {open && (
+        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {groups.map(([division, items]) => (
+            <div key={division}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 6px', fontStyle: 'italic' }}>
+                via division: {division}
+              </div>
+              <div className="tree-grid">
+                {items.map((c, i) => (
+                  <TreeNode
+                    key={`${division}-${i}`}
+                    node={c}
+                    role="cousin"
+                    selectedKey={selectedKey}
+                    onSelect={onSelect}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
 }
 
 function TreeNode({ node, role, selectedKey, onSelect }) {
@@ -1974,6 +2052,7 @@ function flattenTree(tree) {
   chain.forEach(add);
   add(tree);
   (tree.siblings || []).forEach(add);
+  (tree.intra_parent_cousins || []).forEach(add);
   (tree.children || []).forEach(add);
   return out;
 }
