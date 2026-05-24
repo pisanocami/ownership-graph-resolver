@@ -1,0 +1,52 @@
+{
+  "focal_company": {
+    "name": "Toblerone",
+    "category": "Food",
+    "brand_status": "Brand",
+    "type": "Brand"
+  },
+  "ownership_tree": {
+    "company": "Toblerone",
+    "type": "Brand",
+    "parent": {
+      "name": "Mondelez International",
+      "type": "Conglomerate"
+    },
+    "siblings": [
+      { "name": "Cadbury" },
+      { "name": "Milka" },
+      { "name": "Oreo" }
+    ],
+    "signals_found": [
+      {
+        "type": "capacity_investment",
+        "label": "Factory modernization",
+        "value": "New Swiss facility investment",
+        "source": "news",
+        "weight": "high"
+      },
+      {
+        "type": "pricing",
+        "label": "Premium positioning",
+        "value": "Price increase in EU markets",
+        "source": "market_data",
+        "weight": "medium"
+      }
+    ]
+  },
+  "positioning_analysis": {
+    "focal_vs_parent_ratio": "Ranked 3 of 8 by revenue in family",
+    "focal_vs_siblings": "Mid-tier performer",
+    "growth_signals": "• Factory modernization • Premium pricing strategy",
+    "strategic_notes": "Stable, under-leveraged",
+    "reconciliation": {
+      "sum_children_central": 850,
+      "parent_benchmark": 700,
+      "ratio": 1.21,
+      "pct_delta": 21,
+      "circular": false,
+      "explanation": { "direction": "overshoot" }
+    },
+    "parent_anchor": "Mondelez"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "focal_company": {
+    "name": "Patagonia",
+    "category": "Apparel",
+    "brand_status": "Brand",
+    "type": "Brand",
+    "ownership_structure": "B Corp / Trust"
+  },
+  "ownership_tree": {
+    "company": "Patagonia",
+    "type": "Brand",
+    "parent": null,
+    "co_owners": [
+      { "name": "Patagonia Purpose Trust", "role": "voting_majority" },
+      { "name": "Holdfast Collective", "role": "economic_majority" }
+    ],
+    "siblings": [],
+    "signals_found": [
+      {
+        "type": "sustainability",
+        "label": " 1% for the Planet",
+        "value": "Commitment to environmental giving",
+        "source": "public_statements",
+        "weight": "high"
+      }
+    ]
+  },
+  "positioning_analysis": {
+    "focal_vs_parent_ratio": "Standalone (not subsidiary)",
+    "focal_vs_siblings": "No sibling comparison",
+    "growth_signals": "• Sustainability commitment • Direct-to-consumer focus",
+    "strategic_notes": "Co-owned structure with voting/economic split; not actionable as standalone",
+    "reconciliation": null,
+    "parent_anchor": null
+  }
+}

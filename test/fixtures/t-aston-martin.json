@@ -1,0 +1,47 @@
+{
+  "focal_company": {
+    "name": "Aston Martin",
+    "category": "Automotive",
+    "brand_status": "Brand",
+    "type": "Luxury Automotive"
+  },
+  "ownership_tree": {
+    "company": "Aston Martin",
+    "type": "Brand",
+    "parent": {
+      "name": "Aston Martin Lagonda Global Holdings",
+      "type": "PublicCo"
+    },
+    "control_blocs": [
+      { "name": "Mercedes-AMG", "stake": "blended_tech", "status": "partnership" },
+      { "name": "Lawrence Stroll", "stake": "major_shareholder" }
+    ],
+    "pending_acquisition": "Rumored takeover interest from multiple PE firms",
+    "acquisition": { "year": 2024, "status": "rumored" },
+    "siblings": [],
+    "signals_found": [
+      {
+        "type": "m_and_a",
+        "label": "Acquisition rumor",
+        "value": "Multiple suitors exploring partnership/acquisition",
+        "source": "bloomberg",
+        "weight": "high"
+      },
+      {
+        "type": "operational",
+        "label": "Production challenges",
+        "value": "Recent layoffs and restructuring",
+        "source": "news",
+        "weight": "high"
+      }
+    ]
+  },
+  "positioning_analysis": {
+    "focal_vs_parent_ratio": "Entirety of public company value",
+    "focal_vs_siblings": "No sibling comparison",
+    "growth_signals": "• M&A interest • Operational restructuring",
+    "strategic_notes": "Under pressure; potential acquisition target",
+    "reconciliation": null,
+    "parent_anchor": null
+  }
+}

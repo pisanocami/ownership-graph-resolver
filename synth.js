@@ -2,6 +2,8 @@
 // tested without React/DOM/fetch. Imported back into app.jsx for the pipeline
 // and UI. No JSX, no browser globals.
 
+import { buildIntelligenceBrief } from './brief.js';
+
 // ─── Pure helpers ──────────────────────────────────────────────────────────
 
 // Extract a JSON object from a model response. Handles three real-world cases:
@@ -1317,6 +1319,15 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
 
   const strategic_notes = notes.length > 0 ? notes : ['No distinctive structural signals captured.'];
 
+  const intelligence_brief = buildIntelligenceBrief(tree, {
+    focal_vs_parent_ratio,
+    focal_vs_siblings,
+    growth_signals,
+    strategic_notes,
+    reconciliation,
+    parent_anchor: parentAnchor || null,
+  }, { collapses, holdingFlags });
+
   return {
     focal_company: tree.company,
     ownership_tree: tree,
@@ -1328,5 +1339,6 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
       reconciliation,
       parent_anchor: parentAnchor || null,
     },
+    intelligence_brief,
   };
 }
