@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import {
   synthesize, collectEntities, deriveStatus, deriveRevenueStatus,
   normalizeChain, deriveDivestiture, isCircularEstimate, collectControlLayers,
+  guardConglomerateRevenueOnSubAffiliate,
 } from '../synth.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -364,6 +365,144 @@ test('Bug #5: synthesize surfaces a collapse note when normalization fires', () 
   const out = synthesize(ownership, {}, null, {});
   const noteHit = out.positioning_analysis.strategic_notes.some((n) => /Chain normalized.*ByteDance Ltd\./.test(n));
   assert.ok(noteHit, 'collapse surfaces in strategic_notes');
+});
+
+// ─── Task #40: Chain normalization round 2 (Ashley / Disney / Activision) ──
+
+test('Round 2: Ashley triple-layer collapses into one canonical layer regardless of which sub-affiliate carries the conglomerate revenue', () => {
+  // Three consecutive "ashley" layers — the recurrence reported in T04*.
+  const ownership = {
+    company: 'Resident Home',
+    domain: 'residenthome.com',
+    parent: {
+      company: 'Ashley Home',
+      domain: 'ashleyhome.com',
+      parent: {
+        company: 'Ashley Global Retail',
+        domain: 'ashleyglobalretail.com',
+        parent: {
+          company: 'Ashley Furniture Industries',
+          domain: 'ashleyfurniture.com',
+          parent: null,
+        },
+      },
+    },
+  };
+  // Model put the conglomerate $11B on Ashley Home (the wrong sub-affiliate).
+  const revenueByCompany = {
+    'ashley home': {
+      revenue_estimate: { low: 11e9, high: 11e9, central: 11e9 }, confidence: 'medium', signals_found: [],
+    },
+  };
+  const out = synthesize(ownership, revenueByCompany, null, {});
+  // Chain above Resident Home is now a single Ashley layer.
+  assert.equal(out.ownership_tree.parent.company, 'Ashley Furniture Industries',
+    'canonical name is the longest/most-formal Ashley layer');
+  assert.equal(out.ownership_tree.parent.parent, null,
+    'the three Ashley layers collapsed into one — no nested Ashley duplicates');
+  // The $11B survives the collapse and lands on the canonical layer.
+  assert.equal(out.ownership_tree.parent.revenue_estimate.central, 11e9);
+  // The collapse is surfaced in plain-language notes.
+  const noteHit = out.positioning_analysis.strategic_notes.some(
+    (n) => /Chain normalized.*3 consecutive.*ashley.*Ashley Furniture Industries/.test(n)
+  );
+  assert.ok(noteHit, 'multi-layer collapse note is surfaced');
+});
+
+test('Round 2: an intermediate sub-affiliate carrying the conglomerate total is re-routed, not silently shown', () => {
+  // Two intermediate layers, both with the conglomerate $88.9B. The 3+ rule
+  // does NOT fire (only 2 layers share "disney"), so the post-attach guard
+  // is what must clear the misattribution.
+  const ownership = {
+    company: 'Hulu',
+    domain: 'hulu.com',
+    parent: {
+      company: 'Disney Streaming',
+      domain: 'disneystreaming.com',
+      parent: {
+        company: 'The Walt Disney Company',
+        domain: 'thewaltdisneycompany.com',
+        ticker: 'DIS',
+        parent: null,
+      },
+    },
+  };
+  const revenueByCompany = {
+    'hulu': { revenue_estimate: { low: 8e9, high: 9e9, central: 8.5e9 }, confidence: 'high', signals_found: [] },
+    'disney streaming': { revenue_estimate: { low: 88e9, high: 90e9, central: 88.9e9 }, confidence: 'medium', signals_found: [] },
+    'the walt disney company': { revenue_estimate: { low: 88e9, high: 90e9, central: 88.9e9 }, confidence: 'high', signals_found: [] },
+  };
+  const out = synthesize(ownership, revenueByCompany, null, {});
+  // Disney Streaming's misattributed conglomerate revenue is cleared and
+  // re-routed to the root, where it legitimately belongs.
+  const streaming = out.ownership_tree.parent;
+  assert.equal(streaming.company, 'Disney Streaming', 'intermediate node identity preserved');
+  assert.equal(streaming.revenue_estimate.central, 0, 'conglomerate total cleared from sub-affiliate');
+  assert.ok(streaming.revenue_estimate_rerouted, 'original value preserved on the node for audit');
+  assert.equal(streaming.revenue_rerouted_to, 'The Walt Disney Company');
+  // The root still carries its total.
+  assert.equal(out.ownership_tree.parent.parent.revenue_estimate.central, 88.9e9);
+  // The re-route is explained in the notes.
+  const noteHit = out.positioning_analysis.strategic_notes.some(
+    (n) => /re-routed to "The Walt Disney Company"/.test(n) && /Disney Streaming/.test(n)
+  );
+  assert.ok(noteHit, 're-route is explained in strategic_notes');
+  // Focal revenue is never touched by the guard.
+  assert.equal(out.ownership_tree.revenue_estimate.central, 8.5e9);
+});
+
+test('Round 2: Activision Publishing vs Activision Blizzard with distinct revenues are KEPT separate (scoped revenue case)', () => {
+  // Same holding token "activision" but different revenue scopes (publishing
+  // label vs consolidated parent). Should NOT collapse, NOT re-route — the
+  // existing "subsidiary cannot out-earn its owner" check handles the gap.
+  const ownership = {
+    company: 'Call of Duty',
+    domain: 'callofduty.com',
+    parent: {
+      company: 'Activision Publishing',
+      domain: 'activision.com',
+      parent: {
+        company: 'Activision Blizzard',
+        domain: 'activisionblizzard.com',
+        ticker: 'ATVI',
+        parent: null,
+      },
+    },
+  };
+  const revenueByCompany = {
+    'activision publishing': { revenue_estimate: { low: 9e9, high: 10e9, central: 10e9 }, confidence: 'low', signals_found: [] },
+    'activision blizzard': { revenue_estimate: { low: 5e9, high: 6e9, central: 5.72e9 }, confidence: 'high', signals_found: [] },
+  };
+  const out = synthesize(ownership, revenueByCompany, null, {});
+  // Both layers survive as their own chain entries.
+  assert.equal(out.ownership_tree.parent.company, 'Activision Publishing');
+  assert.equal(out.ownership_tree.parent.parent.company, 'Activision Blizzard');
+  // Revenues kept as captured — guard only fires on matching figures.
+  assert.equal(out.ownership_tree.parent.revenue_estimate.central, 10e9);
+  assert.equal(out.ownership_tree.parent.parent.revenue_estimate.central, 5.72e9);
+  // Existing child>parent consistency check still fires for the impossible pair.
+  const consistencyHit = out.positioning_analysis.strategic_notes.some(
+    (n) => /Revenue consistency.*Activision Publishing.*Activision Blizzard/.test(n)
+  );
+  assert.ok(consistencyHit, 'subsidiary-out-earns-owner check still flags the pair');
+});
+
+test('Round 2: the guard never clears the focal\'s own revenue even when an ancestor matches', () => {
+  // Pathological case: focal "Patagonia" and parent "Patagonia Purpose Trust"
+  // share the token AND a 100%-pass-through revenue. The focal must NOT be
+  // cleared — that is what the user asked about.
+  const tree = {
+    company: 'Patagonia',
+    revenue_estimate: { low: 1.6e9, high: 1.6e9, central: 1.6e9, confidence: 'high' },
+    parent: {
+      company: 'Patagonia Purpose Trust',
+      revenue_estimate: { low: 1.6e9, high: 1.6e9, central: 1.6e9, confidence: 'low' },
+      parent: null,
+    },
+  };
+  const reroutes = guardConglomerateRevenueOnSubAffiliate(tree);
+  assert.equal(reroutes.length, 0, 'no re-route — focal is never touched');
+  assert.equal(tree.revenue_estimate.central, 1.6e9);
 });
 
 // ─── Bug #3 follow-up: cousins get revenue with parent context ──────────────

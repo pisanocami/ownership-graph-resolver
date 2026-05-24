@@ -70,6 +70,12 @@ export function safeExtractJSON(text) {
 const LEGAL_SUFFIX_RE = /\b(inc\.?|incorporated|ltd\.?|limited|llc|l\.l\.c\.|corp\.?|corporation|plc|sa|s\.a\.|se|ag|gmbh|kk|kabushiki|nv|n\.v\.|bv|b\.v\.|oyj|spa|s\.p\.a\.|pte\.?|pty\.?|co\.?)\b/gi;
 const HOLDING_TOKEN_RE = /\b(holdings?|group|holding)\b/i;
 
+// Generic / structural modifier tokens that are not distinctive holding-family
+// identifiers on their own. Used by sharedHoldingToken below: when comparing
+// e.g. "Ashley Furniture Industries" vs "Ashley Home" we want "ashley" to
+// surface as the shared distinctive token, not "industries" or "home".
+const GENERIC_BRAND_TOKEN_RE = /^(the|and|of|a|an|holdings?|holding|group|co|company|corp|corporation|incorporated|inc|ltd|limited|llc|plc|sa|se|ag|gmbh|nv|bv|spa|kk|industries|industry|global|international|intl|enterprises?|brands?|partners?|streaming|home|retail|publishing|entertainment|stores?|services?|technologies|technology|tech|systems?|solutions?|media|digital|studios?|labs?|works|operations?|networks?)$/i;
+
 function stripLegalSuffix(name) {
   if (!name) return '';
   return String(name).toLowerCase().replace(LEGAL_SUFFIX_RE, '').replace(/[.,]/g, '').replace(/\s+/g, ' ').trim();
@@ -111,6 +117,78 @@ function pickCanonicalName(a, b) {
   if (bHas && !aHas) return b.company;
   // Otherwise the longer name (typically more specific).
   return (a.company || '').length >= (b.company || '').length ? a.company : b.company;
+}
+
+// Pick the canonical layer among a run of same-holding-token layers. Preference:
+// (1) layer with a real revenue figure (the "with-revenue" wins so we don't lose
+// the number), (2) most formal legal suffix, (3) longest name. The chosen layer
+// is what callers will keep as the canonical chain entry.
+function pickCanonicalLayer(layers, _revLookupFn) {
+  if (!layers || layers.length === 0) return null;
+  if (layers.length === 1) return layers[0];
+  // Pick by name shape only: a legal suffix wins (most formal), else the
+  // longest name. Revenue is preserved separately via attachRevenue's
+  // _collapsed_from alias lookup, so we don't need to bias toward whichever
+  // merged layer happened to carry the number.
+  let best = layers[0];
+  for (let i = 1; i < layers.length; i++) {
+    const cur = layers[i];
+    const bestHas = LEGAL_SUFFIX_RE.test(best.company || ''); LEGAL_SUFFIX_RE.lastIndex = 0;
+    const curHas = LEGAL_SUFFIX_RE.test(cur.company || ''); LEGAL_SUFFIX_RE.lastIndex = 0;
+    if (curHas && !bestHas) { best = cur; continue; }
+    if (bestHas && !curHas) continue;
+    if ((cur.company || '').length > (best.company || '').length) best = cur;
+  }
+  return best;
+}
+
+// Tokenize a company name into its distinctive brand tokens (strip legal
+// suffixes, splits, generic modifier words). "Ashley Furniture Industries" →
+// ["ashley", "furniture"]; "Walt Disney Company" → ["walt", "disney"].
+function brandTokens(name) {
+  if (!name) return [];
+  return stripLegalSuffix(name)
+    .split(/[\s\-&/.,]+/)
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length >= 3 && !GENERIC_BRAND_TOKEN_RE.test(t));
+}
+
+// Returns the distinctive token shared between two company names, or null when
+// none. Used to detect same-holding-family layers (Ashley * , Disney *,
+// Activision *) that the model has emitted as separate chain entries.
+function sharedHoldingToken(a, b) {
+  const ta = new Set(brandTokens(a?.company));
+  for (const t of brandTokens(b?.company)) {
+    if (ta.has(t)) return t;
+  }
+  return null;
+}
+
+// Token shared across ALL layers in the list (intersection of their
+// brandTokens). Returns the first surviving token or null.
+function commonHoldingToken(layers) {
+  if (!layers || layers.length < 2) return null;
+  let acc = new Set(brandTokens(layers[0]?.company));
+  for (let i = 1; i < layers.length; i++) {
+    const next = new Set(brandTokens(layers[i]?.company));
+    acc = new Set([...acc].filter((t) => next.has(t)));
+    if (acc.size === 0) return null;
+  }
+  return acc.values().next().value || null;
+}
+
+// Central revenue figure looked up by company key (pre-attach). 0 when missing.
+function revLookupCentral(node, revenueByCompany) {
+  if (!node || !revenueByCompany) return 0;
+  const r = revenueByCompany[keyOf(node)];
+  return r?.revenue_estimate?.central || 0;
+}
+
+// Two revenue centrals are "approximately equal" within ±5% of the larger.
+function approxRevenueMatch(a, b) {
+  if (!(a > 0) || !(b > 0)) return false;
+  const tol = Math.max(a, b) * 0.05;
+  return Math.abs(a - b) <= tol;
 }
 
 function uniqueByLower(arr) {
@@ -156,8 +234,10 @@ function mergeRevenueRange(a, b) {
 
 // Merge child INTO parent (parent name slot keeps recursion structure but takes
 // canonical name). Returns the merged node; child.parent becomes the new parent.
-function mergePair(parent, child, sharedKeys) {
-  const canonical = pickCanonicalName(parent, child);
+// When `canonicalOverride` is provided (used by the holding-token rules) it is
+// used as the canonical name instead of running pickCanonicalName.
+function mergePair(parent, child, sharedKeys, canonicalOverride = null) {
+  const canonical = canonicalOverride || pickCanonicalName(parent, child);
   const merged = { ...parent };
   merged.company = canonical;
   merged.domain = normDomain(parent.domain) || normDomain(child.domain) || parent.domain || child.domain;
@@ -191,28 +271,92 @@ function mergePair(parent, child, sharedKeys) {
 }
 
 // Walk focal → root, collapsing adjacent layers that should be one entity.
-// Returns { tree, collapses: [{ from: [a,b], canonical, shared }], holdingFlags: [...] }
-export function normalizeChain(ownership) {
+// Returns { tree, collapses: [{ from: [a,b], canonical, shared, mode }], holdingFlags: [...] }
+//
+// `revenueByCompany` (optional) is the same lookup used by attachRevenue; when
+// provided, it powers two additional collapse modes for the Ashley/Disney/
+// Activision recurrence (round 2 of Bug #5):
+//   - holding_token_revenue_match: 2 adjacent layers share a distinctive brand
+//     token (e.g. "ashley") AND their lookup revenues are within ~5% of each
+//     other → same legal entity emitted twice.
+//   - holding_token_run: 3+ consecutive layers all share a single distinctive
+//     brand token → almost certainly the same conglomerate's name variants
+//     (Ashley Furniture Industries / Ashley Global Retail / Ashley Home).
+export function normalizeChain(ownership, revenueByCompany = null) {
   if (!ownership) return { tree: ownership, collapses: [], holdingFlags: [] };
   const tree = JSON.parse(JSON.stringify(ownership));
   const collapses = [];
   const holdingFlags = [];
+  const revLookupFn = (n) => revLookupCentral(n, revenueByCompany || {});
 
-  // Climb from focal. At each step, check (current → current.parent) pair.
-  // We treat the higher node (parent) as the "canonical slot" being merged into.
-  // For simplicity, do a fixed number of passes; chain length is small (<=4).
-  for (let pass = 0; pass < 4; pass++) {
+  // Splice a `merged` node into the position currently held by `child` in the
+  // chain. `prev` is whatever has child as its parent (null when child === tree).
+  const spliceInto = (child, prev, merged) => {
+    if (prev) prev.parent = merged;
+    else {
+      Object.keys(child).forEach((k) => { delete child[k]; });
+      Object.assign(child, merged);
+    }
+  };
+
+  for (let pass = 0; pass < 6; pass++) {
     let changed = false;
+
+    // ── Pass A: long-run holding-token collapse (3+ consecutive layers sharing
+    // one distinctive brand token). Catches Ashley triple-layer regardless of
+    // which sub-affiliate the model attached the conglomerate revenue to.
+    const chainArr = [];
+    let walker = tree;
+    const prevOf = []; // prevOf[i] is the node whose .parent === chainArr[i]; null for i=0
+    while (walker) {
+      prevOf.push(chainArr.length === 0 ? null : chainArr[chainArr.length - 1]);
+      chainArr.push(walker);
+      walker = walker.parent;
+    }
+    // Find the longest run of consecutive layers sharing a common token.
+    let bestStart = -1; let bestLen = 0; let bestTok = null;
+    for (let i = 0; i < chainArr.length - 1; i++) {
+      for (let j = chainArr.length; j > i + 1; j--) {
+        const slice = chainArr.slice(i, j);
+        const tok = commonHoldingToken(slice);
+        if (tok && (j - i) > bestLen) { bestStart = i; bestLen = j - i; bestTok = tok; }
+        if (tok) break;
+      }
+    }
+    if (bestLen >= 3) {
+      const run = chainArr.slice(bestStart, bestStart + bestLen);
+      const canonical = pickCanonicalLayer(run, revLookupFn);
+      // Collapse the run pairwise, bottom-up, into a single merged node.
+      let merged = run[0];
+      for (let k = 1; k < run.length; k++) {
+        merged = mergePair(run[k], merged, [`holding_token:${bestTok}`], canonical.company);
+      }
+      // After bottom-up collapse, `merged.parent` is run[run.length-1].parent —
+      // which is the layer ABOVE the run (or null).
+      merged.parent = run[run.length - 1].parent || null;
+      collapses.push({
+        from: run.map((n) => n.company),
+        canonical: merged.company,
+        shared: [`holding_token:${bestTok}`],
+        mode: 'holding_token_run',
+      });
+      const childOfRun = run[0];
+      const prevOfRun = prevOf[bestStart];
+      spliceInto(childOfRun, prevOfRun, merged);
+      changed = true;
+      continue;
+    }
+
+    // ── Pass B: original 2-layer collapse (2+ strong identifiers).
     let cursor = tree;
-    let prev = null; // node whose .parent === cursor
+    let prev = null;
     while (cursor && cursor.parent) {
-      const child = cursor;          // "lower" layer
-      const parent = cursor.parent;  // "higher" layer
+      const child = cursor;
+      const parent = cursor.parent;
       const strippedChild = stripLegalSuffix(child.company);
       const strippedParent = stripLegalSuffix(parent.company);
       const nameMatch = strippedChild && strippedParent && strippedChild === strippedParent;
 
-      // "X Holdings" / "X Group" + "X" → don't auto-collapse, flag for review.
       const childToken = (child.company || '').match(HOLDING_TOKEN_RE);
       const parentToken = (parent.company || '').match(HOLDING_TOKEN_RE);
       const holdingShape = !nameMatch && (
@@ -221,20 +365,21 @@ export function normalizeChain(ownership) {
       );
 
       const shared = sharedIdentifiers(parent, child);
-      // Collapse rule: share 2+ identifiers from {domain, ticker, legal_entity_reference, hq+founders+founding_date}.
-      // Name-equivalence (modulo legal suffix) alone is NOT enough.
       if (!holdingShape && shared.length >= 2) {
         const merged = mergePair(parent, child, shared);
-        collapses.push({ from: [parent.company, child.company], canonical: merged.company, shared });
-        if (prev) prev.parent = merged;
-        else {
-          // child was the focal — splice merged in as the focal.
-          Object.keys(child).forEach((k) => { delete child[k]; });
-          Object.assign(child, merged);
-        }
+        collapses.push({ from: [parent.company, child.company], canonical: merged.company, shared, mode: 'shared_identifiers' });
+        spliceInto(child, prev, merged);
         changed = true;
-        break; // restart pass
+        break;
       }
+
+      // Note (Task #40): a 2-layer "shared holding token + matching revenue"
+      // collapse rule was considered here but rejected — it false-positives on
+      // legitimate parent/subsidiary pairs with 100% ownership (e.g. Patagonia
+      // ↔ Patagonia Purpose Trust). The 2-layer misattribution case is handled
+      // instead by guardConglomerateRevenueOnSubAffiliate after attach, which
+      // clears the intermediate sub-affiliate's revenue without dropping its
+      // node identity. The 3+ same-token-run case stays in Pass A above.
 
       if (holdingShape) {
         const tag = `${parent.company} ↔ ${child.company}`;
@@ -248,6 +393,51 @@ export function normalizeChain(ownership) {
   }
 
   return { tree, collapses, holdingFlags };
+}
+
+// Conglomerate-revenue guard: after attachRevenue runs, walk the focal→root
+// chain. When a descendant carries a revenue figure that matches a strict
+// ancestor's revenue AND the two share a distinctive holding token (so they
+// are almost certainly the same conglomerate captured twice), clear the
+// descendant's number — the conglomerate total cannot legitimately sit on a
+// sub-affiliate operational layer. The cleared layer keeps its node identity
+// (chain position, sources, strategic_control) so callers can still render it,
+// but its revenue_estimate is reset and a re-route record is returned for the
+// synthesis-note pass to surface in plain language.
+//
+// Returns: [{ from: <descendant>, to: <ancestor>, central, token }]
+export function guardConglomerateRevenueOnSubAffiliate(tree) {
+  if (!tree) return [];
+  const reroutes = [];
+  // Walk top-down so when multiple descendants would each lose to the same
+  // ancestor, each is recorded relative to that ancestor.
+  const chain = [];
+  let n = tree;
+  while (n) { chain.unshift(n); n = n.parent; }
+  // chain is now [root, ..., focal]. The focal (i === chain.length - 1) is
+  // intentionally skipped — its revenue is what the user asked about and must
+  // never be cleared by this guard; misattribution we care about is on the
+  // INTERMEDIATE chain layers between focal and root.
+  for (let i = chain.length - 2; i >= 1; i--) {
+    const descendant = chain[i];
+    const dCentral = descendant.revenue_estimate?.central || 0;
+    if (!(dCentral > 0)) continue;
+    for (let j = i - 1; j >= 0; j--) {
+      const ancestor = chain[j];
+      const aCentral = ancestor.revenue_estimate?.central || 0;
+      if (!(aCentral > 0)) continue;
+      const token = sharedHoldingToken(descendant, ancestor);
+      if (!token) continue;
+      if (!approxRevenueMatch(dCentral, aCentral)) continue;
+      // Clear the descendant's misattributed conglomerate-level revenue.
+      descendant.revenue_estimate_rerouted = { ...descendant.revenue_estimate };
+      descendant.revenue_estimate = { low: 0, high: 0, central: 0, confidence: 'low' };
+      descendant.revenue_rerouted_to = ancestor.company;
+      reroutes.push({ from: descendant.company, to: ancestor.company, central: dCentral, token });
+      break; // descendant handled; don't double-reroute it
+    }
+  }
+  return reroutes;
 }
 
 export function formatUSD(n) {
@@ -496,7 +686,22 @@ export function attachRevenue(ownership, revenueByCompany, entitiesByCompany = {
   const visit = (node) => {
     if (!node) return;
     const key = (node.company || '').toLowerCase().trim();
-    const rev = revenueByCompany[key];
+    // Primary lookup is by current (post-collapse) company name. If the layer
+    // was produced by a chain collapse (Task #40), the conglomerate's revenue
+    // may have been keyed under one of the merged names instead — fall back to
+    // those before declaring "no revenue", so the canonical layer keeps the
+    // number rather than dropping it.
+    let rev = revenueByCompany[key];
+    if (!rev && Array.isArray(node._collapsed_from)) {
+      for (const alt of node._collapsed_from) {
+        const altKey = (alt || '').toLowerCase().trim();
+        if (altKey && altKey !== key && revenueByCompany[altKey]) {
+          rev = revenueByCompany[altKey];
+          node._revenue_lookup_alias = alt;
+          break;
+        }
+      }
+    }
     if (rev) {
       applyContextUnverifiedDiscipline(rev, lookupEnt(key));
       node.revenue_estimate = {
@@ -665,16 +870,33 @@ function buildReconciliationExplanation({ ratio, tree, siblings, parentAnchor })
 export function synthesize(ownership, revenueByCompany, parentAnchor = null, entitiesByCompany = {}) {
   // Defensive normalization: even if the model honored the chain-collapse
   // instruction, re-run the rule downstream so two-layer duplicates are never
-  // displayed (Bug #5).
-  const { tree: normalized, collapses, holdingFlags } = normalizeChain(ownership);
+  // displayed (Bug #5). Round 2 (Task #40) extends this with revenue-aware
+  // holding-token rules for the Ashley/Disney/Activision recurrence, and a
+  // post-attach guard that clears conglomerate revenue misattributed to a
+  // sub-affiliate operational layer.
+  const { tree: normalized, collapses, holdingFlags } = normalizeChain(ownership, revenueByCompany);
   const tree = attachRevenue(normalized, revenueByCompany, entitiesByCompany);
   if (parentAnchor) tree.parent_anchor = parentAnchor;
   const notes = [];
   collapses.forEach((c) => {
-    notes.push(`Chain normalized: collapsed "${c.from[0]}" and "${c.from[1]}" into "${c.canonical}" (shared identifiers: ${c.shared.join(', ')}).`);
+    if (c.mode === 'holding_token_run') {
+      notes.push(`Chain normalized: collapsed ${c.from.length} consecutive "${(c.shared[0] || '').replace('holding_token:', '')}" layers (${c.from.map((n) => `"${n}"`).join(', ')}) into "${c.canonical}" — same conglomerate emitted under multiple name variants.`);
+    } else if (c.mode === 'holding_token_revenue_match') {
+      const tok = (c.shared.find((s) => s.startsWith('holding_token:')) || '').replace('holding_token:', '');
+      notes.push(`Chain normalized: collapsed "${c.from[0]}" and "${c.from[1]}" into "${c.canonical}" — shared brand token "${tok}" and matching revenue figures indicate one entity emitted twice.`);
+    } else {
+      notes.push(`Chain normalized: collapsed "${c.from[0]}" and "${c.from[1]}" into "${c.canonical}" (shared identifiers: ${c.shared.join(', ')}).`);
+    }
   });
   holdingFlags.forEach((tag) => {
     notes.push(`⚠ Review: ${tag} look like a holding/operating pair — kept as separate layers; verify they are not the same legal entity.`);
+  });
+
+  // Conglomerate-revenue guard: descendants must not carry the same revenue
+  // figure as a strict ancestor when they share a distinctive brand token.
+  const reroutes = guardConglomerateRevenueOnSubAffiliate(tree);
+  reroutes.forEach((r) => {
+    notes.push(`Chain normalized: ${formatUSD(r.central)} attached to "${r.from}" matched its ancestor "${r.to}" exactly and shared the "${r.token}" brand token — re-routed to "${r.to}" (the conglomerate total cannot legitimately sit on a sub-affiliate operational layer).`);
   });
 
   // Normalize per-layer strategic_control (Bundle C): every node in the chain
