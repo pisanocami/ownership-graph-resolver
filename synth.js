@@ -728,10 +728,23 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
     const sumChildCentralAdj = sumChildren;
     const childrenCounted = countedSiblings + (rawFocalRev > 0 ? 1 : 0);
 
-    const benchmark = anchorTotal > 0 ? anchorTotal : parentRev;
-    const benchmarkLabel = anchorTotal > 0
-      ? `${tree.parent.company} ${parentAnchor.fiscal_year || 'latest'} 10-K reported revenue`
-      : `${tree.parent.company} estimated central revenue`;
+    // Prefer the focal segment's reported revenue when available — siblings
+    // are already segment-filtered upstream, so benchmarking against the
+    // PARENT total guarantees a permanent under-count for multi-division
+    // aggregators (LVMH, P&G, Inditex). Fall back to parent total, then to
+    // parent's estimated central.
+    const useSegmentBenchmark = focalSegmentRev > 0;
+    const benchmark = useSegmentBenchmark
+      ? focalSegmentRev
+      : anchorTotal > 0 ? anchorTotal : parentRev;
+    const benchmarkSource = useSegmentBenchmark
+      ? 'segment'
+      : anchorTotal > 0 ? '10-K' : 'estimated';
+    const benchmarkLabel = useSegmentBenchmark
+      ? `${tree.parent.company} "${focalSeg.name}" segment (${parentAnchor.fiscal_year || 'latest'} 10-K)`
+      : anchorTotal > 0
+        ? `${tree.parent.company} ${parentAnchor.fiscal_year || 'latest'} 10-K reported revenue`
+        : `${tree.parent.company} estimated central revenue`;
 
     if (benchmark > 0) {
       const ratio = sumChildCentralAdj / benchmark;
@@ -739,7 +752,10 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
       reconciliation = {
         sum_children_central: sumChildCentralAdj,
         parent_benchmark: benchmark,
-        parent_benchmark_source: anchorTotal > 0 ? '10-K' : 'estimated',
+        parent_benchmark_source: benchmarkSource,
+        parent_benchmark_label: benchmarkLabel,
+        parent_benchmark_segment_name: useSegmentBenchmark ? focalSeg.name : null,
+        parent_total_revenue: anchorTotal > 0 ? anchorTotal : null,
         ratio: Number(ratio.toFixed(3)),
         pct_delta: pctDelta,
         focal_segment_revenue: focalSegmentRev || null,

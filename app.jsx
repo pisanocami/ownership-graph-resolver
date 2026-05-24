@@ -1173,12 +1173,20 @@ function ReconciliationBanner({ recon, parent, anchor, focal }) {
 
   const sumStr = formatUSD(recon.sum_children_central);
   const benchStr = formatUSD(recon.parent_benchmark);
+  const isSegment = recon.parent_benchmark_source === 'segment';
   const isAnchored = recon.parent_benchmark_source === '10-K';
   const fiscalYear = anchor?.fiscal_year;
   const parentName = parent?.company || 'Parent';
-  const sourceLabel = isAnchored
-    ? `${parentName} ${fiscalYear ? `FY${fiscalYear} ` : ''}10-K`
-    : `${parentName} estimated central`;
+  const sourceLabel = isSegment
+    ? `${parentName} ${recon.parent_benchmark_segment_name} segment${fiscalYear ? ` · FY${fiscalYear}` : ''} 10-K`
+    : isAnchored
+      ? `${parentName} ${fiscalYear ? `FY${fiscalYear} ` : ''}10-K`
+      : `${parentName} estimated central`;
+  const levelLabel = isSegment
+    ? `Benchmarking against the focal's segment (${recon.parent_benchmark_segment_name}), not ${parentName}'s consolidated total${recon.parent_total_revenue ? ` (${formatUSD(recon.parent_total_revenue)})` : ''}.`
+    : isAnchored
+      ? `Benchmarking against ${parentName}'s consolidated 10-K total — no per-segment breakdown was located for the focal's division.`
+      : `Benchmarking against ${parentName}'s estimated revenue (no 10-K anchor).`;
 
   const segments = Array.isArray(anchor?.segments) ? anchor.segments : [];
   const hasSegments = anchor?.is_public && segments.length > 0;
@@ -1203,6 +1211,9 @@ function ReconciliationBanner({ recon, parent, anchor, focal }) {
           </div>
           <div style={{ fontSize: 12, opacity: 0.85 }}>
             Ratio <span className="mono">{(ratio * 100).toFixed(0)}%</span> · delta <span className="mono">{pctDelta > 0 ? '+' : ''}{pctDelta}%</span> · {recon.children_counted} entit{recon.children_counted === 1 ? 'y' : 'ies'} included · <span style={{ color: deltaColor, fontWeight: 600 }}>{severityLabel}</span>
+          </div>
+          <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4, fontStyle: 'italic' }}>
+            {levelLabel}
           </div>
         </div>
       </div>
@@ -2322,7 +2333,7 @@ async function generatePDF(result) {
   if (recon) {
     section('Reconciliation');
     text(
-      `Focal + siblings ${formatUSD(recon.sum_children_central)} vs ${formatUSD(recon.parent_benchmark)} (${recon.parent_benchmark_source}). Coverage ${(recon.ratio * 100).toFixed(0)}%, delta ${recon.pct_delta > 0 ? '+' : ''}${recon.pct_delta}%.`,
+      `Focal + siblings ${formatUSD(recon.sum_children_central)} vs ${formatUSD(recon.parent_benchmark)} (${recon.parent_benchmark_label || recon.parent_benchmark_source}). Coverage ${(recon.ratio * 100).toFixed(0)}%, delta ${recon.pct_delta > 0 ? '+' : ''}${recon.pct_delta}%.`,
       { size: 9.5, color: C.text, gap: 2.5 }
     );
     // Coverage bar — center tick at 1.0× (parent).
