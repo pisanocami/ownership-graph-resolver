@@ -3277,7 +3277,7 @@ function drawCompetitivePositioning(pdf, startY, pageW, margin, contentW, brief)
   const chartX = margin + 20;
   const chartY = y;
   const chartW = contentW - 40;
-  const chartH = 14;
+  const chartH = 18;
 
   // Draw axes
   pdf.setDrawColor(180, 180, 190);
@@ -3297,22 +3297,23 @@ function drawCompetitivePositioning(pdf, startY, pageW, margin, contentW, brief)
   const revRange = { min: 0, max: Math.max(...comps.map((c) => c.estimated_revenue_usd || 0)) };
 
   // Plot competitors
-  const distColors = { direct: [76, 175, 80], adjacent: (220, 160, 60), tangential: (150, 150, 160) };
+  const distColors = { direct: [76, 175, 80], adjacent: [220, 160, 60], tangential: [150, 150, 160] };
 
   comps.forEach((comp) => {
     const dist = distMap[comp.competitive_distance] || 1;
     const rev = comp.estimated_revenue_usd || 0;
     const xPos = chartX + (rev / revRange.max) * chartW * 0.9;
-    const yPos = chartY + chartH - dist * 4;
+    const yPos = chartY + chartH - dist * 5; // 5mm between distance bands for separation
 
     const color = distColors[comp.competitive_distance] || [150, 150, 160];
-    pdf.setFillColor(...(Array.isArray(color) ? color : [150, 150, 160]));
+    pdf.setFillColor(...color);
     pdf.circle(xPos, yPos, 1.2, 'F');
 
-    // Competitor label (abbreviated)
-    const label = comp.competitor?.substring(0, 3).toUpperCase() || '?';
+    // Label centered above the dot (not on it) so dots in different distance
+    // bands don't collide with each other's labels.
+    const label = sanitizeForPdf(comp.competitor || '?').substring(0, 3).toUpperCase();
     pdf.setFontSize(6); pdf.setTextColor(60, 60, 60);
-    pdf.text(label, xPos - 1, yPos + 0.3);
+    pdf.text(label, xPos, yPos - 2.2, { align: 'center', baseline: 'bottom' });
   });
 
   y += chartH + 4;
@@ -3560,7 +3561,7 @@ async function generateBriefPDF(result, svgImage = null) {
 
   // Chart 4: Competitive Positioning (if applicable)
   if (Array.isArray(brief.competitive_context) && brief.competitive_context.length > 0) {
-    ensure(30);
+    ensure(38);
     y = drawCompetitivePositioning(pdf, y, pageW, margin, contentW, brief);
   }
 
@@ -3631,7 +3632,7 @@ async function generateBriefPDF(result, svgImage = null) {
     pdf.setTextColor(17, 17, 20);
     const deltaStr = (recon.raw_numbers?.delta_pct || 0) > 0 ? '+' : '';
     const deltaVal = recon.raw_numbers?.delta_pct || 0;
-    pdf.text(`${interpretation.toUpperCase()} · ${deltaStr}${deltaVal}%`, margin + 2, y + 1.5);
+    pdf.text(`${interpretation.toUpperCase()} · ${deltaStr}${deltaVal}%`, margin + 2, y + 4, { baseline: 'middle' });
     y += 10;
 
     // Explanation
@@ -3652,9 +3653,9 @@ async function generateBriefPDF(result, svgImage = null) {
       pdf.rect(margin + contentW / 2, y, contentW / 2, 4.5);
       font(9);
       pdf.setTextColor(80, 80, 80);
-      pdf.text(row[0], margin + 1, y + 1);
+      pdf.text(row[0], margin + 1.5, y + 2.25, { baseline: 'middle' });
       pdf.setTextColor(17, 17, 20);
-      pdf.text(row[1], margin + contentW / 2 + 1, y + 1);
+      pdf.text(row[1], margin + contentW / 2 + 1.5, y + 2.25, { baseline: 'middle' });
       y += 4.5;
     });
     y += 2;
@@ -3876,12 +3877,21 @@ async function generateBriefPDF(result, svgImage = null) {
     text(`Primary sources used: ${pUsed.join(', ')}`, { size: 9 });
   }
   const excluded = brief.data_trace?.excluded_with_reason || [];
+  const metho = brief.data_trace?.methodology_note ? sanitizeForPdf(brief.data_trace.methodology_note) : '';
+  // Keep the excluded-sources list and methodology note together so the section
+  // doesn't strand a lone header (or a near-empty trailing page) at a page break.
+  font(8.5);
+  const excludedLineCount = excluded.reduce((n, e) => n + pdf.splitTextToSize(`  - ${e.source}: ${e.reason}`, contentW).length, 0);
+  font(8);
+  const methoLineCount = metho ? pdf.splitTextToSize(metho, contentW).length : 0;
+  const tailH = (excluded.length ? 6 + excludedLineCount * 4 : 0) + (methoLineCount ? methoLineCount * 3.6 + 2 : 0);
+  if (tailH > 0) ensure(tailH);
   if (excluded.length > 0) {
     text('Excluded sources:', { size: 9, style: 'bold', color: [120, 80, 60] });
     excluded.forEach((e) => text(`  - ${e.source}: ${e.reason}`, { size: 8.5, color: [100, 80, 70] }));
   }
-  if (brief.data_trace?.methodology_note) {
-    text(brief.data_trace.methodology_note, { size: 8, color: [120, 120, 130] });
+  if (metho) {
+    text(metho, { size: 8, color: [120, 120, 130] });
   }
 
   // Render page numbers on all pages
