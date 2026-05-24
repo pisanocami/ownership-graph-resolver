@@ -2190,6 +2190,36 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
               {node.revenue_review_reason}
             </div>
           )}
+          {/* Task #42: dual bottom-up / top-down breakdown + divergence warning.
+              Styled to mirror the "circular — unverified" warning on the reconciliation
+              banner: small caveat text in var(--warning) when the two strategies
+              disagree by >30%. */}
+          {(rev.bottom_up || rev.top_down) && (
+            <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)', borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+              <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>
+                Estimation strategies
+              </div>
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                {rev.bottom_up && (
+                  <span title={rev.bottom_up.source_summary || rev.bottom_up.method || 'signal-based'}>
+                    Bottom-up · <span className="mono" style={{ color: 'var(--text)' }}>{formatUSD(rev.bottom_up.central)}</span>
+                    {rev.bottom_up.confidence ? <> · {rev.bottom_up.confidence}</> : null}
+                  </span>
+                )}
+                {rev.top_down && (
+                  <span title={rev.top_down.source_summary || rev.top_down.method || 'share-of-parent'}>
+                    Top-down · <span className="mono" style={{ color: 'var(--text)' }}>{formatUSD(rev.top_down.central)}</span>
+                    {rev.top_down.confidence ? <> · {rev.top_down.confidence}</> : null}
+                  </span>
+                )}
+              </div>
+              {rev.divergence_flag && (
+                <div style={{ marginTop: 6, color: 'var(--warning)' }}>
+                  ⚠ Bottom-up vs top-down disagree by {rev.divergence_pct}% — treat the range as the source of truth, not either single number.
+                </div>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <div className="rev-card" style={{ color: 'var(--text-muted)', fontSize: 13 }}>
@@ -3106,14 +3136,17 @@ async function generatePDF(result) {
     } else if (n.pending_acquisition && n.pending_acquisition.acquirer) {
       companyColor = C.warning;
     }
-    // Revenue range with central estimate
+    // Revenue range with central estimate. Task #42: when the sibling has
+    // diverging bottom-up vs top-down sub-estimates the cell is bolded in
+    // warning color; the per-sibling caveat is emitted as italic text below
+    // the table (truncateToWidth here can't fit a multi-clause caveat).
     const revStr = rev && rev.central > 0
       ? `${formatUSD(rev.low)}–${formatUSD(rev.high)}${rev.central ? ` (${formatUSD(rev.central)})` : ''}`
       : '—';
     return [
       { text: n.company, bold: n === tree, color: companyColor },
       n.category || '—',
-      revStr,
+      rev && rev.divergence_flag ? { text: revStr, color: C.warning, bold: true } : revStr,
       (rev && rev.confidence) || '—',
       { text: st, color: fg, bold: true },
     ];
@@ -3152,6 +3185,20 @@ async function generatePDF(result) {
     }
 
     table(['Company', 'Category', 'Revenue (Range)', 'Conf.', 'Status'], breakdownRows, [46, 48, 45, 22, 32]);
+    // Task #42: divergence caveats — mirror the UI's "circular — unverified"
+    // styling (italic warning text after the table) when any sibling's
+    // bottom-up vs top-down estimates disagree by >30%.
+    const divergent = [tree, ...siblings].filter((n) => {
+      const r = n.revenue_estimate;
+      return r && r.divergence_flag && r.bottom_up && r.top_down;
+    });
+    divergent.forEach((n) => {
+      const r = n.revenue_estimate;
+      text(
+        `⚠ ${n.company}: bottom-up ${formatUSD(r.bottom_up.central)} vs top-down ${formatUSD(r.top_down.central)} disagree by ${r.divergence_pct}% — treat the range as the source of truth, not either single number.`,
+        { size: 8.5, style: 'italic', color: C.warning, maxW: contentW, gap: 1.5 }
+      );
+    });
 
     // Confidence distribution chart (stacked bar for top 4)
     {

@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import {
   synthesize, collectEntities, deriveStatus, deriveRevenueStatus,
   normalizeChain, deriveDivestiture, isCircularEstimate, collectControlLayers,
-  guardConglomerateRevenueOnSubAffiliate,
+  guardConglomerateRevenueOnSubAffiliate, computeRevenueDivergence,
 } from '../synth.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -530,6 +530,125 @@ test('Round 2: the focal is NEVER collapsed even when it shares a holding token 
   // (and the existing 2-identifier rule doesn't fire either).
   assert.equal(out.ownership_tree.parent.company, 'Disney Entertainment');
   assert.equal(out.ownership_tree.parent.parent.company, 'The Walt Disney Company');
+});
+
+// ─── Task #42: bottom-up vs top-down divergence on sibling estimates ───────
+
+test('Task #42: computeRevenueDivergence flags >30% disagreement between sub-estimates', () => {
+  // The T04* Nectar case: $450M sibling (top-down 12% of Resident) vs $275M
+  // bottom-up. 39% divergence → flag fires.
+  const div = computeRevenueDivergence({
+    bottom_up: { low: 250e6, high: 300e6, central: 275e6, confidence: 'medium', method: 'signals' },
+    top_down:  { low: 400e6, high: 500e6, central: 450e6, confidence: 'low',    method: 'share_of_parent' },
+  });
+  assert.ok(div, 'divergence record produced when both sub-estimates present');
+  assert.equal(div.divergence_pct, 39);
+  assert.equal(div.divergence_flag, true);
+  // Bottom-up has medium confidence → preferred as central.
+  assert.equal(div.central, 275e6);
+  assert.equal(div.method, 'bottom_up_preferred');
+});
+
+test('Task #42: divergence below 30% leaves flag false', () => {
+  const div = computeRevenueDivergence({
+    bottom_up: { central: 100e6, confidence: 'medium' },
+    top_down:  { central: 120e6, confidence: 'low' },
+  });
+  assert.equal(div.divergence_pct, 17);
+  assert.equal(div.divergence_flag, false);
+});
+
+test('Task #42: only one strategy present → no divergence record, no override', () => {
+  assert.equal(computeRevenueDivergence({ bottom_up: { central: 100e6, confidence: 'medium' } }), null);
+  assert.equal(computeRevenueDivergence({ top_down:  { central: 100e6, confidence: 'low'    } }), null);
+  assert.equal(computeRevenueDivergence({}), null);
+  assert.equal(computeRevenueDivergence(null), null);
+});
+
+test('Task #42: low-confidence bottom-up triggers blended central, not bottom-up override', () => {
+  const div = computeRevenueDivergence({
+    bottom_up: { central: 200e6, confidence: 'low' },
+    top_down:  { central: 400e6, confidence: 'low' },
+  });
+  assert.equal(div.method, 'blended');
+  assert.equal(div.central, 300e6);
+  assert.equal(div.divergence_flag, true);
+});
+
+test('Task #42: T04*\' Awara/Nectar regression — Nectar as sibling exposes BU/TD divergence and warning', () => {
+  // Awara is focal, Resident is parent, Nectar is a sibling. The upstream
+  // revenue agent emitted BOTH a bottom-up signal-based estimate AND a top-
+  // down share-of-parent estimate for Nectar. The synthesizer must (a) plumb
+  // both sub-estimates onto the sibling, (b) raise divergence_flag because
+  // they disagree by >30%, and (c) replace the legacy `central` with the
+  // documented pick (bottom-up preferred when its confidence is medium+).
+  const ownership = {
+    company: 'Awara',
+    domain: 'awarasleep.com',
+    siblings: [
+      { company: 'Nectar', domain: 'nectarsleep.com', in_current_sources: true, category: 'memory foam mattress' },
+    ],
+    parent: {
+      company: 'Resident Home',
+      domain: 'residenthome.com',
+      parent: null,
+    },
+  };
+  const revenueByCompany = {
+    'awara': {
+      revenue_estimate: { low: 40e6, high: 60e6, central: 50e6 },
+      confidence: 'medium',
+      signals_found: [],
+      reasoning_summary: 'Triangulated from traffic + pricing.',
+    },
+    'nectar': {
+      // Legacy single central from the model; gets overridden by the divergence pick.
+      revenue_estimate: { low: 270e6, high: 460e6, central: 365e6 },
+      confidence: 'low',
+      signals_found: [],
+      reasoning_summary: 'Bottom-up traffic + AOV vs top-down 12% of Resident parent total.',
+      bottom_up: {
+        low: 250e6, high: 300e6, central: 275e6, confidence: 'medium',
+        method: 'signals',
+        source_summary: 'Bottom-up: SimilarWeb visits × 1.8% conv × $1,100 AOV.',
+      },
+      top_down: {
+        low: 400e6, high: 500e6, central: 450e6, confidence: 'low',
+        method: 'share_of_parent',
+        source_summary: 'Top-down: 12% of Resident Home consolidated ($3.75B).',
+      },
+    },
+  };
+  const out = synthesize(ownership, revenueByCompany, null, {});
+  const nectar = out.ownership_tree.siblings.find((s) => s.company === 'Nectar');
+  assert.ok(nectar, 'Nectar survives synthesis as a sibling');
+  const r = nectar.revenue_estimate;
+  // Both sub-estimates plumbed through.
+  assert.ok(r.bottom_up && r.top_down, 'bottom_up and top_down sub-estimates exposed on the sibling');
+  assert.equal(r.bottom_up.central, 275e6);
+  assert.equal(r.top_down.central, 450e6);
+  // Divergence math and flag.
+  assert.equal(r.divergence_pct, 39);
+  assert.equal(r.divergence_flag, true);
+  // Central picked per documented rule (bottom-up confidence is medium → preferred).
+  assert.equal(r.central, 275e6, 'central overridden to bottom-up pick, not the legacy 365M');
+  assert.equal(r.method, 'bottom_up_preferred');
+  // Legacy low/high range from the agent is preserved as the outer range.
+  assert.equal(r.low, 270e6);
+  assert.equal(r.high, 460e6);
+});
+
+test('Task #42: a sibling with only the legacy single estimate is unchanged (backward compatible)', () => {
+  // Most siblings today carry just one estimate; the new fields must not appear
+  // and central must equal what the agent emitted.
+  const out = synthesize(t04.ownership, t04.revenueByCompany, t04.parentAnchor);
+  const legacySibling = out.ownership_tree.siblings.find(
+    (s) => s.revenue_estimate && s.revenue_estimate.central > 0
+  );
+  assert.ok(legacySibling, 'at least one legacy sibling with a single estimate');
+  assert.equal(legacySibling.revenue_estimate.bottom_up, undefined);
+  assert.equal(legacySibling.revenue_estimate.top_down, undefined);
+  assert.equal(legacySibling.revenue_estimate.divergence_flag, undefined);
 });
 
 // ─── Task #41: segment-panel percentages use parent total as denominator ───

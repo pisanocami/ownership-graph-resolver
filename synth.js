@@ -549,6 +549,43 @@ export function isCircularEstimate(node) {
   return CIRCULAR_RE.test(`${node?.reasoning_summary || ''}`);
 }
 
+// Task #42: when the upstream revenue agent emits both a bottom-up (signal-based)
+// estimate AND a top-down (share-of-parent) estimate for the same sibling, compute
+// the divergence between the two centrals and pick a documented central. The
+// agent attaches these as `rev.bottom_up` / `rev.top_down` sub-records of the
+// shape `{ low, high, central, confidence, method, source_summary }`. When only
+// one strategy is present this returns null and the existing single estimate
+// flows through unchanged.
+//
+// Central-pick rule:
+//   - prefer bottom_up when its confidence is medium or high (signal-grounded);
+//   - otherwise blend the two centrals (arithmetic mean) so neither side dominates.
+//
+// Divergence flag fires when |buC - tdC| / max(buC, tdC) > 0.30 — matching the
+// T04* Nectar regression (sibling $450M vs focal-as-focal $275M = 39%).
+export function computeRevenueDivergence(rev) {
+  const bu = rev?.bottom_up;
+  const td = rev?.top_down;
+  if (!bu || !td) return null;
+  const buC = Number(bu.central) || 0;
+  const tdC = Number(td.central) || 0;
+  if (!(buC > 0) || !(tdC > 0)) return null;
+  const denom = Math.max(buC, tdC);
+  const divergence_pct = Math.round((Math.abs(buC - tdC) / denom) * 100);
+  const divergence_flag = divergence_pct > 30;
+  const preferBU = bu.confidence === 'medium' || bu.confidence === 'high';
+  const central = preferBU ? buC : Math.round((buC + tdC) / 2);
+  const method = preferBU ? 'bottom_up_preferred' : 'blended';
+  return {
+    bottom_up: { ...bu },
+    top_down: { ...td },
+    divergence_pct,
+    divergence_flag,
+    central,
+    method,
+  };
+}
+
 // Collect every node that carries strategic_control (or a no-data note) for display,
 // not just the focal→root chain. Crucially includes the ancestors' OTHER children
 // (e.g. a JV/subsidiary under the parent like "TikTok USDS JV") whose ownership split
@@ -708,11 +745,19 @@ export function attachRevenue(ownership, revenueByCompany, entitiesByCompany = {
     }
     if (rev) {
       applyContextUnverifiedDiscipline(rev, lookupEnt(key));
+      const div = computeRevenueDivergence(rev);
       node.revenue_estimate = {
         low: rev.revenue_estimate?.low ?? 0,
         high: rev.revenue_estimate?.high ?? 0,
         central: rev.revenue_estimate?.central ?? 0,
         confidence: rev.confidence || 'low',
+        ...(div ? {
+          bottom_up: div.bottom_up,
+          top_down: div.top_down,
+          divergence_pct: div.divergence_pct,
+          divergence_flag: div.divergence_flag,
+          method: div.method,
+        } : {}),
       };
       node.signals_found = rev.signals_found || [];
       node.reasoning_summary = rev.reasoning_summary || '';
@@ -731,11 +776,26 @@ export function attachRevenue(ownership, revenueByCompany, entitiesByCompany = {
       const pr = revenueByCompany[pk];
       if (pr) {
         applyContextUnverifiedDiscipline(pr, lookupEnt(pk));
+        const pdiv = computeRevenueDivergence(pr);
         peer.revenue_estimate = {
           low: pr.revenue_estimate?.low ?? 0,
           high: pr.revenue_estimate?.high ?? 0,
-          central: pr.revenue_estimate?.central ?? 0,
+          // Task #42: when both bottom_up and top_down sub-estimates are present
+          // on a sibling, override central with the documented pick rule (prefer
+          // bottom-up if confidence ≥ medium, else blend) so the cross-run
+          // divergence (e.g. T04* Nectar $450M sibling vs $275M focal) is
+          // surfaced rather than buried under whichever single number the agent
+          // emitted as `central`. Out-of-scope on the focal — its own pipeline
+          // owns its central.
+          central: pdiv ? pdiv.central : (pr.revenue_estimate?.central ?? 0),
           confidence: pr.confidence || 'low',
+          ...(pdiv ? {
+            bottom_up: pdiv.bottom_up,
+            top_down: pdiv.top_down,
+            divergence_pct: pdiv.divergence_pct,
+            divergence_flag: pdiv.divergence_flag,
+            method: pdiv.method,
+          } : {}),
         };
         peer.signals_found = pr.signals_found || [];
         peer.reasoning_summary = pr.reasoning_summary || '';
