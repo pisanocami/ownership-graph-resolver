@@ -2906,6 +2906,259 @@ function flattenTree(tree) {
   return out;
 }
 
+// ─── Chart Renderers for Brief PDF ────────────────────────────────────────
+
+function drawReconciliationWaterfall(pdf, startY, pageW, margin, contentW, brief) {
+  // Reconciliation: Sum of Siblings vs Parent Benchmark as stacked bars
+  if (!brief.reconciliation_honest?.raw_numbers) return startY;
+
+  const recon = brief.reconciliation_honest.raw_numbers;
+  const sum = recon.sum_siblings || 0;
+  const anchor = recon.anchor || 0;
+  const max = Math.max(sum, anchor, 1);
+  const scale = (contentW - 60) / max;
+
+  let y = startY + 2;
+  pdf.setFontSize(10); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(17, 17, 20);
+  pdf.text('Sum of Siblings vs Parent Benchmark', margin + 2, y);
+  y += 5;
+
+  // Bar 1: Sum of Siblings
+  pdf.setFontSize(9); pdf.setFont('helvetica', 'normal');
+  pdf.text('Sum Siblings:', margin + 2, y + 1);
+  const bar1W = sum * scale;
+  pdf.setFillColor(100, 180, 220);
+  pdf.rect(margin + 35, y, bar1W, 4, 'F');
+  pdf.setTextColor(60, 120, 180);
+  pdf.text(`$${(sum / 1e6).toFixed(0)}M`, margin + 35 + bar1W + 3, y + 1);
+  y += 6;
+
+  // Bar 2: Parent Benchmark
+  pdf.setTextColor(17, 17, 20);
+  pdf.text('Parent Anchor:', margin + 2, y + 1);
+  const bar2W = anchor * scale;
+  pdf.setFillColor(76, 175, 80);
+  pdf.rect(margin + 35, y, bar2W, 4, 'F');
+  pdf.setTextColor(56, 142, 60);
+  pdf.text(`$${(anchor / 1e6).toFixed(0)}M`, margin + 35 + bar2W + 3, y + 1);
+  y += 6;
+
+  // Delta indicator
+  const deltaLow = Math.min(bar1W, bar2W);
+  const deltaHigh = Math.max(bar1W, bar2W);
+  const deltaW = deltaHigh - deltaLow;
+  pdf.setDrawColor(200, 100, 100);
+  pdf.setLineWidth(0.5);
+  pdf.line(margin + 35 + deltaLow, y - 2, margin + 35 + deltaHigh, y - 2);
+
+  const deltaPct = recon.delta_pct || 0;
+  const deltaColor = deltaPct > 0 ? [220, 120, 80] : [100, 160, 200];
+  pdf.setTextColor(...deltaColor);
+  pdf.setFontSize(9);
+  pdf.text(`Δ ${deltaPct > 0 ? '+' : ''}${deltaPct}%`, margin + 35 + deltaHigh + 3, y - 0.5);
+
+  return y + 4;
+}
+
+function drawSignalSentiment(pdf, startY, pageW, margin, contentW, brief) {
+  // Behavioral signals: Type × Weight × Implication scatter plot
+  if (!brief.behavioral_signals || brief.behavioral_signals.length === 0) return startY;
+
+  let y = startY + 2;
+  pdf.setFontSize(10); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(17, 17, 20);
+  pdf.text('Signal Distribution', margin + 2, y);
+  y += 5;
+
+  const weights = { high: 3, medium: 2, low: 1 };
+  const impColors = { positive: [76, 175, 80], negative: [244, 67, 54], neutral: [150, 150, 160] };
+  const weightLabels = ['Low', 'Medium', 'High'];
+
+  // Draw axes labels
+  pdf.setFontSize(8); pdf.setTextColor(100, 100, 100);
+  pdf.text('Signal Type', margin + 5, y + 18);
+  pdf.save();
+  pdf.setFont('helvetica', 'italic');
+  pdf.text('Weight →', margin + contentW - 15, y + 10);
+  pdf.restore();
+
+  // Draw grid
+  pdf.setDrawColor(230, 230, 235);
+  pdf.setLineWidth(0.2);
+  for (let i = 0; i < 4; i++) {
+    const xPos = margin + 20 + (i * (contentW - 40) / 3);
+    pdf.line(xPos, y, xPos, y + 16);
+  }
+
+  // Plot signals
+  const sigByType = {};
+  brief.behavioral_signals.forEach((sig) => {
+    const type = sig.signal_type?.split(' ')[0] || 'Other';
+    if (!sigByType[type]) sigByType[type] = [];
+    sigByType[type].push(sig);
+  });
+
+  const types = Object.keys(sigByType).slice(0, 6);
+  const spacing = (contentW - 40) / Math.max(types.length, 1);
+
+  types.forEach((type, idx) => {
+    const sigs = sigByType[type];
+    const xPos = margin + 20 + idx * spacing + spacing / 2;
+
+    sigs.slice(0, 3).forEach((sig, sidx) => {
+      const weight = weights[sig.weight] || 2;
+      const yPos = y + 16 - weight * 5;
+      const impColor = impColors[sig.directional_implication] || impColors.neutral;
+
+      pdf.setFillColor(...impColor);
+      pdf.circle(xPos, yPos, 1.5, 'F');
+    });
+
+    pdf.setFontSize(7); pdf.setTextColor(80, 80, 80);
+    pdf.text(type, xPos - 3, y + 18);
+  });
+
+  // Legend
+  y += 22;
+  pdf.setFontSize(7);
+  const legItems = [
+    { label: 'Positive', color: [76, 175, 80] },
+    { label: 'Neutral', color: [150, 150, 160] },
+    { label: 'Negative', color: [244, 67, 54] },
+  ];
+  legItems.forEach((item, i) => {
+    pdf.setFillColor(...item.color);
+    pdf.circle(margin + 20 + i * 30, y, 0.8, 'F');
+    pdf.setTextColor(80, 80, 80);
+    pdf.text(item.label, margin + 22 + i * 30, y + 0.5);
+  });
+
+  return y + 4;
+}
+
+function drawConfidenceBreakdown(pdf, startY, pageW, margin, contentW, brief) {
+  // Confidence gaps: 4-column stacked breakdown
+  const gaps = brief.confidence_gaps || {};
+  const categories = [
+    { key: 'high_confidence', label: 'High Conf', color: [76, 175, 80] },
+    { key: 'medium_confidence', label: 'Medium', color: [255, 152, 0] },
+    { key: 'known_gaps', label: 'Known Gaps', color: [244, 67, 54] },
+    { key: 'verdict_changers', label: 'V-Changers', color: [63, 81, 181] },
+  ];
+
+  let y = startY + 2;
+  pdf.setFontSize(10); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(17, 17, 20);
+  pdf.text('Confidence Breakdown', margin + 2, y);
+  y += 5;
+
+  const barH = 6;
+  const barX = margin + 30;
+  const barW = contentW - 40;
+
+  categories.forEach((cat) => {
+    const count = (gaps[cat.key] || []).length;
+    const barSegW = (count / 8) * barW; // Max 8 items per category
+
+    // Category label
+    pdf.setFontSize(8); pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(80, 80, 80);
+    pdf.text(cat.label, margin + 2, y + 1.5);
+
+    // Colored bar
+    pdf.setFillColor(...cat.color);
+    pdf.rect(barX, y, Math.min(barSegW, barW), barH, 'F');
+    pdf.setDrawColor(cat.color[0] - 20, cat.color[1] - 20, cat.color[2] - 20);
+    pdf.rect(barX, y, Math.min(barSegW, barW), barH);
+
+    // Count
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7);
+    if (barSegW > 8) pdf.text(`${count}`, barX + 2, y + 1.8);
+
+    y += 8;
+  });
+
+  // Legend: what the total coverage is
+  y += 2;
+  const totalItems = categories.reduce((sum, cat) => sum + (gaps[cat.key] || []).length, 0);
+  pdf.setFontSize(8); pdf.setTextColor(100, 100, 100);
+  pdf.text(`Total data points tracked: ${totalItems}`, barX, y);
+
+  return y + 6;
+}
+
+function drawCompetitivePositioning(pdf, startY, pageW, margin, contentW, brief) {
+  // Competitive context: 2x2 matrix (Revenue × Distance)
+  if (!Array.isArray(brief.competitive_context) || brief.competitive_context.length === 0) return startY;
+
+  const comps = brief.competitive_context.slice(0, 8);
+  let y = startY + 2;
+  pdf.setFontSize(10); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(17, 17, 20);
+  pdf.text('Competitive Landscape', margin + 2, y);
+  y += 5;
+
+  // Axes: Revenue (x) and Distance (y)
+  const chartX = margin + 20;
+  const chartY = y;
+  const chartW = contentW - 40;
+  const chartH = 14;
+
+  // Draw axes
+  pdf.setDrawColor(180, 180, 190);
+  pdf.setLineWidth(0.5);
+  pdf.line(chartX, chartY, chartX, chartY + chartH); // Y axis
+  pdf.line(chartX, chartY + chartH, chartX + chartW, chartY + chartH); // X axis
+
+  // Axis labels
+  pdf.setFontSize(7); pdf.setTextColor(100, 100, 100);
+  pdf.text('Revenue →', chartX + chartW - 15, chartY + chartH + 2);
+  pdf.save();
+  pdf.setFont('helvetica', 'italic');
+  pdf.text('Distance', chartX - 15, chartY + 2);
+  pdf.restore();
+
+  // Distance categories (y)
+  const distMap = { direct: 3, adjacent: 2, tangential: 1 };
+  const revRange = { min: 0, max: Math.max(...comps.map((c) => c.estimated_revenue_usd || 0)) };
+
+  // Plot competitors
+  const distColors = { direct: [76, 175, 80], adjacent: (220, 160, 60), tangential: (150, 150, 160) };
+
+  comps.forEach((comp) => {
+    const dist = distMap[comp.competitive_distance] || 1;
+    const rev = comp.estimated_revenue_usd || 0;
+    const xPos = chartX + (rev / revRange.max) * chartW * 0.9;
+    const yPos = chartY + chartH - dist * 4;
+
+    const color = distColors[comp.competitive_distance] || [150, 150, 160];
+    pdf.setFillColor(...(Array.isArray(color) ? color : [150, 150, 160]));
+    pdf.circle(xPos, yPos, 1.2, 'F');
+
+    // Competitor label (abbreviated)
+    const label = comp.competitor?.substring(0, 3).toUpperCase() || '?';
+    pdf.setFontSize(6); pdf.setTextColor(60, 60, 60);
+    pdf.text(label, xPos - 1, yPos + 0.3);
+  });
+
+  y += chartH + 4;
+
+  // Legend
+  pdf.setFontSize(7);
+  const distLegend = [
+    { label: 'Direct', color: [76, 175, 80] },
+    { label: 'Adjacent', color: [220, 160, 60] },
+    { label: 'Tangential', color: [150, 150, 160] },
+  ];
+  distLegend.forEach((item, i) => {
+    pdf.setFillColor(...item.color);
+    pdf.circle(chartX + 20 + i * 40, y, 0.6, 'F');
+    pdf.setTextColor(80, 80, 80);
+    pdf.text(item.label, chartX + 22 + i * 40, y + 0.4);
+  });
+
+  return y + 5;
+}
+
 // Generate professional PDF report. Vector-text layout (crisp at any zoom) with a
 // designed cover band, section headers, colored pills, bordered/zebra tables, an
 // embedded high-res snapshot of the on-screen ownership map, page numbers, and the
@@ -3037,6 +3290,34 @@ async function generateBriefPDF(result, svgImage = null) {
       }
       y += 6;
     });
+  }
+
+  // ─── CHARTS SECTION ───────────────────────────────────────────────────
+  ensure(45);
+  section('ANALYTICS & VISUALIZATIONS');
+
+  // Chart 1: Reconciliation Waterfall
+  ensure(25);
+  y = drawReconciliationWaterfall(pdf, y, pageW, margin, contentW, brief);
+
+  y += 3;
+
+  // Chart 2: Signal Sentiment
+  ensure(30);
+  y = drawSignalSentiment(pdf, y, pageW, margin, contentW, brief);
+
+  y += 3;
+
+  // Chart 3: Confidence Breakdown
+  ensure(25);
+  y = drawConfidenceBreakdown(pdf, y, pageW, margin, contentW, brief);
+
+  y += 3;
+
+  // Chart 4: Competitive Positioning (if applicable)
+  if (Array.isArray(brief.competitive_context) && brief.competitive_context.length > 0) {
+    ensure(30);
+    y = drawCompetitivePositioning(pdf, y, pageW, margin, contentW, brief);
   }
 
   y += 4;
