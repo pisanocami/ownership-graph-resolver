@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ReactFlow, { Background, Controls, MiniMap, Handle, Position } from 'reactflow';
 import 'reactflow/dist/style.css';
 import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 import {
   synthesize,
   collectEntities,
@@ -1181,6 +1182,7 @@ function ResultView({ result, showRaw, setShowRaw, selectedKey, setSelectedKey, 
   const recon = positioning.reconciliation;
   const anchor = positioning.parent_anchor;
   const [shareState, setShareState] = useState('idle');
+  const graphViewRef = useRef(null);
 
   const allNodes = useMemo(() => flattenTree(tree), [tree]);
   const revenueMap = useMemo(() => {
@@ -1216,11 +1218,19 @@ function ResultView({ result, showRaw, setShowRaw, selectedKey, setSelectedKey, 
     ? positioning.strategic_notes
     : [positioning.strategic_notes].filter(Boolean);
 
+  const handleGeneratePDF = async () => {
+    let svgImage = null;
+    if (graphViewRef.current && viewMode === 'graph') {
+      svgImage = await graphViewRef.current.exportSVG();
+    }
+    await generatePDF(result, svgImage);
+  };
+
   return (
     <>
       {/* Export actions */}
       <div className="no-print" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
-        <button className="btn btn-sm" onClick={() => generatePDF(result)}>↓ PDF</button>
+        <button className="btn btn-sm" onClick={handleGeneratePDF}>↓ PDF</button>
         <button
           className={`btn btn-sm ${shareState === 'copied' ? 'btn-primary' : ''}`}
           onClick={handleShare}
@@ -1269,7 +1279,7 @@ function ResultView({ result, showRaw, setShowRaw, selectedKey, setSelectedKey, 
           {viewMode === 'tree' ? (
             <TreeView tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} />
           ) : (
-            <GraphView tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} theme={theme} />
+            <GraphView ref={graphViewRef} tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} theme={theme} />
           )}
 
           {/* Strategic control per layer + non-warning notes (under tree on desktop) */}
@@ -2036,10 +2046,30 @@ function HistoryRow({ item, active, onOpen, onDelete }) {
   );
 }
 
-function GraphView({ tree, selectedKey, onSelect, theme }) {
+const GraphView = React.forwardRef(({ tree, selectedKey, onSelect, theme }, ref) => {
+  const containerRef = useRef(null);
   const { nodes, edges } = useMemo(() => buildFlowData(tree, selectedKey, onSelect), [tree, selectedKey, onSelect]);
+
+  React.useImperativeHandle(ref, () => ({
+    exportSVG: async () => {
+      if (!containerRef.current) return null;
+      try {
+        const canvas = await html2canvas(containerRef.current, {
+          backgroundColor: null,
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+        });
+        return canvas.toDataURL('image/png');
+      } catch (err) {
+        console.error('Failed to export SVG:', err);
+        return null;
+      }
+    },
+  }));
+
   return (
-    <div className="flow-container">
+    <div className="flow-container" ref={containerRef}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -2063,7 +2093,8 @@ function GraphView({ tree, selectedKey, onSelect, theme }) {
       </ReactFlow>
     </div>
   );
-}
+});
+GraphView.displayName = 'GraphView';
 
 function buildFlowData(tree, selectedKey, onSelect) {
   const nodes = [];
@@ -2514,7 +2545,7 @@ function flattenTree(tree) {
 // embedded high-res snapshot of the on-screen ownership map, page numbers, and the
 // full F11 dataset (derived status + category, reconciliation explanation, per-layer
 // strategic control). Forces a direct download via a Blob + anchor.
-async function generatePDF(result) {
+async function generatePDF(result, svgImage = null) {
   if (!result || !result.ownership_tree) return;
 
   const tree = result.ownership_tree;
@@ -2852,91 +2883,102 @@ async function generatePDF(result) {
   while (cp) { chain.unshift(cp); cp = cp.parent; }
   const siblings = tree.siblings || [];
 
-  // Ownership pyramid (top-down: root → focal) — ENHANCED with visual hierarchy
+  // Ownership pyramid (top-down: root → focal) — use SVG image if available, else fallback to primitives
   if (chain.length > 0) {
     section('Ownership Hierarchy');
     transition(narr.transition_ownership);
     text(`${chain.length + 1} ownership level${chain.length > 0 ? 's' : ''} from ultimate parent to ${focal}.`,
       { size: 8.5, style: 'italic', color: C.muted, gap: 3 });
-    const levels = [...chain, tree];
-    const boxH = 16, vGap = 10;
-    const maxW = contentW * 0.9, minW = contentW * 0.55;
 
-    levels.forEach((node, idx) => {
-      ensure(boxH + vGap + 2);
-      const t = levels.length > 1 ? idx / (levels.length - 1) : 0;
-      const w = maxW - (maxW - minW) * t;
-      const x = margin + (contentW - w) / 2;
-      const isFocal = node === tree;
-      const isRoot = idx === 0;
+    if (svgImage) {
+      // Embed the ReactFlow SVG as a high-quality PNG image
+      const imgW = contentW;
+      const imgH = (imgW * 9) / 16; // aspect ratio; adjust if needed
+      ensure(imgH + 4);
+      pdf.addImage(svgImage, 'PNG', margin, y, imgW, imgH);
+      y += imgH + 4;
+    } else {
+      // Fallback: render with jsPDF primitives
+      const levels = [...chain, tree];
+      const boxH = 16, vGap = 10;
+      const maxW = contentW * 0.9, minW = contentW * 0.55;
 
-      // Main box with enhanced styling
-      pdf.setFillColor(...(isFocal ? C.accent : C.surface));
-      pdf.setDrawColor(...(isFocal ? C.accentHover : C.border));
-      pdf.setLineWidth(isFocal ? 0.8 : 0.4);
-      pdf.roundedRect(x, y, w, boxH, 2.2, 2.2, 'FD');
+      levels.forEach((node, idx) => {
+        ensure(boxH + vGap + 2);
+        const t = levels.length > 1 ? idx / (levels.length - 1) : 0;
+        const w = maxW - (maxW - minW) * t;
+        const x = margin + (contentW - w) / 2;
+        const isFocal = node === tree;
+        const isRoot = idx === 0;
 
-      // Left marker shape (drawn with primitives — no Unicode glyphs).
-      // focal: filled circle · root: filled square · intermediate: ring.
-      const mCx = x + 5, mCy = y + 5.5, mR = 2;
-      if (isFocal) {
-        pdf.setFillColor(...C.tint);
-        pdf.circle(mCx, mCy, mR, 'F');
-      } else if (isRoot) {
-        pdf.setFillColor(...[100, 116, 139]);
-        pdf.rect(mCx - mR, mCy - mR, mR * 2, mR * 2, 'F');
-      } else {
-        pdf.setFillColor(...C.accent);
-        pdf.circle(mCx, mCy, mR, 'F');
-        pdf.setFillColor(...C.surface);
-        pdf.circle(mCx, mCy, mR - 0.8, 'F');
-      }
+        // Main box with enhanced styling
+        pdf.setFillColor(...(isFocal ? C.accent : C.surface));
+        pdf.setDrawColor(...(isFocal ? C.accentHover : C.border));
+        pdf.setLineWidth(isFocal ? 0.8 : 0.4);
+        pdf.roundedRect(x, y, w, boxH, 2.2, 2.2, 'FD');
 
-      // Company name
-      font(9.5, 'bold'); pdf.setTextColor(...(isFocal ? C.white : C.ink));
-      pdf.text(truncateToWidth(node.company || '?', w - 42), x + 10, y + 5.5, { baseline: 'middle' });
+        // Left marker shape (drawn with primitives — no Unicode glyphs).
+        // focal: filled circle · root: filled square · intermediate: ring.
+        const mCx = x + 5, mCy = y + 5.5, mR = 2;
+        if (isFocal) {
+          pdf.setFillColor(...C.tint);
+          pdf.circle(mCx, mCy, mR, 'F');
+        } else if (isRoot) {
+          pdf.setFillColor(...[100, 116, 139]);
+          pdf.rect(mCx - mR, mCy - mR, mR * 2, mR * 2, 'F');
+        } else {
+          pdf.setFillColor(...C.accent);
+          pdf.circle(mCx, mCy, mR, 'F');
+          pdf.setFillColor(...C.surface);
+          pdf.circle(mCx, mCy, mR - 0.8, 'F');
+        }
 
-      // Revenue on right
-      const rv = node.revenue_estimate;
-      const revStr = rv && rv.central > 0 ? formatUSD(rv.central) : '—';
-      font(8, isFocal ? 'bold' : 'normal');
-      pdf.setTextColor(...(isFocal ? C.tint : C.muted));
-      pdf.text(revStr, x + w - 4, y + 5.5, { align: 'right', baseline: 'middle' });
+        // Company name
+        font(9.5, 'bold'); pdf.setTextColor(...(isFocal ? C.white : C.ink));
+        pdf.text(truncateToWidth(node.company || '?', w - 42), x + 10, y + 5.5, { baseline: 'middle' });
 
-      // Level label (plain text, no glyphs)
-      font(6.5, 'normal'); pdf.setTextColor(...(isFocal ? C.tint : C.subtle));
-      const levelLabel = isFocal ? 'FOCAL COMPANY' : (isRoot ? 'ULTIMATE PARENT' : `OWNER LEVEL ${idx}`);
-      pdf.text(levelLabel, x + 10, y + 11.2, { baseline: 'middle' });
+        // Revenue on right
+        const rv = node.revenue_estimate;
+        const revStr = rv && rv.central > 0 ? formatUSD(rv.central) : '—';
+        font(8, isFocal ? 'bold' : 'normal');
+        pdf.setTextColor(...(isFocal ? C.tint : C.muted));
+        pdf.text(revStr, x + w - 4, y + 5.5, { align: 'right', baseline: 'middle' });
 
-      // Confidence indicator: a colored dot + letter side-by-side (no overlap)
-      if (rv && rv.confidence) {
-        const confColor = rv.confidence === 'high' ? [34, 197, 94]
-                        : rv.confidence === 'medium' ? [234, 179, 8]
-                        : [239, 68, 68];
-        const cy = y + 11.2;
-        font(6, 'normal'); pdf.setTextColor(...(isFocal ? C.tint : C.subtle));
-        const confLabel = rv.confidence.toUpperCase();
-        const cw = pdf.getTextWidth(confLabel);
-        pdf.text(confLabel, x + w - 4, cy, { align: 'right', baseline: 'middle' });
-        pdf.setFillColor(...confColor);
-        pdf.circle(x + w - 6 - cw - 1.5, cy, 1.2, 'F');
-      }
+        // Level label (plain text, no glyphs)
+        font(6.5, 'normal'); pdf.setTextColor(...(isFocal ? C.tint : C.subtle));
+        const levelLabel = isFocal ? 'FOCAL COMPANY' : (isRoot ? 'ULTIMATE PARENT' : `OWNER LEVEL ${idx}`);
+        pdf.text(levelLabel, x + 10, y + 11.2, { baseline: 'middle' });
 
-      // Connector with arrow head between levels
-      if (idx < levels.length - 1) {
-        pdf.setDrawColor(...C.border); pdf.setLineWidth(0.5);
-        const centerX = margin + contentW / 2;
-        const connectorY1 = y + boxH;
-        const connectorY2 = y + boxH + vGap;
-        pdf.line(centerX, connectorY1, centerX, connectorY2);
-        const arrowSize = 1.2;
-        pdf.line(centerX - arrowSize, connectorY2 - arrowSize, centerX, connectorY2);
-        pdf.line(centerX + arrowSize, connectorY2 - arrowSize, centerX, connectorY2);
-      }
+        // Confidence indicator: a colored dot + letter side-by-side (no overlap)
+        if (rv && rv.confidence) {
+          const confColor = rv.confidence === 'high' ? [34, 197, 94]
+                          : rv.confidence === 'medium' ? [234, 179, 8]
+                          : [239, 68, 68];
+          const cy = y + 11.2;
+          font(6, 'normal'); pdf.setTextColor(...(isFocal ? C.tint : C.subtle));
+          const confLabel = rv.confidence.toUpperCase();
+          const cw = pdf.getTextWidth(confLabel);
+          pdf.text(confLabel, x + w - 4, cy, { align: 'right', baseline: 'middle' });
+          pdf.setFillColor(...confColor);
+          pdf.circle(x + w - 6 - cw - 1.5, cy, 1.2, 'F');
+        }
 
-      y += boxH + vGap;
-    });
-    y += 2;
+        // Connector with arrow head between levels
+        if (idx < levels.length - 1) {
+          pdf.setDrawColor(...C.border); pdf.setLineWidth(0.5);
+          const centerX = margin + contentW / 2;
+          const connectorY1 = y + boxH;
+          const connectorY2 = y + boxH + vGap;
+          pdf.line(centerX, connectorY1, centerX, connectorY2);
+          const arrowSize = 1.2;
+          pdf.line(centerX - arrowSize, connectorY2 - arrowSize, centerX, connectorY2);
+          pdf.line(centerX + arrowSize, connectorY2 - arrowSize, centerX, connectorY2);
+        }
+
+        y += boxH + vGap;
+      });
+      y += 2;
+    }
   }
 
   // ─── Risk Assessment (Act 5 — the verdict) ───
