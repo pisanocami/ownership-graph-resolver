@@ -365,6 +365,60 @@ a:hover { text-decoration: underline; }
 .strategic-details { font-size: 12px; color: var(--text-muted); margin: 6px 0 0 0; }
 .strategic-source { font-size: 11px; color: var(--text-subtle); margin: 4px 0 0 0; word-break: break-all; }
 
+/* ─── Co-owners (Bug #2) ───────────────────────────────────────────────── */
+.co-owners {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.co-owners-head {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.co-owners-sub {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-subtle);
+  margin-left: 6px;
+}
+.co-owner-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.co-owner-row:first-of-type { border-top: none; }
+.co-owner-parent { background: var(--accent-soft); margin: 0 -8px; padding: 10px 8px; border-radius: 6px; border-top: none; }
+.co-owner-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.co-owner-icon.chip-accent { background: var(--accent-soft); border-color: var(--accent-soft-border); color: var(--accent-hover); }
+.co-owner-icon.chip-warning { background: var(--warning-bg); border-color: var(--warning-border); color: var(--warning); }
+.co-owner-main { flex: 1; min-width: 0; }
+.co-owner-name { font-weight: 600; font-size: 13px; color: var(--text); }
+.co-owner-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+.co-owner-evidence { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+.co-owner-source { font-size: 11px; color: var(--text-subtle); margin-top: 3px; word-break: break-all; }
+.co-owner-stake {
+  font-size: 11px; color: var(--text-muted);
+  white-space: nowrap; flex-shrink: 0; text-align: right;
+}
+
 /* ─── Logs panel ───────────────────────────────────────────────────────── */
 .logs-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-top: 12px; }
 .logs-toggle {

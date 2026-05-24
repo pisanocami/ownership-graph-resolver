@@ -92,6 +92,19 @@ SPECIAL CASE — "X Holdings" / "X Group" paired with "X" (same root token, no o
 After this step, no two consecutive layers in the chain should be the same legal entity under different name forms.
 Emit "legal_entity_reference" (CIK/LEI/registration ID) and "ticker" on each layer when known — these IDs are what makes the normalization auditable.
 
+Step 6.6 — Co-owners (multi-owner / dual-class / steward-ownership). The "parent" slot is single-valued: it MUST be the owner that exercises voting control and/or consolidates the entity. When the focal has ADDITIONAL formal owners with their own economic or voting stake — not advisors, lenders, or governance influencers (those go in strategic_control) — capture them in the parallel "co_owners" array. Each co_owner is a real legal owner with a measurable stake.
+Trigger this when ANY of the following applies, with clear evidence (foundation page, M&A doc, SEC filing, official IR disclosure):
+  - STEWARD OWNERSHIP / SPLIT VOTING-vs-ECONOMIC: e.g. Patagonia → Patagonia Purpose Trust holds ~2% / 100% voting (parent, ownership_role:"voting_control"); Holdfast Collective holds ~98% / 0% voting (co_owner, ownership_role:"economic_beneficiary"). Bosch → Robert Bosch Stiftung 94% economic / 0% voting; Robert Bosch Industrietreuhand KG 0% economic / 93% voting.
+  - JOINT VENTURE with two declared owners: e.g. Hulu pre-2023 → Disney 67% (parent), Comcast 33% (co_owner). Verizon/Vodafone JVs. Sony Music / SonyBMG era.
+  - DUAL-CLASS PUBLIC STRUCTURE where a SEPARATE legal entity holds the controlling class (not just an individual — those go through UBO Step 7.5): e.g. NYT Class B holding company.
+On the parent itself, populate "ownership_role" — describe the role in FREE TEXT (e.g. "voting_control", "majority_economic", "joint_venture_partner", "controlling_holder"). On a single-owner standard subsidiary, ownership_role can be "sole_owner" or null.
+DO NOT use co_owners for:
+  - Generic minority shareholders or institutional holders (BlackRock, Vanguard) — those are strategic_control.
+  - Pending acquisitions — that goes in pending_acquisition.
+  - Founders/individuals — promote via UBO Step 7.5 instead.
+Cap co_owners at 4 entries. Document each role transition in "notes" (e.g. "Holdfast Collective captured as economic_beneficiary co-owner; Purpose Trust kept as parent because it holds 100% voting power.").
+For EACH co_owner capture: company, ownership_role (free text), stake_pct (economic %, 0-100), voting_pct (voting %, 0-100, may differ from economic), evidence (one sentence quote/paraphrase), entity_type ("trust"|"nonprofit"|"corporation"|"individual"|"government"|"family_group"), source_urls.
+
 Step 7 — Strategic control. Capture control/governance relationships that are NOT formal ownership: founders, the last pre-acquisition funding round, the current executive leader (CEO/President), board members, investors/VCs, PE backers, major shareholders. Include ONLY with clear evidence (funding press release, SEC 13D/13G, official board page, M&A announcement). Describe each relationship as a FREE-TEXT role_description (e.g. "lead Series B investor", "co-founder & CEO", "PE sponsor") — do NOT pick from a fixed list. POPULATE strategic_control for EVERY node in the chain (root, each parent, and the focal), not just the focal. Aggregator layers especially tend to have independent founders and prior funding rounds. For acquired companies, capture BOTH the historical pre-acquisition investors AND the current post-acquisition executives. If a layer genuinely has no evidenced control info, set strategic_control:[] and strategic_control_note:"no_data_found: <reason>".
 
 Step 7.5 — UBO promotion (Ultimate Beneficial Owner as a chain node). The chain's "root" is normally the topmost legal entity. PROMOTE an additional layer above that legal entity — as its own node in the parent chain — when ANY of these four triggers fires with clear evidence:
@@ -143,6 +156,16 @@ STRICT JSON OUTPUT, NO PROSE, NO MARKDOWN FENCES:
   "last_mention_date": str|null,       // most recent date referenced (ISO-ish) or null
   "category": str,                     // free text from sources; "" if unknown. NOT an enum.
   "parent": {recursive} | null,             // ALWAYS the current legal parent. Never the post-close acquirer of an unclosed deal.
+  "ownership_role": str | null,             // Free-text role of "parent" over THIS node: "voting_control" | "majority_economic" | "joint_venture_partner" | "controlling_holder" | "sole_owner" | etc. null when no co_owners exist.
+  "co_owners": [{                           // Additional formal owners beyond the parent slot — only with measurable stake evidence (Step 6.6). Cap 4. Empty/[] when single-owner.
+    "company": str,
+    "ownership_role": str,                  // Free text: "economic_beneficiary" | "joint_venture_partner" | "non_voting_holder" | etc.
+    "stake_pct": <number 0-100> | null,     // Economic ownership %.
+    "voting_pct": <number 0-100> | null,    // Voting power %, may differ from economic.
+    "evidence": str,
+    "entity_type": "trust"|"nonprofit"|"corporation"|"individual"|"government"|"family_group",
+    "source_urls": [url]
+  }],
   "focal_segment": str | null,              // The parent's segment/division that contains the focal (e.g. "Watches & Jewelry", "Fabric & Home Care"). null when parent has no segment disclosure or is single-segment.
   "siblings": [{"company": str, "domain": str, "node_type": str, "category": str, "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}],   // current_siblings_under_current_parent AND inside focal_segment ONLY.
   "intra_parent_cousins": [{"company": str, "domain": str, "node_type": str, "category": str, "via_division": str, "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}] | null,   // Brands of the SAME parent but in a DIFFERENT segment/division than the focal. via_division names that other segment. null when parent has no segments declared.
@@ -1598,6 +1621,76 @@ function CousinsSection({ cousins, selectedKey, onSelect, parentName }) {
   );
 }
 
+// Bug #2: visual badge per ownership role / entity_type for co-owners.
+// Distinct icon + chip class so voting-control, economic, trust, and nonprofit
+// are visually separable at a glance.
+function coOwnerRoleMeta(role, entityType) {
+  const r = (role || '').toLowerCase();
+  const e = (entityType || '').toLowerCase();
+  if (e === 'trust') return { icon: '§', label: 'trust', tone: 'chip-accent' };
+  if (e === 'nonprofit') return { icon: '✦', label: 'nonprofit', tone: 'chip-accent' };
+  if (e === 'government') return { icon: '⌘', label: 'state', tone: 'chip-accent' };
+  if (e === 'family_group') return { icon: '◈', label: 'family', tone: 'chip-accent' };
+  if (e === 'individual') return { icon: '◉', label: 'individual', tone: 'chip-accent' };
+  if (/voting/.test(r)) return { icon: '⚖', label: 'voting', tone: 'chip-warning' };
+  if (/economic|beneficiary/.test(r)) return { icon: '$', label: 'economic', tone: '' };
+  if (/joint|jv|venture/.test(r)) return { icon: '⇄', label: 'JV', tone: 'chip-accent' };
+  return { icon: '•', label: 'owner', tone: '' };
+}
+
+function CoOwnersSection({ parent, ownershipRole, coOwners }) {
+  const parentMeta = coOwnerRoleMeta(ownershipRole, parent?.node_type === 'individual' ? 'individual' : null);
+  return (
+    <div className="co-owners">
+      <div className="co-owners-head">
+        Additional owners
+        <span className="co-owners-sub">
+          · economic / voting stakes beyond the consolidating parent
+        </span>
+      </div>
+      {parent && (
+        <div className="co-owner-row co-owner-parent" title="Consolidating parent (the slot that consolidates the entity)">
+          <span className={`co-owner-icon ${parentMeta.tone}`}>{parentMeta.icon}</span>
+          <div className="co-owner-main">
+            <div className="co-owner-name">{parent.company}</div>
+            <div className="co-owner-meta">
+              <span className="chip chip-accent">parent</span>
+              {ownershipRole && <span className="chip">{ownershipRole.replace(/_/g, ' ')}</span>}
+            </div>
+          </div>
+          <div className="co-owner-stake mono">consolidates</div>
+        </div>
+      )}
+      {coOwners.map((co, i) => {
+        const meta = coOwnerRoleMeta(co.ownership_role, co.entity_type);
+        const stakeBits = [];
+        if (co.stake_pct != null) stakeBits.push(`${co.stake_pct}% econ`);
+        if (co.voting_pct != null) stakeBits.push(`${co.voting_pct}% vote`);
+        return (
+          <div key={i} className="co-owner-row" title={meta.label}>
+            <span className={`co-owner-icon ${meta.tone}`}>{meta.icon}</span>
+            <div className="co-owner-main">
+              <div className="co-owner-name">{co.company}</div>
+              <div className="co-owner-meta">
+                <span className="chip">co-owner</span>
+                {co.ownership_role && <span className="chip">{co.ownership_role.replace(/_/g, ' ')}</span>}
+                {co.entity_type && <span className="chip">{co.entity_type.replace(/_/g, ' ')}</span>}
+              </div>
+              {co.evidence && <div className="co-owner-evidence">{co.evidence}</div>}
+              {Array.isArray(co.source_urls) && co.source_urls.filter(isSafeUrl).slice(0, 2).map((u, j) => (
+                <div key={j} className="co-owner-source">
+                  <a href={u} target="_blank" rel="noopener noreferrer">{u}</a>
+                </div>
+              ))}
+            </div>
+            <div className="co-owner-stake mono">{stakeBits.length ? stakeBits.join(' · ') : '—'}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Human-friendly label + tooltip for the UBO type badge (Bug #4).
 function uboTypeMeta(ubo_type) {
   switch (ubo_type) {
@@ -1940,6 +2033,14 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
             </div>
           )}
         </div>
+      )}
+
+      {isFocal && Array.isArray(node.co_owners) && node.co_owners.length > 0 && (
+        <CoOwnersSection
+          parent={node.parent}
+          ownershipRole={node.ownership_role}
+          coOwners={node.co_owners}
+        />
       )}
 
       {node.acquisition?.acquired_by && (

@@ -375,6 +375,15 @@ export function collectEntities(ownership) {
   // Siblings share the focal's parent in the corporate tree.
   orderedSiblings.slice(0, 8).forEach((s) => push(s, 'sibling', focalParent));
   (ownership.children || []).slice(0, 3).forEach((c) => push(c, 'child', ownership.company));
+  // Bug #2 co-owners: additional formal owners (steward ownership, JVs,
+  // dual-class). Estimate revenue for each so the UI and reconciliation can
+  // surface their economic contribution (e.g. Comcast in pre-2023 Hulu).
+  (ownership.co_owners || []).slice(0, 4).forEach((co) => push(co, 'co_owner', null, {
+    ownership_role: co.ownership_role || null,
+    stake_pct: co.stake_pct ?? null,
+    voting_pct: co.voting_pct ?? null,
+    entity_type: co.entity_type || null,
+  }));
   // Cousins: same parent, different segment. Capped to keep cost predictable
   // on mega-aggregators (LVMH, P&G, Unilever…). Current-source brands first so
   // a cap never drops a live brand in favor of a historical one.
@@ -467,6 +476,7 @@ export function attachRevenue(ownership, revenueByCompany, entitiesByCompany = {
     };
     (node.siblings || []).forEach(applyToPeer);
     (node.intra_parent_cousins || []).forEach(applyToPeer);
+    (node.co_owners || []).forEach(applyToPeer);
     (node.children || []).forEach(visit);
   };
   visit(clone);
@@ -653,13 +663,22 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
 
   const focalRev = tree.revenue_estimate?.central || 0;
   const parentRev = tree.parent?.revenue_estimate?.central || 0;
+  // Bug #2: when co_owners exist (steward ownership, JVs, dual-class), the
+  // focal's economic base is parent + co_owners combined — otherwise the ratio
+  // exceeds 100% (e.g. Patagonia → Purpose Trust 2% / Holdfast 98%).
+  const coOwners = Array.isArray(tree.co_owners) ? tree.co_owners : [];
+  const coOwnersRev = coOwners.reduce((a, c) => a + (c.revenue_estimate?.central || 0), 0);
+  const ownerGroupRev = parentRev + coOwnersRev;
+  const ownerGroupLabel = coOwners.length > 0
+    ? `${tree.parent?.company || 'parent'} + ${coOwners.length} co-owner${coOwners.length === 1 ? '' : 's'}`
+    : tree.parent?.company || 'parent';
 
   let focal_vs_parent_ratio = 'N/A (standalone)';
-  if (tree.parent && parentRev > 0) {
-    const pct = ((focalRev / parentRev) * 100).toFixed(1);
-    focal_vs_parent_ratio = `${pct}% of ${tree.parent.company} revenue`;
-  } else if (tree.parent && parentRev === 0) {
-    focal_vs_parent_ratio = `${tree.parent.company} revenue unknown`;
+  if (tree.parent && ownerGroupRev > 0) {
+    const pct = ((focalRev / ownerGroupRev) * 100).toFixed(1);
+    focal_vs_parent_ratio = `${pct}% of ${ownerGroupLabel} revenue`;
+  } else if (tree.parent && ownerGroupRev === 0) {
+    focal_vs_parent_ratio = `${ownerGroupLabel} revenue unknown`;
   }
 
   const siblings = tree.siblings || [];
@@ -694,6 +713,16 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
     if (tree.post_close_consolidated_parent?.company && tree.post_close_consolidated_parent.company !== pa.acquirer) {
       notes.push(`Post-close consolidated parent will be ${tree.post_close_consolidated_parent.company}.`);
     }
+  }
+  if (coOwners.length > 0) {
+    const labels = coOwners.map((c) => {
+      const stake = c.stake_pct != null ? ` ${c.stake_pct}% econ` : '';
+      const vote = c.voting_pct != null ? ` / ${c.voting_pct}% vote` : '';
+      const role = c.ownership_role ? ` (${c.ownership_role.replace(/_/g, ' ')})` : '';
+      return `${c.company}${role}${stake || vote ? ' —' : ''}${stake}${vote}`;
+    }).join('; ');
+    const parentRoleStr = tree.ownership_role ? ` as ${tree.ownership_role.replace(/_/g, ' ')}` : '';
+    notes.push(`Multi-owner structure: ${tree.parent?.company || 'parent'}${parentRoleStr} alongside co-owner${coOwners.length === 1 ? '' : 's'}: ${labels}. Focal-vs-parent ratio uses the combined owner group.`);
   }
   if (tree.terminal_layer === 'private_equity') notes.push('Family is PE-owned — expect optimization for EBITDA and exit timing.');
   if ((tree.strategic_control || []).some((s) => deriveStrategicRoleClass(s.role_description || s.relationship) === 'investor')) {

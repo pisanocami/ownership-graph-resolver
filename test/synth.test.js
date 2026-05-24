@@ -391,3 +391,75 @@ test('Cousins: synthesize attaches revenue estimate to cousin nodes', () => {
   assert.equal(lv.revenue_estimate.confidence, 'high');
   assert.equal(lv.via_division, 'Fashion & Leather Goods', 'via_division preserved for UI');
 });
+
+// ─── Bug #2: co_owners (multi-owner / steward / JV) ─────────────────────────
+
+const patagoniaOwnership = {
+  company: 'Patagonia', domain: 'patagonia.com', node_type: 'legal_entity',
+  layer: 'brand', in_current_sources: true,
+  ownership_role: 'voting_control',
+  parent: {
+    company: 'Patagonia Purpose Trust', domain: null, node_type: 'legal_entity',
+    layer: 'parent', in_current_sources: true, parent: null, siblings: [], children: [],
+    strategic_control: [], sources: [],
+  },
+  co_owners: [
+    {
+      company: 'Holdfast Collective',
+      ownership_role: 'economic_beneficiary',
+      stake_pct: 98, voting_pct: 0,
+      evidence: 'Chouinard family transferred 98% non-voting shares to Holdfast Collective (2022).',
+      entity_type: 'nonprofit',
+      source_urls: ['https://www.patagonia.com/ownership/'],
+    },
+  ],
+  siblings: [], children: [], strategic_control: [], sources: [],
+};
+
+test('Bug #2: collectEntities includes co_owners with role + stake context', () => {
+  const ents = collectEntities(patagoniaOwnership);
+  const holdfast = ents.find((e) => e.company === 'Holdfast Collective');
+  assert.ok(holdfast, 'Holdfast Collective is collected for revenue enrichment');
+  assert.equal(holdfast.role, 'co_owner');
+  assert.equal(holdfast.ownership_role, 'economic_beneficiary');
+  assert.equal(holdfast.stake_pct, 98);
+  assert.equal(holdfast.entity_type, 'nonprofit');
+});
+
+test('Bug #2: synthesize attaches revenue to co_owners and folds them into the owner-group ratio', () => {
+  const revenueByCompany = {
+    'patagonia': {
+      revenue_estimate: { low: 1.5e9, high: 1.8e9, central: 1.6e9 },
+      confidence: 'high', signals_found: [], reasoning_summary: '',
+    },
+    'patagonia purpose trust': {
+      revenue_estimate: { low: 1.6e9, high: 1.6e9, central: 1.6e9 },
+      confidence: 'low', signals_found: [], reasoning_summary: '',
+    },
+    'holdfast collective': {
+      revenue_estimate: { low: 0, high: 0, central: 0 },
+      confidence: 'low', signals_found: [],
+      reason_for_null: 'Nonprofit beneficiary; no operating revenue.',
+    },
+  };
+  const out = synthesize(patagoniaOwnership, revenueByCompany, null, {});
+  const co = out.ownership_tree.co_owners[0];
+  assert.ok(co.revenue_estimate, 'co_owner has revenue_estimate attached');
+  assert.equal(co.revenue_estimate.central, 0, 'beneficiary central revenue is zero');
+  // Ratio uses combined owner group (parent + co_owners); should not exceed 100%.
+  const ratioStr = out.positioning_analysis.focal_vs_parent_ratio;
+  assert.match(ratioStr, /co-owner/, 'ratio label mentions co-owner group');
+  const pct = parseFloat(ratioStr.match(/([\d.]+)%/)[1]);
+  assert.ok(pct <= 100, `focal/(parent+co_owners) ratio must not exceed 100% (got ${pct}%)`);
+  const multiNote = out.positioning_analysis.strategic_notes.find((n) => /Multi-owner structure/.test(n));
+  assert.ok(multiNote, 'multi-owner note is surfaced');
+  assert.match(multiNote, /Holdfast Collective/);
+});
+
+test('Bug #2: ownership without co_owners is unchanged (backward compatible)', () => {
+  const ents = collectEntities(t04.ownership);
+  assert.equal(ents.filter((e) => e.role === 'co_owner').length, 0);
+  const out = synthesize(t04.ownership, t04.revenueByCompany, t04.parentAnchor);
+  // Legacy ratio format ("X% of <parent> revenue") preserved when no co_owners.
+  assert.match(out.positioning_analysis.focal_vs_parent_ratio, /of .+ revenue|standalone|unknown/);
+});
