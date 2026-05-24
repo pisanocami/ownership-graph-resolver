@@ -2519,6 +2519,44 @@ async function generatePDF(result) {
     y = py + 8;
   }
 
+  // Key insights bullets
+  {
+    const insights = [];
+    if (tree.ubo_type && tree.ubo_type !== 'unknown') {
+      if (tree.ubo_type === 'family_owned') insights.push('Private family-owned');
+      else if (tree.ubo_type === 'private_equity') insights.push('Private equity-backed');
+      else if (tree.ubo_type === 'public') insights.push('Publicly traded');
+      else if (tree.ubo_type === 'state_owned') insights.push('State-owned enterprise');
+    }
+    if (revEst.central && revEst.central > 0) {
+      insights.push(`~${formatUSD(revEst.central)} estimated annual revenue`);
+    }
+    if (tree.parent && recon && recon.ratio) {
+      const coverPct = Math.round(recon.ratio * 100);
+      insights.push(`${coverPct}% of parent's revenue captured`);
+    }
+    if (Array.isArray(tree.co_owners) && tree.co_owners.length > 0) {
+      insights.push(`Multi-owner structure (${tree.co_owners.length} co-owner${tree.co_owners.length > 1 ? 's' : ''})`);
+    }
+    if (pa && pa.acquirer) {
+      insights.push(`Pending acquisition by ${pa.acquirer}`);
+    } else if (acq && acq.acquired_by) {
+      const yearStr = acq.year ? ` (${acq.year})` : '';
+      insights.push(`Previously acquired by ${acq.acquired_by}${yearStr}`);
+    }
+    if (insights.length > 0) {
+      ensure(insights.length * 3 + 4);
+      font(9, 'bold'); pdf.setTextColor(...C.ink);
+      pdf.text('Key Insights', margin, y, { baseline: 'top' }); y += 4;
+      insights.forEach((insight) => {
+        font(8.5, 'normal'); pdf.setTextColor(...C.text);
+        pdf.text(`• ${insight}`, margin + 2, y, { baseline: 'top' });
+        y += 3.2;
+      });
+      y += 1;
+    }
+  }
+
   // UBO stake sub-block (mirrors the detail panel's "Ownership stake" card).
   if (tree.stake && (tree.stake.equity_pct != null || tree.stake.voting_pct != null || tree.stake.evidence)) {
     ensure(14);
@@ -2549,6 +2587,26 @@ async function generatePDF(result) {
       pdf.text(truncateToWidth(url, contentW - 8), margin + 4, yy, { baseline: 'top' });
     }
     y = top + blockH + 3;
+  }
+
+  // ─── Closed acquisition (historical) ───
+  const acq = tree.acquisition;
+  if (acq && acq.acquired_by) {
+    section('Closed Acquisition');
+    const yearStr = acq.year ? acq.year.toString() : 'date unknown';
+    const dealTypeStr = acq.deal_type ? ` (${acq.deal_type.replace(/_/g, ' ')})` : '';
+    const priceStr = acq.price_display ? ` for ${acq.price_display}` : (acq.price_usd ? ` for ${formatUSD(acq.price_usd)}` : '');
+    text(`Acquired by ${acq.acquired_by} in ${yearStr}${priceStr}${dealTypeStr}`, { size: 10.5, style: 'bold', color: C.text, gap: 1.5 });
+    if (acq.price_confidence && acq.price_display) {
+      let px = margin; const py = y;
+      px += pill(`price confidence: ${acq.price_confidence}`, px, py, C.surface, C.muted);
+      y = py + 8;
+    }
+    if (acq.price_source_url && isSafeUrl(acq.price_source_url)) {
+      text(acq.price_source_url, { size: 8, color: C.accentHover, gap: 1 });
+    } else if (acq.source_url && isSafeUrl(acq.source_url)) {
+      text(acq.source_url, { size: 8, color: C.accentHover, gap: 1 });
+    }
   }
 
   // ─── Pending acquisition callout ───
@@ -2705,6 +2763,36 @@ async function generatePDF(result) {
   }
   y += 2;
 
+  // ─── Ownership Chain Detail ───
+  const chainWithFocal = [...chain, tree];
+  const chainWithDetail = chainWithFocal.filter((n) => {
+    const hasStake = n.stake && (n.stake.equity_pct != null || n.stake.voting_pct != null);
+    const hasRole = n.ownership_role;
+    return hasStake || hasRole;
+  });
+  if (chainWithDetail.length > 0) {
+    section('Ownership Chain Detail', 14);
+    text('Stake and control information for the ownership chain:', { size: 8.5, style: 'italic', color: C.muted, gap: 2 });
+    chainWithDetail.forEach((n) => {
+      ensure(8);
+      font(9, 'bold'); pdf.setTextColor(...C.text);
+      pdf.text(truncateToWidth(n.company, contentW - 30), margin, y + 0.3, { baseline: 'top' });
+      y += 4.5;
+
+      const bits = [];
+      if (n.stake?.equity_pct != null) bits.push(`${n.stake.equity_pct}% equity`);
+      if (n.stake?.voting_pct != null) bits.push(`${n.stake.voting_pct}% voting`);
+      if (n.ownership_role) bits.push(`role: ${n.ownership_role}`);
+
+      if (bits.length > 0) {
+        font(8.5, 'normal'); pdf.setTextColor(...C.muted);
+        pdf.text(bits.join(' · '), margin + 3, y, { baseline: 'top' });
+        y += 4;
+      }
+    });
+    y += 1;
+  }
+
   // ─── Revenue Breakdown ───
   const breakdownRows = [tree, ...siblings].map((n) => {
     const st = deriveStatus(n).label;
@@ -2721,6 +2809,113 @@ async function generatePDF(result) {
   if (breakdownRows.length > 0) {
     section('Revenue Breakdown');
     table(['Company', 'Category', 'Revenue', 'Conf.', 'Status'], breakdownRows, [46, 48, 30, 22, 32]);
+
+    // Confidence distribution chart (stacked bar for top 3 + focal)
+    {
+      const entities = [tree, ...siblings].slice(0, 4);
+      const confData = entities.map((n) => {
+        const rev = n.revenue_estimate || {};
+        const conf = rev.confidence || 'unknown';
+        return { company: n.company, confidence: conf };
+      });
+      const confCounts = { high: 0, medium: 0, low: 0, unknown: 0 };
+      confData.forEach((d) => {
+        const key = d.confidence === 'high' ? 'high' : d.confidence === 'medium' ? 'medium' : d.confidence === 'low' ? 'low' : 'unknown';
+        confCounts[key]++;
+      });
+
+      if (confData.some((d) => d.confidence !== 'unknown')) {
+        ensure(20);
+        y += 2;
+        font(9, 'bold'); pdf.setTextColor(...C.ink);
+        pdf.text('Revenue Confidence Distribution', margin, y, { baseline: 'top' }); y += 5;
+
+        // Draw horizontal stacked bar
+        const barY = y;
+        const barW = contentW * 0.6;
+        const barH = 8;
+        const total = confData.length;
+        let xPos = margin;
+
+        pdf.setFillColor(...[34, 197, 94]); // green for high
+        const highW = (confCounts.high / total) * barW;
+        pdf.rect(xPos, barY, highW, barH, 'F');
+        xPos += highW;
+
+        pdf.setFillColor(...[234, 179, 8]); // yellow for medium
+        const medW = (confCounts.medium / total) * barW;
+        pdf.rect(xPos, barY, medW, barH, 'F');
+        xPos += medW;
+
+        pdf.setFillColor(...[239, 68, 68]); // red for low
+        const lowW = (confCounts.low / total) * barW;
+        pdf.rect(xPos, barY, lowW, barH, 'F');
+        xPos += lowW;
+
+        if (confCounts.unknown > 0) {
+          pdf.setFillColor(...C.border);
+          pdf.rect(xPos, barY, barW - xPos + margin, barH, 'F');
+        }
+
+        pdf.setDrawColor(...C.border); pdf.setLineWidth(0.3);
+        pdf.rect(margin, barY, barW, barH);
+
+        y = barY + barH + 3;
+
+        // Legend
+        font(7.5, 'normal');
+        let legX = margin;
+        const legY = y;
+        [
+          { label: `High (${confCounts.high})`, color: [34, 197, 94] },
+          { label: `Medium (${confCounts.medium})`, color: [234, 179, 8] },
+          { label: `Low (${confCounts.low})`, color: [239, 68, 68] },
+        ].forEach(({ label, color }) => {
+          pdf.setFillColor(...color);
+          pdf.rect(legX, legY, 3, 3, 'F');
+          pdf.setTextColor(...C.text);
+          pdf.text(label, legX + 5, legY + 0.3, { baseline: 'top' });
+          legX += pdf.getTextWidth(label) + 12;
+        });
+        y += 5;
+      }
+    }
+
+    // Sibling ranking bar chart
+    if (siblings.length > 0) {
+      ensure(Math.min(30, 8 + siblings.length * 5));
+      y += 2;
+      font(9, 'bold'); pdf.setTextColor(...C.ink);
+      pdf.text('Sibling Revenue Ranking', margin, y, { baseline: 'top' }); y += 5;
+
+      const ranked = [{ company: tree.company, central: tree.revenue_estimate?.central || 0, isFocal: true },
+        ...siblings.map((s) => ({ company: s.company, central: s.revenue_estimate?.central || 0, isFocal: false }))]
+        .sort((a, b) => b.central - a.central);
+
+      const maxRevenue = Math.max(...ranked.map((r) => r.central), 1);
+      const barH = 6;
+      const barMaxW = contentW * 0.65;
+
+      ranked.forEach((r, i) => {
+        ensure(barH + 2);
+        const barW = (r.central / maxRevenue) * barMaxW;
+        const rankY = y;
+
+        pdf.setFillColor(...(r.isFocal ? C.accent : C.surface));
+        pdf.rect(margin, rankY, barW, barH, 'F');
+
+        font(7.5, r.isFocal ? 'bold' : 'normal');
+        pdf.setTextColor(...(r.isFocal ? C.accentHover : C.text));
+        const label = `#${i + 1} ${r.company} ${r.central > 0 ? formatUSD(r.central) : '—'}`;
+        pdf.text(label, margin + 3, rankY + barH / 2 + 0.2, { baseline: 'middle' });
+
+        pdf.setDrawColor(...C.border); pdf.setLineWidth(0.2);
+        pdf.rect(margin, rankY, barMaxW, barH);
+
+        y = rankY + barH + 1;
+      });
+      y += 2;
+    }
   }
 
   // ─── Cousins (same parent, other divisions) ───
@@ -2770,6 +2965,33 @@ async function generatePDF(result) {
       text(list, { size: 9, color: C.muted });
     }
     if (positioning.growth_signals) text(`Growth signals: ${positioning.growth_signals}`, { size: 9, color: C.muted });
+  }
+
+  // ─── Revenue Consistency Alerts ───
+  const reviewNodes = [
+    { node: tree, role: 'focal' },
+    ...siblings.map((s) => ({ node: s, role: 'sibling' })),
+    ...(Array.isArray(tree.intra_parent_cousins) ? tree.intra_parent_cousins : [])
+      .map((c) => ({ node: c, role: 'cousin' })),
+  ].filter(({ node }) => node.requires_review);
+
+  if (reviewNodes.length > 0) {
+    section('Revenue Consistency Alerts', 20);
+    text('The following entities have potential revenue inconsistencies that require review:',
+      { size: 8.5, style: 'italic', color: C.muted, gap: 2 });
+    reviewNodes.forEach(({ node, role }) => {
+      ensure(10);
+      font(10, 'bold'); pdf.setTextColor(...C.danger);
+      pdf.text(truncateToWidth(node.company, contentW - 30), margin, y + 0.3, { baseline: 'top' });
+      let lx = margin + pdf.getTextWidth(sanitize(node.company)) + 3;
+      pill('review', lx, y - 0.2, C.dangerBg, C.danger);
+      y += 6;
+      if (node.revenue_review_reason) {
+        text(node.revenue_review_reason, { size: 9, color: C.text, x: margin + 3, maxW: contentW - 6, gap: 1.5 });
+      } else {
+        text('Revenue estimate may exceed parent or violate hierarchy constraints.', { size: 9, color: C.muted, x: margin + 3, maxW: contentW - 6, gap: 1.5 });
+      }
+    });
   }
 
   // ─── Reconciliation (+ explanation) ───
