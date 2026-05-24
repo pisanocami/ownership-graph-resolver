@@ -311,26 +311,44 @@ export function detectFamilyConcentrated(tree) {
   const empty = { is_family: false, total_pct: 0, members: [], surname: null };
   if (!tree) return empty;
   const co = Array.isArray(tree.co_owners) ? tree.co_owners : [];
-  const parent = tree.parent || null;
 
-  // Case A: parent is an individual UBO (e.g. founder holds 100%).
-  if (parent && parent.node_type === 'individual') {
-    const pct = Number(parent.ownership_pct) || 100;
+  // Walk the parent chain — the UBO may sit several layers up (focal → opco →
+  // group → family). Collect any individual / family_group node along the way.
+  const chain = [];
+  for (let p = tree.parent; p; p = p.parent) chain.push(p);
+
+  // Case A: any node in the chain is an individual UBO, or a legal_entity
+  // marked as a family_group / family_office (e.g. "Walton Enterprises").
+  const familyNode = chain.find((n) =>
+    n.node_type === 'individual'
+    || n.ubo_type === 'family_group'
+    || n.ubo_type === 'family_office'
+    || /\b(family|familia|trust|enterprises|holdings)\b/i.test(n.company || '') && /\b(family|familia)\b/i.test(n.company || '')
+  );
+  if (familyNode) {
+    const pct = Number(familyNode.ownership_pct) || 100;
+    // Gather other individuals along the chain or in co_owners that share the
+    // dominant surname — gives us a multi-member detail table (Aponte 4).
+    const candidates = [familyNode, ...chain.filter((n) => n.node_type === 'individual'), ...co.filter((c) => c.node_type === 'individual')]
+      .filter((n, i, arr) => arr.findIndex((m) => m.company === n.company) === i);
+    const sn = surnameOf(familyNode.company);
+    const sameSurname = candidates.filter((c) => sn && surnameOf(c.company) === sn);
+    const members = (sameSurname.length >= 2 ? sameSurname : [familyNode]).map((c) => ({
+      name: c.company,
+      role: c.role || c.ownership_role || (c === familyNode ? 'Founder / Owner' : 'Family member'),
+      est_stake: c.ownership_pct ? `${c.ownership_pct}%` : (c === familyNode ? `${pct}%` : 'undisclosed'),
+    }));
     return {
       is_family: true,
       total_pct: pct,
-      members: [{
-        name: parent.company,
-        role: parent.role || 'Founder / Owner',
-        est_stake: `${pct}%`,
-      }],
-      surname: surnameOf(parent.company),
+      members,
+      surname: sn,
     };
   }
 
-  // Case B: co_owners are individuals that share a surname or "Family" suffix.
+  // Case B: co_owners are individuals that share a surname (no allowlist).
   if (co.length > 0) {
-    const individuals = co.filter((c) => c.node_type === 'individual' || /family|trust|aponte|walton|mars|ferrero/i.test(c.company || ''));
+    const individuals = co.filter((c) => c.node_type === 'individual');
     const surnameCounts = new Map();
     individuals.forEach((c) => {
       const sn = surnameOf(c.company);
@@ -662,7 +680,9 @@ export function buildMispricingSkeleton(tree, positioning, competitive_context =
   }
 
   // Peer multiples skeleton — LLM fills in actual multiples when peers exist.
-  const peer_multiples = Array.isArray(competitive_context) && competitive_context.length > 0
+  // When no competitive_context is supplied, fall back to the sector catalog so
+  // a peer set still appears for known consumer/CPG categories.
+  let peer_multiples = Array.isArray(competitive_context) && competitive_context.length > 0
     ? {
         peers: competitive_context.slice(0, 5).map((p) => ({
           name: p.competitor,
@@ -670,9 +690,29 @@ export function buildMispricingSkeleton(tree, positioning, competitive_context =
           ev_to_revenue: null, // LLM-fill
           discount_or_premium_pct: null, // LLM-fill
         })),
-        decomposition: null, // LLM-fill: how much of the discount is family/governance/segment-mix?
+        decomposition: null,
+        source: 'discovered',
       }
     : null;
+  if (!peer_multiples) {
+    const catalogPeers = buildPeerMultiplesFromCatalog(tree);
+    if (catalogPeers) peer_multiples = catalogPeers;
+  }
+  if (peer_multiples) {
+    // Compute implied valuation if we have the focal's revenue and at least one
+    // peer multiple — gives the brief a concrete number even pre-LLM.
+    const central = tree.revenue_estimate?.central;
+    const multiples = peer_multiples.peers.map((p) => p.ev_to_revenue).filter((v) => typeof v === 'number');
+    if (central && multiples.length) {
+      const med = multiples.slice().sort((a, b) => a - b)[Math.floor(multiples.length / 2)];
+      peer_multiples.implied_valuation_usd = Math.round(central * med);
+      peer_multiples.peer_median_ev_revenue = med;
+    }
+    // Discount decomposition (deterministic ranges; LLM may override).
+    if (!peer_multiples.decomposition) {
+      peer_multiples.decomposition = buildDiscountDecomposition(tree);
+    }
+  }
 
   return {
     current_pricing_internal,
@@ -807,22 +847,40 @@ export function buildIntelligenceBrief(tree, positioning, opts = {}) {
     confidence_gaps.verdict_changers.push('Reconciliation delta ±30%+ suggests missing siblings or estimate issues');
   }
 
+  // V2.1 enrichment: confidence buckets, verdict-changer condition→label map,
+  // gap leverage stars, section-confidence breakdown, sources split, and the
+  // capital-path one-liner for the hero. All deterministic seeds — LLM may
+  // augment but the brief renders correctly even without enrichment.
+  const verdict_changer_map = buildVerdictChangerMap(tree, capDecisionObj, family_detail);
+  const confidence_buckets = buildConfidenceBuckets(tree, positioning, escalated.triggers);
+  const known_gaps_starred = buildGapLeverageStars(confidence_gaps.known_gaps, family_detail);
+  const section_confidence = buildSectionConfidence(tree, positioning, mispricing, family_detail);
+  const limitations_list = buildLimitationsList(tree, positioning, escalated.triggers);
+  const data_trace_split = splitDataSources(tree);
+  const capital_path_summary = buildCapitalPathSummaryText(tree, family_detail, capDecisionObj);
+  const actionable_reads = buildActionableReads(tree, verdict, mispricing, family_detail);
+
   return {
     verdict: {
       ...verdict,
       confidence_reasoning: escalated.confidence_reasoning,
       thesis: null,
       verdict_changers: verdict_changers_list,
+      verdict_changer_map,
+      capital_path_summary,
     },
     behavioral_signals,
     top_signals,
     counter_signals,
     corporate_structure,
-    mispricing,
+    mispricing: { ...mispricing, actionable_reads },
     competitive_context: null,
     reconciliation_honest,
     reconciliation_dual_model,
-    confidence_gaps,
+    confidence_gaps: { ...confidence_gaps, known_gaps_starred },
+    confidence_buckets,
+    section_confidence,
+    limitations_list,
     strategic_notes_by_audience: {
       for_investors: verdict.capital_decision === 'Not actionable as standalone'
         ? `Treat ${tree.company} as a market-intelligence signal and private comparable, not a transactable target.`
@@ -831,6 +889,328 @@ export function buildIntelligenceBrief(tree, positioning, opts = {}) {
       for_ma_advisors: mispricing.ma_attention !== 'none' ? 'Pending LLM enrichment' : null,
       for_growth_signal_users: 'Pending LLM enrichment',
     },
-    data_trace,
+    data_trace: { ...data_trace, ...data_trace_split },
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// V2.1 Perfect-Brief enrichment helpers (added in Task #58)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── Consumer sector whitelist + B2B-niche guard (P6.01) ──────────────────
+// The previous B2B-niche classifier was too aggressive — DTC mattress, cruise,
+// and chocolate brands ended up with `competitive_context = null`. Surface a
+// whitelist of consumer categories that ALWAYS deserve a peer set discovery
+// attempt, even when their name contains words like "platform".
+export const CONSUMER_SECTOR_KEYWORDS = [
+  'cruise', 'cruises', 'crucero', 'cruceros', 'cruise line',
+  'cpg', 'consumer goods', 'food', 'snack', 'chocolate', 'confectionery',
+  'beverage', 'drink', 'alcohol', 'spirits', 'wine', 'beer',
+  'apparel', 'fashion', 'luxury', 'jewelry', 'watch', 'eyewear',
+  'auto', 'automotive', 'vehicle', 'motorcycle', 'aviation',
+  'mattress', 'sleep', 'bedding', 'furniture', 'home goods',
+  'retail', 'dtc', 'direct-to-consumer', 'ecommerce',
+  'hospitality', 'hotel', 'restaurant', 'qsr',
+  'pharma', 'biotech', 'medical device', 'health',
+  'media', 'entertainment', 'streaming', 'studio', 'music', 'gaming',
+  'fintech', 'banking', 'insurance', 'payments',
+  'telecom', 'wireless', 'mobile',
+];
+
+export function isConsumerSector(tree) {
+  if (!tree) return false;
+  const haystack = [
+    tree.company, tree.focal_segment, tree.category, tree.industry,
+    ...(tree.signals_found || []).map((s) => `${s.label || ''} ${s.value || ''}`),
+  ].join(' ').toLowerCase();
+  return CONSUMER_SECTOR_KEYWORDS.some((kw) => haystack.includes(kw));
+}
+
+// ─── Peer multiples catalog (P5.02) ───────────────────────────────────────
+// Static catalog keyed by sector — concrete EV/Revenue ranges from public
+// comparables so the brief shows a peer set even when web search returns nothing.
+export const PEER_MULTIPLES_CATALOG = {
+  cruise: {
+    peers: [
+      { name: 'Carnival Corp (CCL)', revenue: 21.6e9, ev_to_revenue: 2.4 },
+      { name: 'Royal Caribbean (RCL)', revenue: 13.9e9, ev_to_revenue: 3.8 },
+      { name: 'Norwegian Cruise Line (NCLH)', revenue: 8.5e9, ev_to_revenue: 3.0 },
+      { name: 'Viking Holdings (VIK)', revenue: 4.7e9, ev_to_revenue: 4.5 },
+    ],
+    keywords: ['cruise', 'cruises', 'crucero', 'cruceros', 'cruise line'],
+  },
+  chocolate_cpg: {
+    peers: [
+      { name: 'Mondelez (MDLZ)', revenue: 36.0e9, ev_to_revenue: 3.5 },
+      { name: 'Hershey (HSY)', revenue: 11.2e9, ev_to_revenue: 3.6 },
+      { name: 'Nestlé (NESN)', revenue: 100.0e9, ev_to_revenue: 3.2 },
+      { name: 'Lindt & Sprüngli', revenue: 5.5e9, ev_to_revenue: 4.0 },
+    ],
+    keywords: ['chocolate', 'confectionery', 'candy', 'snack'],
+  },
+  luxury_auto: {
+    peers: [
+      { name: 'Ferrari (RACE)', revenue: 6.8e9, ev_to_revenue: 11.5 },
+      { name: 'Porsche AG (P911)', revenue: 41.0e9, ev_to_revenue: 1.8 },
+      { name: 'Bentley (private, VW)', revenue: 3.4e9, ev_to_revenue: null },
+      { name: 'Aston Martin Lagonda (AML.L)', revenue: 1.6e9, ev_to_revenue: 1.4 },
+    ],
+    keywords: ['luxury auto', 'sports car', 'supercar', 'aston martin', 'ferrari'],
+  },
+  outdoor_apparel: {
+    peers: [
+      { name: 'VF Corporation (VFC, The North Face)', revenue: 10.9e9, ev_to_revenue: 0.9 },
+      { name: 'Columbia Sportswear (COLM)', revenue: 3.4e9, ev_to_revenue: 1.0 },
+      { name: 'Yeti Holdings (YETI)', revenue: 1.7e9, ev_to_revenue: 1.8 },
+      { name: 'Canada Goose (GOOS)', revenue: 0.95e9, ev_to_revenue: 1.5 },
+    ],
+    keywords: ['outdoor', 'patagonia', 'north face', 'apparel'],
+  },
+  dtc_mattress: {
+    peers: [
+      { name: 'Sleep Number (SNBR)', revenue: 1.9e9, ev_to_revenue: 0.5 },
+      { name: 'Purple Innovation (PRPL)', revenue: 0.49e9, ev_to_revenue: 0.6 },
+      { name: 'Tempur Sealy (TPX)', revenue: 5.0e9, ev_to_revenue: 1.6 },
+    ],
+    keywords: ['mattress', 'sleep', 'bedding', 'nectar', 'awara', 'casper'],
+  },
+  fintech_banking: {
+    peers: [
+      { name: 'SoFi Technologies (SOFI)', revenue: 2.1e9, ev_to_revenue: 7.0 },
+      { name: 'Block (SQ)', revenue: 23.5e9, ev_to_revenue: 1.8 },
+      { name: 'Marqeta (MQ)', revenue: 0.68e9, ev_to_revenue: 1.6 },
+    ],
+    keywords: ['fintech', 'banking', 'neobank', 'mercury'],
+  },
+};
+
+export function detectSector(tree) {
+  if (!tree) return null;
+  const hay = [tree.company, tree.focal_segment, tree.category, tree.industry]
+    .filter(Boolean).join(' ').toLowerCase();
+  for (const [key, def] of Object.entries(PEER_MULTIPLES_CATALOG)) {
+    if (def.keywords.some((k) => hay.includes(k))) return key;
+  }
+  return null;
+}
+
+export function buildPeerMultiplesFromCatalog(tree) {
+  const sector = detectSector(tree);
+  if (!sector) return null;
+  const entry = PEER_MULTIPLES_CATALOG[sector];
+  return {
+    sector,
+    peers: entry.peers.map((p) => ({
+      name: p.name,
+      revenue: p.revenue || null,
+      ev_to_revenue: p.ev_to_revenue,
+      discount_or_premium_pct: null,
+    })),
+    decomposition: null,
+    source: 'catalog',
+  };
+}
+
+// ─── Discount decomposition (P5.03) ───────────────────────────────────────
+// Deterministic % ranges for illiquidity, conglomerate, governance discounts.
+// LLM may overwrite with sharper numbers when peer comps differ.
+export function buildDiscountDecomposition(tree) {
+  const components = [];
+  const isPublic = !!(tree?.ticker || tree?.parent?.ticker || tree?.public_listing);
+  const family = detectFamilyConcentrated(tree);
+  const hasConglomerateParent = tree?.parent && !tree?.parent?.ticker && (tree?.parent?.revenue_estimate?.central || 0) > 5 * (tree?.revenue_estimate?.central || 1e9);
+
+  if (!isPublic) components.push({ label: 'Illiquidity', pct_range: '20–30%', note: 'Private-company discount applied to public-peer multiples.' });
+  if (hasConglomerateParent) components.push({ label: 'Conglomerate / segment-mix', pct_range: '10–20%', note: `Embedded in ${tree.parent.company} — capital not directly accessible to focal-only acquirers.` });
+  if (family.is_family && family.total_pct >= 95) {
+    components.push({ label: 'Governance / family control', pct_range: '10–15%', note: 'Family-concentrated 100% with no public path — no monetization mechanism absent succession event.' });
+  } else if (tree?.co_owners?.length > 1) {
+    components.push({ label: 'Governance / split control', pct_range: '5–10%', note: 'Multi-owner structure limits unilateral capital decisions.' });
+  }
+  if (!components.length) return null;
+  const totalLow = components.reduce((a, c) => a + parseInt(c.pct_range, 10), 0);
+  const totalHigh = components.reduce((a, c) => a + parseInt(c.pct_range.split('–')[1], 10), 0);
+  return {
+    components,
+    aggregate_discount_range: `${totalLow}–${totalHigh}%`,
+  };
+}
+
+// ─── Actionable reads (P5.05) ─────────────────────────────────────────────
+// Translates the thesis into PE / comparables / competitive-intel takeaways.
+export function buildActionableReads(tree, verdict, mispricing, family) {
+  const reads = [];
+  if (verdict?.capital_decision === 'Not actionable as standalone') {
+    reads.push({ audience: 'PE / direct-acquirers', read: `No direct transaction path. Hold a watch list for ${family?.surname ? family.surname.charAt(0).toUpperCase() + family.surname.slice(1) + ' family' : 'controlling owner'} succession or holding-company restructuring announcements.` });
+    reads.push({ audience: 'Public-market comparables', read: `Use ${tree?.company} as a private benchmark when modeling public peers in the same category — useful for sanity-checking peer growth rates and unit economics.` });
+    reads.push({ audience: 'Competitive intelligence', read: `Track capex, fleet/asset orders, and hiring as the only reliable forward indicators given the absence of quarterly disclosures.` });
+  } else if (mispricing?.peer_multiples) {
+    reads.push({ audience: 'PE / direct-acquirers', read: `Peer EV/Rev range ${mispricing.peer_multiples.peer_median_ev_revenue ? `~${mispricing.peer_multiples.peer_median_ev_revenue}×` : 'see peer table'} sets a reference for entry pricing; combine with the discount decomposition to bracket bid range.` });
+    reads.push({ audience: 'Public-market comparables', read: `Trade triangulation against the listed peers in the catalog; private discount inferred ${mispricing.peer_multiples.decomposition?.aggregate_discount_range || 'unknown range'}.` });
+  } else {
+    reads.push({ audience: 'Competitive intelligence', read: `Treat the captured behavioral signals as the primary read on capital posture; verdict-changers list the events that would flip the thesis.` });
+  }
+  return reads;
+}
+
+// ─── Verdict-changer condition→label map (P7.03) ──────────────────────────
+export function buildVerdictChangerMap(tree, capDecision, family) {
+  const map = [];
+  if (capDecision?.reason === 'family_concentrated_100pct' && family?.surname) {
+    const surname = family.surname.charAt(0).toUpperCase() + family.surname.slice(1);
+    map.push({ condition: `${surname} family announces partial sale or IPO of operating division`, new_label: 'ACQUIRE TARGET' });
+    map.push({ condition: 'Holding-company restructuring separates focal segment from group', new_label: 'WATCH (transactability path opens)' });
+    map.push({ condition: 'Founder succession event triggers governance review', new_label: 'WATCH' });
+  } else if (capDecision?.reason === 'pe_owned') {
+    map.push({ condition: 'Sponsor files S-1 / announces dual-track', new_label: 'ACQUIRE TARGET (window opens)' });
+    map.push({ condition: 'Secondary stake sold to strategic acquirer', new_label: 'WATCH' });
+  } else if (capDecision?.reason === 'default_subsidiary') {
+    map.push({ condition: 'Parent divests focal as standalone', new_label: 'ACQUIRE TARGET' });
+    map.push({ condition: 'Reconciliation gap widens >50% (likely missing segments)', new_label: 'HOLD with caveat (estimate quality drops)' });
+  }
+  if (tree?.pending_acquisition || tree?.acquisition?.status === 'rumored') {
+    map.push({ condition: 'Pending or rumored M&A confirmed / closes', new_label: 'WATCH (post-close consolidation)' });
+  }
+  return map;
+}
+
+// ─── Confidence buckets HIGH/MED/LOW with one-line reasons (P7.01) ────────
+export function buildConfidenceBuckets(tree, positioning, escalatedTriggers = []) {
+  const high = [];
+  const medium = [];
+  const low = [];
+  const rev = tree?.revenue_estimate || {};
+  const recon = positioning?.reconciliation || null;
+
+  if (rev.confidence === 'high') high.push({ claim: 'Revenue central estimate', reason: rev.source ? `Anchored to ${rev.source}` : 'Single defensible anchor' });
+  if (tree?.parent?.ticker) high.push({ claim: 'Parent identity / public listing', reason: `Verifiable via ${tree.parent.ticker} filings` });
+  if (positioning?.parent_anchor?.is_public && positioning.parent_anchor.fiscal_year) {
+    high.push({ claim: 'Parent revenue benchmark', reason: `${positioning.parent_anchor.fiscal_year} 10-K segment data` });
+  }
+
+  if (rev.confidence === 'medium') medium.push({ claim: 'Revenue central estimate', reason: rev.source ? `Triangulated from ${rev.source}` : 'Multiple weak anchors' });
+  const verifiedSig = (tree?.signals_found || []).filter((s) => !s.context_unverified).length;
+  if (verifiedSig > 0) medium.push({ claim: `${verifiedSig} verified behavioral signal${verifiedSig === 1 ? '' : 's'}`, reason: 'Source attributed and cross-checked' });
+  if (recon && Math.abs(recon.pct_delta || 0) <= 30 && positioning?.parent_anchor?.is_public) {
+    medium.push({ claim: 'Sibling-set sum vs parent anchor', reason: `Within ${Math.abs(recon.pct_delta)}% of 10-K segment` });
+  }
+
+  if (rev.confidence === 'low' || (rev.high && rev.low && rev.low > 0 && rev.high / rev.low >= 2)) {
+    low.push({ claim: 'Revenue central estimate', reason: `Range spread ${rev.high && rev.low ? `${(rev.high / rev.low).toFixed(1)}×` : 'wide'}` });
+  }
+  escalatedTriggers.forEach((t) => low.push({ claim: 'Confidence escalation trigger', reason: t }));
+  if (tree?.parent && !positioning?.parent_anchor?.is_public) {
+    low.push({ claim: 'Parent revenue benchmark', reason: 'No public 10-K available; benchmark uses estimates only' });
+  }
+
+  return { high, medium, low };
+}
+
+// ─── Gap leverage stars (P7.02) ───────────────────────────────────────────
+// ★★★ family succession / IPO; ★★ M&A; ★ everything else.
+export function buildGapLeverageStars(knownGaps = [], family = null) {
+  return knownGaps.map((g) => {
+    let stars = 1;
+    const t = String(g).toLowerCase();
+    if (family?.is_family && /succession|family|founder/.test(t)) stars = 3;
+    else if (/ipo|partial sale|spin-off|m&a|acquisition|divest/.test(t)) stars = 3;
+    else if (/anchor|10-k|benchmark|reconciliation/.test(t)) stars = 2;
+    return { gap: g, stars };
+  });
+}
+
+// ─── Section confidence (per-section star) (P9.04) ────────────────────────
+export function buildSectionConfidence(tree, positioning, mispricing, family, competitiveContext = null) {
+  const score = (cond, low, mid, high) => (cond === 'high' ? high : cond === 'low' ? low : mid);
+  const rev = tree?.revenue_estimate || {};
+  const stars = (n) => '*'.repeat(Math.max(1, Math.min(3, n)));
+  // competitiveContext is sourced from brief-level (passed in from caller); fall
+  // back to tree.competitive_context for backwards compat.
+  const ctx = competitiveContext || tree?.competitive_context;
+  const hasCtx = Array.isArray(ctx) && ctx.length > 0;
+  return {
+    verdict: { stars: stars(score(rev.confidence, 1, 2, 3)), reason: rev.confidence === 'high' ? 'Anchored estimate' : 'Estimate-driven' },
+    behavioral_signals: { stars: stars((tree?.signals_found || []).filter((s) => !s.context_unverified).length >= 3 ? 3 : 2), reason: `${(tree?.signals_found || []).length} captured` },
+    corporate_structure: { stars: stars(family?.is_family || tree?.parent?.ticker ? 3 : 2), reason: family?.is_family ? 'Family UBO identified' : (tree?.parent ? 'Parent identified' : 'Standalone') },
+    reconciliation: { stars: stars(positioning?.parent_anchor?.is_public ? 3 : positioning?.reconciliation ? 2 : 1), reason: positioning?.parent_anchor?.is_public ? '10-K anchored' : 'Triangulated only' },
+    mispricing: { stars: stars(mispricing?.peer_multiples?.source === 'discovered' ? 3 : mispricing?.peer_multiples ? 2 : 1), reason: mispricing?.peer_multiples?.source === 'discovered' ? 'Web-discovered peers' : mispricing?.peer_multiples ? 'Catalog peers' : 'No peer set' },
+    competitive_context: { stars: stars(hasCtx ? 3 : 1), reason: hasCtx ? 'Peer set identified' : 'Discovery phase' },
+  };
+}
+
+// ─── Limitations list (P9.03) ─────────────────────────────────────────────
+export function buildLimitationsList(tree, positioning, escalatedTriggers = []) {
+  const out = [];
+  if (tree?.parent && !positioning?.parent_anchor?.is_public) out.push(`${tree.parent.company} is private — no 10-K anchor; reconciliation uses estimates only.`);
+  if (tree?.revenue_estimate?.high && tree?.revenue_estimate?.low && tree.revenue_estimate.high / tree.revenue_estimate.low >= 2) {
+    out.push(`Revenue range spread ${(tree.revenue_estimate.high / tree.revenue_estimate.low).toFixed(1)}× — central is a midpoint, not a single defensible number.`);
+  }
+  const sibs = tree?.siblings || [];
+  if (sibs.some((s) => !s.revenue_estimate?.central)) out.push(`${sibs.filter((s) => !s.revenue_estimate?.central).length} of ${sibs.length} captured siblings lack revenue estimates.`);
+  if (escalatedTriggers.length) out.push('Confidence forced to LOW (see triggers in confidence buckets).');
+  if (!tree?.signals_found?.length) out.push('No behavioral signals captured — verdict trajectory inferred from structure alone.');
+  return out;
+}
+
+// ─── Sources split: primary used vs excluded with reason (P9.01) ──────────
+export function splitDataSources(tree) {
+  const primary_used = new Set();
+  const excluded = [];
+  if (tree?.revenue_estimate?.source) primary_used.add(tree.revenue_estimate.source);
+  (tree?.signals_found || []).forEach((s) => { if (s.source) primary_used.add(s.source); });
+  (tree?.strategic_control || []).forEach((s) => { if (s.source) primary_used.add(s.source); });
+
+  // Common exclusions: SimilarWeb (web-traffic-only, misleading for offline categories);
+  // PitchBook / S&P Capital IQ (subscription-walled).
+  const sector = detectSector(tree);
+  if (sector === 'cruise' || sector === 'luxury_auto' || sector === 'dtc_mattress') {
+    excluded.push({ source: 'SimilarWeb', reason: 'Web-traffic proxy under-represents revenue for offline/asset-heavy categories.' });
+  }
+  excluded.push({ source: 'PitchBook / S&P Capital IQ', reason: 'Subscription-walled; not used in this run.' });
+  return {
+    primary_used: Array.from(primary_used),
+    excluded_with_reason: excluded,
+  };
+}
+
+// ─── Capital-path one-line summary (P1.04) ────────────────────────────────
+export function buildCapitalPathSummaryText(tree, family, capDecision) {
+  const parts = [];
+  if (family?.is_family && family.total_pct >= 95) parts.push('Family-owned private');
+  else if (capDecision?.reason === 'pe_owned') parts.push('PE-owned');
+  else if (tree?.parent?.ticker) parts.push(`Subsidiary of ${tree.parent.ticker}`);
+  else if (tree?.parent) parts.push(`Subsidiary of ${tree.parent.company}`);
+  else if (tree?.ticker) parts.push(`Public (${tree.ticker})`);
+  else parts.push('Standalone private');
+
+  if (!tree?.ticker && !tree?.parent?.ticker) parts.push('No public ticker');
+  const maSig = (tree?.signals_found || []).some((s) => s.type === 'm_and_a');
+  parts.push(maSig ? 'Recent M&A activity' : 'No M&A activity');
+  return parts.join(' · ');
+}
+
+// ─── PDF unicode → ASCII sanitizer (R.02, P.PDF polish) ───────────────────
+// jsPDF's standard helvetica font is WinAnsi only — many glyphs in the brief
+// (▣ ★ ◆ ▣ • − …) render as garbage or fall back to (""). Map them explicitly.
+export function sanitizeForPdf(s) {
+  return String(s ?? '')
+    .replace(/[▣■▪]/g, '#')
+    .replace(/[◆◇]/g, '*')
+    .replace(/[★☆]/g, '*')
+    .replace(/[•·●]/g, '-')
+    .replace(/[—–]/g, '-')
+    .replace(/[−]/g, '-')
+    .replace(/[…]/g, '...')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/[⚠]/g, '!')
+    .replace(/[✓✔]/g, 'OK')
+    .replace(/[○◯]/g, 'o')
+    .replace(/[→➔➜]/g, '->')
+    .replace(/[←]/g, '<-')
+    .replace(/[\u{1F000}-\u{1FAFF}]/gu, '')
+    .replace(/[\u{2190}-\u{21FF}]/gu, '')
+    .replace(/[\u{2300}-\u{27BF}]/gu, '')
+    .replace(/[\u{2B00}-\u{2BFF}]/gu, '')
+    .replace(/\uFE0F/g, '');
 }

@@ -13,6 +13,20 @@ import {
   detectMaAttention,
   buildDataTrace,
   buildMispricingSkeleton,
+  detectFamilyConcentrated,
+  isConsumerSector,
+  detectSector,
+  buildPeerMultiplesFromCatalog,
+  buildDiscountDecomposition,
+  buildVerdictChangerMap,
+  buildConfidenceBuckets,
+  buildGapLeverageStars,
+  buildSectionConfidence,
+  buildLimitationsList,
+  splitDataSources,
+  buildCapitalPathSummaryText,
+  buildActionableReads,
+  sanitizeForPdf,
 } from '../brief.js';
 import { synthesize } from '../synth.js';
 
@@ -374,4 +388,154 @@ test('integration: real fixture has all brief sections', () => {
   assert.ok(Array.isArray(brief.behavioral_signals), 'behavioral_signals should be array');
   assert.ok(brief.corporate_structure, 'corporate_structure missing');
   assert.ok(brief.data_trace, 'data_trace missing');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// V2.1 Perfect-Brief enrichment helper tests (Task #58)
+// ═══════════════════════════════════════════════════════════════════════════
+
+test('detectFamilyConcentrated: walks parent chain to find individual UBO', () => {
+  // Aponte case: family sits 3 layers up (focal -> opco -> group -> family).
+  const tree = {
+    company: 'MSC Cruises',
+    parent: {
+      company: 'MSC Group',
+      parent: {
+        company: 'Gianluigi Aponte',
+        node_type: 'individual',
+        ownership_pct: 100,
+      },
+    },
+  };
+  const fam = detectFamilyConcentrated(tree);
+  assert.equal(fam.is_family, true);
+  assert.equal(fam.surname, 'aponte');
+  assert.equal(fam.total_pct, 100);
+});
+
+test('isConsumerSector: cruise focal returns true', () => {
+  assert.equal(isConsumerSector({ company: 'MSC Cruises', focal_segment: 'cruise line' }), true);
+  assert.equal(isConsumerSector({ company: 'Acme B2B Middleware' }), false);
+});
+
+test('detectSector + buildPeerMultiplesFromCatalog: cruise → 4 peers from catalog', () => {
+  const tree = { company: 'MSC Cruises', focal_segment: 'cruise' };
+  assert.equal(detectSector(tree), 'cruise');
+  const peers = buildPeerMultiplesFromCatalog(tree);
+  assert.equal(peers.source, 'catalog');
+  assert.equal(peers.peers.length, 4);
+  assert.ok(peers.peers.every((p) => typeof p.ev_to_revenue === 'number'));
+});
+
+test('buildDiscountDecomposition: private family-concentrated → illiquidity + governance components', () => {
+  const tree = {
+    company: 'Brand',
+    parent: { company: 'Founder', node_type: 'individual', ownership_pct: 100 },
+    revenue_estimate: { central: 1e9 },
+  };
+  const dec = buildDiscountDecomposition(tree);
+  assert.ok(dec);
+  assert.ok(dec.components.some((c) => c.label === 'Illiquidity'));
+  assert.ok(dec.components.some((c) => /Governance/i.test(c.label)));
+  assert.ok(/%/.test(dec.aggregate_discount_range));
+});
+
+test('buildVerdictChangerMap: family-concentrated → ≥3 condition/label entries', () => {
+  const tree = { company: 'Brand', parent: { company: 'Aponte', node_type: 'individual', ownership_pct: 100 } };
+  const fam = detectFamilyConcentrated(tree);
+  const cap = { decision: 'Not actionable as standalone', reason: 'family_concentrated_100pct' };
+  const map = buildVerdictChangerMap(tree, cap, fam);
+  assert.ok(map.length >= 3);
+  assert.ok(map.every((m) => m.condition && m.new_label));
+});
+
+test('buildConfidenceBuckets: returns high/medium/low arrays', () => {
+  const tree = { company: 'Brand', revenue_estimate: { confidence: 'high', source: 'public 10-K' }, parent: { ticker: 'XYZ' } };
+  const positioning = { parent_anchor: { is_public: true, fiscal_year: '2024' } };
+  const b = buildConfidenceBuckets(tree, positioning, []);
+  assert.ok(Array.isArray(b.high));
+  assert.ok(Array.isArray(b.medium));
+  assert.ok(Array.isArray(b.low));
+  assert.ok(b.high.length >= 1);
+});
+
+test('buildGapLeverageStars: family succession gap → 3 stars', () => {
+  const stars = buildGapLeverageStars(['Family succession event'], { is_family: true });
+  assert.equal(stars[0].stars, 3);
+});
+
+test('buildSectionConfidence: returns 6 sections each with stars + reason', () => {
+  const sc = buildSectionConfidence(
+    { revenue_estimate: { confidence: 'medium' }, signals_found: [] },
+    { reconciliation: {} }, {}, { is_family: false },
+  );
+  assert.ok(sc.verdict.stars);
+  assert.ok(sc.behavioral_signals.stars);
+  assert.ok(sc.reconciliation.stars);
+});
+
+test('buildLimitationsList: private parent → 10-K note', () => {
+  const tree = { parent: { company: 'Holdings X' }, revenue_estimate: { central: 1e9 } };
+  const lims = buildLimitationsList(tree, { parent_anchor: { is_public: false } }, []);
+  assert.ok(lims.some((l) => /10-K|anchor/.test(l)));
+});
+
+test('splitDataSources: returns primary_used + excluded_with_reason', () => {
+  const tree = {
+    company: 'MSC',
+    focal_segment: 'cruise',
+    revenue_estimate: { source: 'company website' },
+    signals_found: [{ source: 'FT' }],
+  };
+  const s = splitDataSources(tree);
+  assert.ok(s.primary_used.includes('company website'));
+  assert.ok(s.excluded_with_reason.some((e) => /SimilarWeb/.test(e.source)));
+});
+
+test('buildCapitalPathSummaryText: family-private with no M&A → 3-part summary', () => {
+  const tree = { company: 'Brand' };
+  const fam = { is_family: true, total_pct: 100 };
+  const cap = { reason: 'family_concentrated_100pct' };
+  const txt = buildCapitalPathSummaryText(tree, fam, cap);
+  assert.match(txt, /Family-owned private/);
+  assert.match(txt, /No public ticker/);
+  assert.match(txt, /No M&A/);
+});
+
+test('buildActionableReads: not-actionable → 3 audience reads', () => {
+  const reads = buildActionableReads(
+    { company: 'Brand' },
+    { capital_decision: 'Not actionable as standalone' },
+    {},
+    { surname: 'aponte' },
+  );
+  assert.equal(reads.length, 3);
+  assert.ok(reads.every((r) => r.audience && r.read));
+});
+
+test('sanitizeForPdf: replaces unicode glyphs with ASCII equivalents', () => {
+  const input = '▣ Heading • bullet — em-dash … ★ star ✓ check → arrow';
+  const out = sanitizeForPdf(input);
+  assert.doesNotMatch(out, /[▣•—…★✓→]/);
+  assert.match(out, /# Heading - bullet - em-dash \.\.\. \* star OK check -> arrow/);
+});
+
+test('sanitizeForPdf: handles null/undefined safely', () => {
+  assert.equal(sanitizeForPdf(null), '');
+  assert.equal(sanitizeForPdf(undefined), '');
+  assert.equal(sanitizeForPdf(123), '123');
+});
+
+test('V2.1 integration: buildIntelligenceBrief return shape includes all new fields', () => {
+  const out = synthesize(t04, {}, null, {});
+  const b = out.intelligence_brief;
+  assert.ok('verdict_changer_map' in b.verdict);
+  assert.ok('capital_path_summary' in b.verdict);
+  assert.ok('actionable_reads' in b.mispricing);
+  assert.ok('confidence_buckets' in b);
+  assert.ok('section_confidence' in b);
+  assert.ok('limitations_list' in b);
+  assert.ok('excluded_with_reason' in b.data_trace);
+  assert.ok('primary_used' in b.data_trace);
+  assert.ok('known_gaps_starred' in b.confidence_gaps);
 });

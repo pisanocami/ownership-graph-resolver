@@ -18,6 +18,7 @@ import {
   mergeSiblings,
   mergeCousins,
 } from './synth.js';
+import { isConsumerSector, sanitizeForPdf } from './brief.js';
 
 const PROVIDERS = {
   anthropic: {
@@ -401,14 +402,14 @@ const MISPRICING_PROMPT = `You are a mispricing analyst. Given the focal company
 Rules:
 - has_thesis:true ONLY if you can articulate a specific, evidence-backed claim about under/overvaluation
 - has_thesis:false with a clear explanation (e.g., "correctly priced relative to peer set")
-- If has_thesis:true, falsifying_signals MUST be non-empty (list signals that would disprove it)
+- If has_thesis:true, falsifying_signals MUST be non-empty AND each entry MUST be a CONCRETE OBSERVABLE EVENT, not a generic phrase. Allowed examples: "IPO filing / S-1 disclosure", "Acquirer approach reported by FT/Reuters", "Holding-company restructuring announcement", "Peer multiple compression (EV/Rev <2× sustained)", "Founder succession event", "Material covenant breach in bond filing", "Secondary stake sold to strategic". BANNED filler: "New information indicating lower acquisition price", "Market conditions change", "Macro environment shifts".
 - If has_thesis:false, falsifying_signals should be []
 
 Return STRICT JSON:
 {
   "has_thesis": boolean,
   "hypothesis": "Mispricing thesis: [specific claim]" OR "No mispricing thesis: [reason]",
-  "falsifying_signals": [list of signal types that would disprove this] OR []
+  "falsifying_signals": ["concrete observable event 1", "concrete observable event 2", ...] OR []
 }`;
 
 const VERDICT_THESIS_PROMPT = `You are a portfolio strategist writing a thesis statement for this company's investment positioning.
@@ -464,24 +465,22 @@ Return STRICT JSON:
 
 const STRATEGIC_NOTES_PROMPT = `You are writing audience-specific investment guidance for each stakeholder group.
 
-For EACH applicable audience, write a 1-2 sentence note that translates the verdict and signals into actionable insight.
-
 Rules:
-- For investors: What does the verdict mean for portfolio positioning and risk? Name a concrete next action ("treat as private comparable for X", "track Y catalyst", "size exposure via Z").
-- For competitors: What is this company's competitive strategy and focus? Reference named competitors from the competitive_context when present.
-- For M&A advisors: What signals suggest acquisition readiness or strategic interest? Name plausible counterparties and the transaction structure (full sale, partial, IPO, secondary).
-- For growth-signal users: What is the near-term growth trajectory and capital commitment? Tie to a specific signal in the brief.
+- For investors: 1–2 sentences. Name a concrete next action ("treat as private comparable for X", "track Y catalyst", "size exposure via Z"). Cite at least one named entity from the input (parent, family, peer, acquirer candidate).
+- For competitors: 1–2 sentences. Reference named competitors from competitive_context when present. State what the focal's competitive posture implies for adjacent players.
+- For M&A advisors: 1–2 sentences. Name plausible counterparties (specific PE firms, strategics, or sovereigns: e.g. PIF, Apollo, Brookfield, KKR, Blackstone) and the transaction structure (full sale, partial, IPO, secondary).
+- For growth-signal users: an ARRAY of ≥4 distinct, concrete use cases. Each use case is one sentence, names a specific signal/metric to track, and states what action it unlocks for a growth-data customer. Examples: "Use fleet-order capex as a 2-year forward revenue indicator for benchmarking peer ship orders"; "Track Aponte succession news as the only catalyst that flips this asset to transactable".
 
-CRITICAL: Use real names (companies, families, products) from the input — NEVER generic placeholders like "the company" or "the family". Banned filler from VERDICT_THESIS_PROMPT also applies here.
+CRITICAL: Use real names from the input — NEVER generic placeholders like "the company" or "the family". Banned filler from VERDICT_THESIS_PROMPT also applies here.
 
 Omit audiences with no applicable context (e.g., if no M&A signals, omit for_ma_advisors).
 
 Return STRICT JSON:
 {
-  "for_investors": "[1-2 sentence investor note]" | null,
-  "for_competitors": "[1-2 sentence competitive note]" | null,
-  "for_ma_advisors": "[1-2 sentence M&A note]" | null,
-  "for_growth_signal_users": "[1-2 sentence growth-signal note]"
+  "for_investors": "[1-2 sentence investor note with named entities]" | null,
+  "for_competitors": "[1-2 sentence competitive note with named peers]" | null,
+  "for_ma_advisors": "[1-2 sentence M&A note with named counterparties]" | null,
+  "for_growth_signal_users": ["use case 1", "use case 2", "use case 3", "use case 4"]
 }`;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -1344,14 +1343,20 @@ RESPOND WITH A SINGLE JSON OBJECT (no markdown, no code fences):
 
           // ── Competitor discovery (optional, gated for B2B-niche)
           try {
-            const B2B_NICHE_KEYWORDS = ['SaaS', 'B2B', 'enterprise software', 'infrastructure', 'API', 'platform', 'middleware', 'vertical'];
-            const isBToBNiche = (
-              finalResult.focal_company?.includes('B2B')
-              || finalResult.focal_company?.includes('SaaS')
+            // V2.1 P6.01: consumer-sector whitelist short-circuits the B2B-niche
+            // check. Cruise, CPG, mattress, luxury-auto etc. always deserve a peer
+            // discovery attempt regardless of name-level keyword matches.
+            const consumerSector = isConsumerSector(finalResult.ownership_tree);
+            const B2B_NICHE_KEYWORDS = ['enterprise software', 'middleware', 'developer api'];
+            const isBToBNiche = !consumerSector && (
+              /\b(b2b|saas)\b/i.test(finalResult.focal_company || '')
               || (finalResult.focal_company && B2B_NICHE_KEYWORDS.some((kw) => finalResult.focal_company.toLowerCase().includes(kw.toLowerCase())))
             );
 
-            if (!isBToBNiche && finalResult.intelligence_brief && finalResult.intelligence_brief.competitive_context !== null) {
+            // V2.1 fix: buildIntelligenceBrief initializes competitive_context to
+            // null, so the gate must run discovery WHEN absent (=== null), not
+            // when present. Skip only for genuine B2B-niche brands.
+            if (!isBToBNiche && finalResult.intelligence_brief && finalResult.intelligence_brief.competitive_context == null) {
               appendTrace([{ kind: 'phase', phase: 'brief', label: 'discovering competitive context (web search)' }]);
 
               const competitorPrompt = `
@@ -1378,8 +1383,10 @@ Search for direct competitors and return the JSON result.`;
               if (compEnrich && compEnrich.competitors) {
                 if (compEnrich.competitors.length > 0) {
                   finalResult.intelligence_brief.competitive_context = compEnrich.competitors;
-                  // Backfill peer_multiples skeleton now that we have peers.
-                  // Deterministic structure; LLM is responsible for EV/Rev fills.
+                  // Backfill peer_multiples with discovered peers, but PRESERVE
+                  // V2.1 deterministic fields (source, peer_median_ev_revenue,
+                  // implied_valuation_usd, decomposition) that the catalog path
+                  // populated. Only the per-peer list is replaced.
                   try {
                     const peers = compEnrich.competitors.slice(0, 5).map((p) => ({
                       name: p.competitor || p.name,
@@ -1389,9 +1396,14 @@ Search for direct competitors and return the JSON result.`;
                     }));
                     if (peers.length > 0) {
                       finalResult.intelligence_brief.mispricing = finalResult.intelligence_brief.mispricing || {};
+                      const prev = finalResult.intelligence_brief.mispricing.peer_multiples || {};
                       finalResult.intelligence_brief.mispricing.peer_multiples = {
+                        ...prev,
                         peers,
-                        decomposition: null,
+                        source: 'discovered',
+                        // Decomposition is structural (illiquidity / governance /
+                        // conglomerate) — keep it if the catalog seeded it.
+                        decomposition: prev.decomposition || null,
                       };
                     }
                   } catch (_e) { /* non-fatal */ }
@@ -3345,7 +3357,9 @@ async function generateBriefPDF(result, svgImage = null) {
   const text = (str, opts = {}) => {
     const { size = 10, style = 'normal', color = [24, 24, 27], x = margin, maxW = contentW, gap = 1.8 } = opts;
     font(size, style); pdf.setTextColor(...color);
-    const lines = pdf.splitTextToSize(String(str ?? ''), maxW);
+    // V2.1 R.02 — sanitize unicode glyphs (▣ ★ ◆ • − …) that jsPDF helvetica
+    // cannot encode, otherwise they render as garbage or empty boxes.
+    const lines = pdf.splitTextToSize(sanitizeForPdf(str), maxW);
     const lineH = size * 0.42;
     lines.forEach((ln) => {
       ensure(lineH);
@@ -3398,18 +3412,29 @@ async function generateBriefPDF(result, svgImage = null) {
   // Capital-path line: surface the structural reason alongside the decision.
   const capReason = brief.verdict?.capital_decision_reason;
   const capLine = capReason
-    ? `Capital path: ${brief.verdict.capital_decision} · ${String(capReason).replace(/_/g, ' ')}`
+    ? `Capital path: ${brief.verdict.capital_decision} - ${String(capReason).replace(/_/g, ' ')}`
     : `Capital path: ${brief.verdict?.capital_decision || 'N/A'}`;
   text(capLine, { size: 11 });
+  // V2.1 P1.04 — capital-path one-liner (Family-owned private · No public ticker · No M&A activity)
+  if (brief.verdict?.capital_path_summary) {
+    text(brief.verdict.capital_path_summary, { size: 9.5, color: [110, 110, 130], style: 'italic' });
+  }
   text(`Revenue range: ${revRange}`, { size: 10, color: [80, 120, 160] });
   if (brief.verdict?.thesis) text(`Thesis: ${brief.verdict.thesis}`, { size: 10 });
 
-  // "What would make this actionable" — verdict changers.
+  // "What would make this actionable" — verdict changers + condition→label map.
   const changers = brief.verdict?.verdict_changers || [];
   if (isNotActionable && changers.length > 0) {
     y += 1;
     text('What would make this actionable:', { size: 10, style: 'bold', color: [60, 60, 80] });
-    changers.slice(0, 4).forEach((c) => text(`  • ${c}`, { size: 9, color: [60, 60, 60] }));
+    changers.slice(0, 4).forEach((c) => text(`  - ${c}`, { size: 9, color: [60, 60, 60] }));
+  }
+  // V2.1 P7.03 — explicit condition → new-label map.
+  const vMap = brief.verdict?.verdict_changer_map || [];
+  if (vMap.length > 0) {
+    y += 1;
+    text('Verdict-changer map (condition -> new label):', { size: 9.5, style: 'bold', color: [60, 60, 80] });
+    vMap.slice(0, 5).forEach((m) => text(`  - IF ${m.condition} -> ${m.new_label}`, { size: 8.5, color: [70, 70, 90] }));
   }
 
   // ─── Top-3 signals (lead the brief with "Read this as:") ─────────────
@@ -3638,14 +3663,35 @@ async function generateBriefPDF(result, svgImage = null) {
   const pm = brief.mispricing?.peer_multiples;
   if (pm && Array.isArray(pm.peers) && pm.peers.length > 0) {
     y += 1;
-    text('Peer-set multiples:', { size: 9, style: 'bold', color: [60, 60, 80] });
+    const srcTag = pm.source === 'catalog' ? ' (sector catalog)' : pm.source === 'discovered' ? ' (web-discovered)' : '';
+    text(`Peer-set multiples${srcTag}:`, { size: 9, style: 'bold', color: [60, 60, 80] });
     pm.peers.forEach((p) => {
-      const rev = p.revenue ? ` · ~$${(p.revenue / 1e9).toFixed(1)}B` : '';
-      const ev = p.ev_to_revenue != null ? ` · EV/Rev ${p.ev_to_revenue}` : '';
-      const disc = p.discount_or_premium_pct != null ? ` · ${p.discount_or_premium_pct > 0 ? '+' : ''}${p.discount_or_premium_pct}%` : '';
-      text(`   • ${p.name}${rev}${ev}${disc}`, { size: 9 });
+      const rev = p.revenue ? ` - ~$${(p.revenue / 1e9).toFixed(1)}B` : '';
+      const ev = p.ev_to_revenue != null ? ` - EV/Rev ${p.ev_to_revenue}x` : '';
+      const disc = p.discount_or_premium_pct != null ? ` - ${p.discount_or_premium_pct > 0 ? '+' : ''}${p.discount_or_premium_pct}%` : '';
+      text(`   - ${p.name}${rev}${ev}${disc}`, { size: 9 });
     });
-    if (pm.decomposition) text(`   Discount/premium decomposition: ${pm.decomposition}`, { size: 9, color: [80, 80, 100] });
+    if (pm.peer_median_ev_revenue != null && pm.implied_valuation_usd) {
+      text(`   Implied valuation (peer median ${pm.peer_median_ev_revenue}x x focal revenue): ~$${(pm.implied_valuation_usd / 1e9).toFixed(1)}B`, { size: 9, style: 'bold', color: [40, 80, 130] });
+    }
+    // V2.1 P5.03 — discount decomposition with components and aggregate range.
+    if (pm.decomposition && Array.isArray(pm.decomposition.components) && pm.decomposition.components.length > 0) {
+      text(`   Discount decomposition (aggregate ${pm.decomposition.aggregate_discount_range}):`, { size: 9, style: 'bold', color: [80, 80, 100] });
+      pm.decomposition.components.forEach((c) => {
+        text(`     - ${c.label} (${c.pct_range}): ${c.note}`, { size: 8.5, color: [90, 90, 110] });
+      });
+    } else if (pm.decomposition && typeof pm.decomposition === 'string') {
+      text(`   Discount/premium decomposition: ${pm.decomposition}`, { size: 9, color: [80, 80, 100] });
+    }
+  }
+  // V2.1 P5.05 — actionable reads by audience.
+  const reads = brief.mispricing?.actionable_reads;
+  if (Array.isArray(reads) && reads.length > 0) {
+    y += 1;
+    text('Actionable reads:', { size: 9, style: 'bold', color: [60, 60, 80] });
+    reads.forEach((r) => {
+      text(`   - [${r.audience}] ${r.read}`, { size: 8.5, color: [60, 60, 70] });
+    });
   }
 
   // Competitive context (Phase 4 web-search; null when B2B-niche / no peer set)
@@ -3675,8 +3721,59 @@ async function generateBriefPDF(result, svgImage = null) {
     section('STRATEGIC NOTES');
     audienceRows.forEach(([label, note]) => {
       text(`${label}:`, { size: 10, style: 'bold' });
-      text(`   ${note}`, { size: 9 });
+      // for_growth_signal_users can be array of ≥4 use cases (V2.1 P3.04)
+      if (Array.isArray(note)) {
+        note.forEach((u) => text(`   - ${u}`, { size: 9 }));
+      } else {
+        text(`   ${note}`, { size: 9 });
+      }
     });
+  }
+
+  // V2.1 P7.01 + P9.03 + P9.04 — confidence buckets, limitations, section confidence
+  const buckets = brief.confidence_buckets;
+  if (buckets && ((buckets.high?.length || 0) + (buckets.medium?.length || 0) + (buckets.low?.length || 0) > 0)) {
+    y += 4;
+    section('CONFIDENCE BREAKDOWN');
+    const bands = [
+      ['HIGH', buckets.high, [76, 175, 80]],
+      ['MEDIUM', buckets.medium, [255, 152, 0]],
+      ['LOW', buckets.low, [244, 67, 54]],
+    ];
+    bands.forEach(([label, items, col]) => {
+      if (!items || !items.length) return;
+      ensure(6);
+      pdf.setFillColor(...col); pdf.rect(margin, y, 22, 4.5, 'F');
+      font(8, 'bold'); pdf.setTextColor(255, 255, 255);
+      pdf.text(label, margin + 1, y + 1.5);
+      y += 5;
+      items.forEach((it) => text(`  - ${it.claim} - ${it.reason}`, { size: 8.5, color: [50, 50, 60] }));
+      y += 0.5;
+    });
+  }
+
+  const sc = brief.section_confidence;
+  if (sc) {
+    y += 2;
+    text('Section confidence (stars):', { size: 9.5, style: 'bold', color: [60, 60, 80] });
+    Object.entries(sc).forEach(([name, val]) => {
+      text(`  ${name.replace(/_/g, ' ')}: ${val.stars} - ${val.reason}`, { size: 8.5, color: [70, 70, 90] });
+    });
+  }
+
+  const lims = brief.limitations_list || [];
+  if (lims.length > 0) {
+    y += 2;
+    text('Limitations:', { size: 9.5, style: 'bold', color: [150, 80, 40] });
+    lims.forEach((l) => text(`  ! ${l}`, { size: 8.5, color: [110, 80, 60] }));
+  }
+
+  // V2.1 P7.02 — gap leverage stars
+  const stars = brief.confidence_gaps?.known_gaps_starred || [];
+  if (stars.length > 0) {
+    y += 2;
+    text('Gap leverage (more stars = higher verdict-flip impact):', { size: 9.5, style: 'bold', color: [60, 60, 80] });
+    stars.forEach((s) => text(`  ${'*'.repeat(s.stars)} ${s.gap}`, { size: 8.5, color: [70, 70, 90] }));
   }
 
   // Confidence gaps
@@ -3728,8 +3825,15 @@ async function generateBriefPDF(result, svgImage = null) {
   y += 4;
   section('DATA TRACE');
   text(`Report Date: ${dateStr}`, { size: 9 });
-  if (brief.data_trace?.primary_sources && brief.data_trace.primary_sources.length > 0) {
-    text(`Sources: ${brief.data_trace.primary_sources.join(', ')}`, { size: 9 });
+  // V2.1 P9.01 — split primary used vs excluded with reason.
+  const pUsed = brief.data_trace?.primary_used || brief.data_trace?.primary_sources || [];
+  if (pUsed.length > 0) {
+    text(`Primary sources used: ${pUsed.join(', ')}`, { size: 9 });
+  }
+  const excluded = brief.data_trace?.excluded_with_reason || [];
+  if (excluded.length > 0) {
+    text('Excluded sources:', { size: 9, style: 'bold', color: [120, 80, 60] });
+    excluded.forEach((e) => text(`  - ${e.source}: ${e.reason}`, { size: 8.5, color: [100, 80, 70] }));
   }
   if (brief.data_trace?.methodology_note) {
     text(brief.data_trace.methodology_note, { size: 8, color: [120, 120, 130] });

@@ -1550,6 +1550,27 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
   // Pass backfill diagnostic so the brief layer can escalate confidence and emit
   // a self-aware "capture limitation" signal when sibling enumeration is thin.
   const backfillInfo = needsSiblingBackfill(ownership);
+
+  // V2.1 X.01 — tag sibling variant_type so downstream warning logic can skip
+  // pure aliases (geographic / locale variants of the focal name) and product
+  // tiers that share a parent brand. Pure aliases shouldn't trigger
+  // "incomplete sibling capture" warnings because they aren't real siblings.
+  if (Array.isArray(tree.siblings)) {
+    const focalLower = (tree.company || '').toLowerCase();
+    const localeTokens = ['us','uk','eu','mexico','brasil','brazil','china','india','japan','cruceros','cruises','kreuzfahrten','crociere','asia','europe','latam','north america','south america','africa','oceania','global'];
+    const tierTokens = ['pro','plus','premium','elite','select','classic','lite','basic','standard','deluxe','ultra','max','mini'];
+    tree.siblings = tree.siblings.map((s) => {
+      const sn = (s.company || '').toLowerCase();
+      const tail = sn.replace(focalLower, '').replace(/[-\s]+/g, ' ').trim();
+      let variant_type = 'distinct';
+      if (sn.startsWith(focalLower) || sn.endsWith(focalLower)) {
+        if (localeTokens.some((t) => tail === t || tail.split(' ').includes(t))) variant_type = 'geographic_variant';
+        else if (tierTokens.some((t) => tail === t || tail.split(' ').includes(t))) variant_type = 'product_tier';
+      }
+      return { ...s, variant_type };
+    });
+  }
+
   const intelligence_brief = buildIntelligenceBrief(tree, {
     focal_vs_parent_ratio,
     focal_vs_siblings,
