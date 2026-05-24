@@ -1501,6 +1501,9 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
 
   const strategic_notes = notes.length > 0 ? notes : ['No distinctive structural signals captured.'];
 
+  // Pass backfill diagnostic so the brief layer can escalate confidence and emit
+  // a self-aware "capture limitation" signal when sibling enumeration is thin.
+  const backfillInfo = needsSiblingBackfill(ownership);
   const intelligence_brief = buildIntelligenceBrief(tree, {
     focal_vs_parent_ratio,
     focal_vs_siblings,
@@ -1508,7 +1511,8 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
     strategic_notes,
     reconciliation,
     parent_anchor: parentAnchor || null,
-  }, { collapses, holdingFlags });
+    parent_benchmark: reconciliation?.parent_benchmark || null,
+  }, { collapses, holdingFlags, backfillInfo });
 
   return {
     focal_company: tree.company,

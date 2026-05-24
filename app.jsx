@@ -374,9 +374,16 @@ STRICT JSON OUTPUT, NO PROSE OUTSIDE THE JSON, NO MARKDOWN FENCES:
 const SIGNAL_INTERPRETATION_PROMPT = `You are an intelligence analyst interpreting behavioral signals about a company's growth trajectory.
 
 For EACH behavioral signal in the input array, determine:
-1. What does this signal mean for the company's capital allocation and growth?
+1. What does this signal mean for the company's capital allocation, market position, or growth?
 2. Is this signal positive, negative, or neutral for the thesis?
 3. Can you defend the interpretation with the evidence provided?
+
+CRITICAL RULES:
+- Every interpretation MUST begin with the literal prefix "Read this as: " (exact text, including colon and trailing space).
+- The interpretation MUST point to a SPECIFIC strategic insight (market position, recovery trajectory, cyclical exposure, succession risk, etc.) — NEVER restate the evidence in different words.
+- Banned filler: "stable performance", "operational metrics", "demonstrates substantial scale", "well-positioned", "going forward". If you find yourself writing these, return interpretation:null instead.
+- If a signal is flagged self_aware:true, treat it as the agent's own capture limitation — name explicitly which capture heuristic failed and why it matters for the verdict.
+- Length: 1–2 sentences max; specific numbers and named comparators preferred over abstractions.
 
 Return STRICT JSON (one object per signal):
 [
@@ -387,7 +394,7 @@ Return STRICT JSON (one object per signal):
   }
 ]
 
-CRITICAL: If you cannot produce a defensible interpretation rooted in the evidence, return interpretation:null. Null interpretations will be dropped.`;
+If you cannot produce a defensible, prefix-correct interpretation, return interpretation:null. Null interpretations are dropped.`;
 
 const MISPRICING_PROMPT = `You are a mispricing analyst. Given the focal company's positioning, M&A signals, and capital patterns, assess whether there is a thesis for mispricing.
 
@@ -407,25 +414,29 @@ Return STRICT JSON:
 const VERDICT_THESIS_PROMPT = `You are a portfolio strategist writing a thesis statement for this company's investment positioning.
 
 The thesis should:
-- Be rooted ONLY in the provided verdict label, signals, and reconciliation data
-- Avoid generic filler ("stable mid-sized", "modest contribution", "should monitor", "time will tell")
-- Be 2–3 sentences maximum
-- Emphasize the specific mechanism or concern implied by the verdict
+- Be rooted ONLY in the provided verdict label, capital_decision_reason, signals, family_detail and reconciliation data
+- Cite specific corporate structure (parent name, family surname, ownership %, sibling count) — NOT generic descriptors
+- When verdict is NOT ACTIONABLE AS STANDALONE, explicitly state WHY (family-concentrated, multi-owner split, no public path) and what the brand IS useful for instead (e.g. "market-intelligence signal", "private comparable for X/Y benchmarking")
+- 2–3 sentences maximum
+- Banned filler: "stable mid-sized", "modest contribution", "should monitor", "time will tell", "stable performance", "operational metrics", "cautious yet engaged", "actionable capital decision", "continues to perform", "remains well-positioned", "going forward"
 
 Return STRICT JSON:
 {
   "thesis": "[substantive, evidence-rooted thesis statement]"
 }`;
 
-const COUNTER_SIGNAL_FILL_PROMPT = `You are a research coordinator. For missing signals (gaps), recommend specific research angles to close them.
+const COUNTER_SIGNAL_FILL_PROMPT = `You are a research coordinator. For each missing signal (gap), recommend SPECIFIC research queries AND state why closing the gap moves the verdict.
 
-For EACH gap in the input array, return a concrete research action.
+For EACH gap in the input array, return:
+- fill_action: 1–2 concrete search queries the analyst could paste into a search engine. Include named sources, filings, or data providers where applicable. Format: "Search: \"<query>\"" (multiple queries separated by " · ").
+- why_matters: Override the deterministic template ONLY when you can produce a sharper, brand-specific rationale (1–2 sentences). Otherwise return null and the deterministic template is preserved.
 
 Return STRICT JSON (array):
 [
   {
     "signal_type": "[original expected signal type]",
-    "fill_action": "Search for: [specific data source or angle]"
+    "fill_action": "Search: \"<specific query>\" · Search: \"<second query>\"",
+    "why_matters": "[1-2 sentence brand-specific rationale]" | null
   }
 ]`;
 
@@ -456,10 +467,12 @@ const STRATEGIC_NOTES_PROMPT = `You are writing audience-specific investment gui
 For EACH applicable audience, write a 1-2 sentence note that translates the verdict and signals into actionable insight.
 
 Rules:
-- For investors: What does the verdict mean for portfolio positioning and risk?
-- For competitors: What is this company's competitive strategy and focus?
-- For M&A advisors: What signals suggest acquisition readiness or strategic interest?
-- For growth-signal users: What is the near-term growth trajectory and capital commitment?
+- For investors: What does the verdict mean for portfolio positioning and risk? Name a concrete next action ("treat as private comparable for X", "track Y catalyst", "size exposure via Z").
+- For competitors: What is this company's competitive strategy and focus? Reference named competitors from the competitive_context when present.
+- For M&A advisors: What signals suggest acquisition readiness or strategic interest? Name plausible counterparties and the transaction structure (full sale, partial, IPO, secondary).
+- For growth-signal users: What is the near-term growth trajectory and capital commitment? Tie to a specific signal in the brief.
+
+CRITICAL: Use real names (companies, families, products) from the input — NEVER generic placeholders like "the company" or "the family". Banned filler from VERDICT_THESIS_PROMPT also applies here.
 
 Omit audiences with no applicable context (e.g., if no M&A signals, omit for_ma_advisors).
 
@@ -1151,12 +1164,34 @@ export default function App() {
         if (finalResult.intelligence_brief) {
           const brief = finalResult.intelligence_brief;
 
-          // Prepare batch LLM call with all brief enrichment prompts
-          const briefInput = {
-            signals: brief.behavioral_signals,
-            counter_signals: brief.counter_signals || [],
-            verdict: brief.verdict,
-            mispricing: brief.mispricing,
+          // Prompt inputs must carry the SAME structured context the prompts
+          // demand — concrete names, family_detail, reconciliation specifics,
+          // competitive set. Sparse inputs cause generic / null outputs.
+          const competitiveCtx = Array.isArray(brief.competitive_context) ? brief.competitive_context : [];
+          const verdictForLLM = {
+            label: brief.verdict?.label,
+            trajectory: brief.verdict?.trajectory,
+            capital_decision: brief.verdict?.capital_decision,
+            capital_decision_reason: brief.verdict?.capital_decision_reason,
+            confidence: brief.verdict?.confidence,
+            confidence_reasoning: brief.verdict?.confidence_reasoning,
+            verdict_changers: brief.verdict?.verdict_changers || [],
+            family_detail: brief.corporate_structure?.family_detail || null,
+            top_signals: brief.top_signals || [],
+            reconciliation: finalResult.positioning_analysis?.reconciliation || null,
+            history_note: brief.corporate_structure?.history_note || null,
+          };
+          const strategicCtx = {
+            focal: finalResult.focal_company,
+            verdict_label: brief.verdict?.label,
+            trajectory: brief.verdict?.trajectory,
+            capital_decision: brief.verdict?.capital_decision,
+            capital_decision_reason: brief.verdict?.capital_decision_reason,
+            ma_attention: brief.mispricing?.ma_attention,
+            family_detail: brief.corporate_structure?.family_detail || null,
+            top_signals: brief.top_signals || [],
+            competitors: competitiveCtx.map((c) => c.competitor || c.name).filter(Boolean),
+            reconciliation: finalResult.positioning_analysis?.reconciliation || null,
           };
 
           const batchPrompt = `
@@ -1179,8 +1214,8 @@ reconciliation: ${finalResult.positioning_analysis?.reconciliation ? JSON.string
 
 ${VERDICT_THESIS_PROMPT}
 
-INPUT (verdict):
-${JSON.stringify(brief.verdict, null, 2)}
+INPUT (verdict + structural context):
+${JSON.stringify(verdictForLLM, null, 2)}
 
 ---
 
@@ -1193,20 +1228,15 @@ ${JSON.stringify(brief.counter_signals || [], null, 2)}
 
 ${STRATEGIC_NOTES_PROMPT}
 
-INPUT (context for audience notes):
-focal: "${finalResult.focal_company}"
-verdict_label: ${brief.verdict?.label || 'UNKNOWN'}
-trajectory: ${brief.verdict?.trajectory || 'Unknown'}
-capital_decision: ${brief.verdict?.capital_decision || 'Unknown'}
-ma_attention: ${brief.mispricing?.ma_attention || 'none'}
-has_competitive_context: ${Array.isArray(finalResult.intelligence_brief?.competitive_context) && finalResult.intelligence_brief.competitive_context.length > 0}
+INPUT (full context for audience notes):
+${JSON.stringify(strategicCtx, null, 2)}
 
 RESPOND WITH A SINGLE JSON OBJECT (no markdown, no code fences):
 {
-  "signal_interpretations": [ { "signal_index": <number>, "interpretation": "..." OR null, "directional_implication": "positive"|"negative"|"neutral" } ],
+  "signal_interpretations": [ { "signal_index": <number>, "interpretation": "Read this as: ..." OR null, "directional_implication": "positive"|"negative"|"neutral" } ],
   "mispricing": { "has_thesis": boolean, "hypothesis": "...", "falsifying_signals": [...] },
   "verdict_thesis": { "thesis": "..." },
-  "counter_fills": [ { "signal_type": "...", "fill_action": "..." } ],
+  "counter_fills": [ { "signal_type": "...", "fill_action": "Search: \\"<query>\\" · Search: \\"<query>\\"", "why_matters": "..." | null } ],
   "strategic_notes": { "for_investors": "..." | null, "for_competitors": "..." | null, "for_ma_advisors": "..." | null, "for_growth_signal_users": "..." }
 }`;
 
@@ -1254,7 +1284,12 @@ RESPOND WITH A SINGLE JSON OBJECT (no markdown, no code fences):
             if (briefEnrich.verdict_thesis && briefEnrich.verdict_thesis.thesis) {
               const thesis = briefEnrich.verdict_thesis.thesis;
               // Reject forbidden phrases
-              const forbiddenPhrases = ['stable mid-sized', 'modest contribution', 'should monitor', 'time will tell'];
+              const forbiddenPhrases = [
+                'stable mid-sized', 'modest contribution', 'should monitor', 'time will tell',
+                'stable performance', 'operational metrics', 'cautious yet engaged investment stance',
+                'actionable capital decision', 'continues to perform', 'remains well-positioned',
+                'going forward', 'in the coming quarters',
+              ];
               const hasForbidden = forbiddenPhrases.some((phrase) => thesis.toLowerCase().includes(phrase));
               if (hasForbidden) {
                 appendTrace([{
@@ -1279,12 +1314,15 @@ RESPOND WITH A SINGLE JSON OBJECT (no markdown, no code fences):
               }
             }
 
-            // Merge counter-signal fill actions
+            // Merge counter-signal fill actions + (optionally) sharper why_matters.
             if (briefEnrich.counter_fills && brief.counter_signals) {
               briefEnrich.counter_fills.forEach((cf) => {
                 const counterSignal = brief.counter_signals.find((cs) => cs.signal_type === cf.signal_type);
                 if (counterSignal) {
                   counterSignal.fill_action = cf.fill_action;
+                  if (cf.why_matters && typeof cf.why_matters === 'string' && cf.why_matters.trim()) {
+                    counterSignal.why_matters = cf.why_matters.trim();
+                  }
                 }
               });
             }
@@ -1340,6 +1378,23 @@ Search for direct competitors and return the JSON result.`;
               if (compEnrich && compEnrich.competitors) {
                 if (compEnrich.competitors.length > 0) {
                   finalResult.intelligence_brief.competitive_context = compEnrich.competitors;
+                  // Backfill peer_multiples skeleton now that we have peers.
+                  // Deterministic structure; LLM is responsible for EV/Rev fills.
+                  try {
+                    const peers = compEnrich.competitors.slice(0, 5).map((p) => ({
+                      name: p.competitor || p.name,
+                      revenue: p.estimated_revenue_usd || null,
+                      ev_to_revenue: null,
+                      discount_or_premium_pct: null,
+                    }));
+                    if (peers.length > 0) {
+                      finalResult.intelligence_brief.mispricing = finalResult.intelligence_brief.mispricing || {};
+                      finalResult.intelligence_brief.mispricing.peer_multiples = {
+                        peers,
+                        decomposition: null,
+                      };
+                    }
+                  } catch (_e) { /* non-fatal */ }
                   appendTrace([{
                     kind: 'phase',
                     phase: 'brief',
@@ -3324,55 +3379,97 @@ async function generateBriefPDF(result, svgImage = null) {
     y += 4;
   };
 
-  // Page 1: Verdict Hero
+  // ─── Page 1: Verdict hero (V2.1) ───────────────────────────────────────
   section('VERDICT');
   const verdictLabel = brief.verdict?.label || 'N/A';
-  font(24, 'bold'); pdf.setTextColor(8, 145, 178);
-  text(verdictLabel, { size: 24, style: 'bold', color: [8, 145, 178] });
+  const isNotActionable = /not actionable/i.test(verdictLabel);
+  const heroColor = isNotActionable ? [180, 60, 60] : [8, 145, 178];
+  text(verdictLabel, { size: 22, style: 'bold', color: heroColor });
 
-  // Confidence badge
+  // Confidence badge + reasoning.
   const confidenceLevels = { high: [76, 175, 80], medium: [255, 152, 0], low: [244, 67, 54] };
   const confColor = confidenceLevels[brief.verdict?.confidence] || [150, 150, 150];
   badge((brief.verdict?.confidence || 'unknown').toUpperCase(), confColor, [255, 255, 255]);
+  if (brief.verdict?.confidence_reasoning) {
+    text(brief.verdict.confidence_reasoning, { size: 8.5, color: [110, 110, 120] });
+  }
 
   text(`Trajectory: ${brief.verdict?.trajectory || 'N/A'}`, { size: 11 });
-  text(`Capital Decision: ${brief.verdict?.capital_decision || 'N/A'}`, { size: 11 });
-  text(`Revenue Estimate: ${revRange}`, { size: 10, color: [80, 120, 160] });
+  // Capital-path line: surface the structural reason alongside the decision.
+  const capReason = brief.verdict?.capital_decision_reason;
+  const capLine = capReason
+    ? `Capital path: ${brief.verdict.capital_decision} · ${String(capReason).replace(/_/g, ' ')}`
+    : `Capital path: ${brief.verdict?.capital_decision || 'N/A'}`;
+  text(capLine, { size: 11 });
+  text(`Revenue range: ${revRange}`, { size: 10, color: [80, 120, 160] });
   if (brief.verdict?.thesis) text(`Thesis: ${brief.verdict.thesis}`, { size: 10 });
 
+  // "What would make this actionable" — verdict changers.
+  const changers = brief.verdict?.verdict_changers || [];
+  if (isNotActionable && changers.length > 0) {
+    y += 1;
+    text('What would make this actionable:', { size: 10, style: 'bold', color: [60, 60, 80] });
+    changers.slice(0, 4).forEach((c) => text(`  • ${c}`, { size: 9, color: [60, 60, 60] }));
+  }
+
+  // ─── Top-3 signals (lead the brief with "Read this as:") ─────────────
+  const top3 = Array.isArray(brief.top_signals) && brief.top_signals.length > 0
+    ? brief.top_signals
+    : (brief.behavioral_signals || []).slice(0, 3);
+  if (top3.length > 0) {
+    y += 3;
+    section('TOP-3 SIGNALS');
+    const dirArrow = (d) => (d === 'positive' ? '+' : d === 'negative' ? '−' : '=');
+    top3.forEach((sig) => {
+      const dir = sig.directional_implication ? ` · ${dirArrow(sig.directional_implication)}` : '';
+      text(`▣ ${sig.signal_type || 'Unknown'} [${(sig.weight || 'medium').toUpperCase()}${dir}]`, { size: 10, style: 'bold' });
+      if (sig.evidence) text(`   ${sig.evidence}`, { size: 9 });
+      if (sig.interpretation) text(`   ${sig.interpretation}`, { size: 9, color: [60, 80, 130] });
+    });
+  }
+
+  // ─── All behavioral signals ──────────────────────────────────────────
   y += 4;
   section('BEHAVIORAL SIGNALS');
-  const dirArrow = (d) => (d === 'positive' ? '+' : d === 'negative' ? '-' : '=');
+  const dirArrow2 = (d) => (d === 'positive' ? '+' : d === 'negative' ? '−' : '=');
   if (brief.behavioral_signals && brief.behavioral_signals.length > 0) {
     brief.behavioral_signals.slice(0, 8).forEach((sig, i) => {
-      const dir = sig.directional_implication ? ` (${dirArrow(sig.directional_implication)})` : '';
-      text(`${i + 1}. ${sig.signal_type || 'Unknown'} [${sig.weight || 'medium'}]${dir}`, { size: 10, style: 'bold' });
+      const dir = sig.directional_implication ? ` (${dirArrow2(sig.directional_implication)})` : '';
+      const flag = sig.self_aware ? ' · SELF-AWARE' : '';
+      text(`${i + 1}. ${sig.signal_type || 'Unknown'} [${sig.weight || 'medium'}]${dir}${flag}`, { size: 10, style: 'bold' });
       if (sig.evidence) text(`   Evidence: ${sig.evidence}`, { size: 9 });
-      if (sig.interpretation) text(`   Interpretation: ${sig.interpretation}`, { size: 9 });
+      if (sig.interpretation) text(`   ${sig.interpretation}`, { size: 9 });
     });
   } else {
     text('No signals captured', { size: 10 });
   }
 
-  // Counter-signals (gaps where expected signals are missing)
+  // ─── Counter-signals with why_matters ─────────────────────────────────
   if (brief.counter_signals && brief.counter_signals.length > 0) {
     y += 2;
-    text('Research Gaps:', { size: 10, style: 'bold', color: [200, 120, 40] });
+    text(`Counter-signals · ${brief.counter_signals.length} gaps with fill actions`, { size: 10, style: 'bold', color: [200, 120, 40] });
     brief.counter_signals.forEach((gap) => {
-      ensure(6);
+      ensure(12);
+      const blockH = 5 + (gap.fill_action ? 3 : 0) + (gap.why_matters ? 6 : 0);
       pdf.setFillColor(255, 245, 220);
-      pdf.rect(margin, y, contentW, 5.5, 'F');
+      pdf.rect(margin, y, contentW, blockH, 'F');
       pdf.setDrawColor(220, 160, 80);
-      pdf.rect(margin, y, contentW, 5.5);
-      font(9, 'bold');
-      pdf.setTextColor(180, 100, 20);
-      pdf.text(gap.signal_type, margin + 1.5, y + 0.8);
+      pdf.rect(margin, y, contentW, blockH);
+      const blockTop = y;
+      font(9, 'bold'); pdf.setTextColor(180, 100, 20);
+      pdf.text(`Gap: ${gap.signal_type}`, margin + 1.5, blockTop + 1.5);
+      let inner = blockTop + 4.2;
       if (gap.fill_action) {
-        font(8);
-        pdf.setTextColor(100, 100, 100);
-        pdf.text(`↳ ${gap.fill_action}`, margin + 1.5, y + 3);
+        font(8); pdf.setTextColor(80, 80, 90);
+        const lines = pdf.splitTextToSize(`→ ${gap.fill_action}`, contentW - 3);
+        lines.slice(0, 2).forEach((ln) => { pdf.text(ln, margin + 1.5, inner); inner += 3; });
       }
-      y += 6;
+      if (gap.why_matters) {
+        font(8, 'italic'); pdf.setTextColor(110, 90, 60);
+        const lines = pdf.splitTextToSize(`Why this matters: ${gap.why_matters}`, contentW - 3);
+        lines.slice(0, 3).forEach((ln) => { pdf.text(ln, margin + 1.5, inner); inner += 3; });
+      }
+      y = blockTop + Math.max(blockH, inner - blockTop) + 1.5;
     });
   }
 
@@ -3411,7 +3508,39 @@ async function generateBriefPDF(result, svgImage = null) {
   } else {
     text('Unknown structure', { size: 10 });
   }
-  text(`Ownership Clarity: ${brief.corporate_structure?.ownership_clarity || 'N/A'}`, { size: 10 });
+  text(`Ownership clarity: ${brief.corporate_structure?.ownership_clarity || 'N/A'}`, { size: 10 });
+  if (brief.corporate_structure?.history_note) {
+    text(brief.corporate_structure.history_note, { size: 9, color: [90, 90, 100] });
+  }
+
+  // Family / UBO detail table (V2.1 §3).
+  const fam = brief.corporate_structure?.family_detail;
+  if (fam && Array.isArray(fam.members) && fam.members.length > 0) {
+    y += 2;
+    text(`UBO detail · ${fam.surname ? fam.surname.charAt(0).toUpperCase() + fam.surname.slice(1) + ' family' : 'family'} (~${fam.total_pct}% combined)`, { size: 10, style: 'bold', color: [60, 60, 80] });
+    const colW = [contentW * 0.45, contentW * 0.35, contentW * 0.2];
+    const rowH = 5.2;
+    ensure(rowH * (fam.members.length + 1) + 2);
+    pdf.setFillColor(245, 245, 248);
+    pdf.rect(margin, y, contentW, rowH, 'F');
+    font(8.5, 'bold'); pdf.setTextColor(60, 60, 80);
+    pdf.text('Member', margin + 1.5, y + 1.4);
+    pdf.text('Role', margin + colW[0] + 1.5, y + 1.4);
+    pdf.text('Est. stake', margin + colW[0] + colW[1] + 1.5, y + 1.4);
+    y += rowH;
+    fam.members.forEach((m, i) => {
+      if (i % 2 === 0) {
+        pdf.setFillColor(252, 252, 254);
+        pdf.rect(margin, y, contentW, rowH, 'F');
+      }
+      font(8.5); pdf.setTextColor(40, 40, 50);
+      pdf.text(String(m.name || '').slice(0, 38), margin + 1.5, y + 1.4);
+      pdf.text(String(m.role || '').slice(0, 32), margin + colW[0] + 1.5, y + 1.4);
+      pdf.text(String(m.est_stake || ''), margin + colW[0] + colW[1] + 1.5, y + 1.4);
+      y += rowH;
+    });
+    y += 1;
+  }
 
   y += 4;
   section('RECONCILIATION');
@@ -3482,6 +3611,18 @@ async function generateBriefPDF(result, svgImage = null) {
     text('No reconciliation data (standalone)', { size: 10, color: [150, 150, 150] });
   }
 
+  // Dual-model triangulation (industry × share, volume × unit economics, parent anchor).
+  const dual = brief.reconciliation_dual_model;
+  if (dual && Array.isArray(dual.models) && dual.models.length > 0) {
+    y += 2;
+    text('Triangulation models:', { size: 10, style: 'bold', color: [60, 60, 80] });
+    dual.models.forEach((m) => {
+      text(`• ${m.label} → ${m.verdict || 'inconclusive'}`, { size: 9, style: 'bold' });
+      if (m.evidence) text(`    ${m.evidence}`, { size: 8.5, color: [90, 90, 100] });
+    });
+    if (dual.notes) text(dual.notes, { size: 8.5, color: [150, 100, 60], style: 'italic' });
+  }
+
   y += 4;
   section('MISPRICING & M&A');
   text(`M&A Attention: ${brief.mispricing?.ma_attention || 'None'}`, { size: 10 });
@@ -3491,6 +3632,20 @@ async function generateBriefPDF(result, svgImage = null) {
     brief.mispricing.falsifying_signals.forEach((fs) => {
       text(`   - ${fs}`, { size: 9 });
     });
+  }
+  // Peer-multiples skeleton (V2.1 §4) — surface even when LLM hasn't filled in
+  // the EV/Rev numbers, so the reader sees the comparable set explicitly.
+  const pm = brief.mispricing?.peer_multiples;
+  if (pm && Array.isArray(pm.peers) && pm.peers.length > 0) {
+    y += 1;
+    text('Peer-set multiples:', { size: 9, style: 'bold', color: [60, 60, 80] });
+    pm.peers.forEach((p) => {
+      const rev = p.revenue ? ` · ~$${(p.revenue / 1e9).toFixed(1)}B` : '';
+      const ev = p.ev_to_revenue != null ? ` · EV/Rev ${p.ev_to_revenue}` : '';
+      const disc = p.discount_or_premium_pct != null ? ` · ${p.discount_or_premium_pct > 0 ? '+' : ''}${p.discount_or_premium_pct}%` : '';
+      text(`   • ${p.name}${rev}${ev}${disc}`, { size: 9 });
+    });
+    if (pm.decomposition) text(`   Discount/premium decomposition: ${pm.decomposition}`, { size: 9, color: [80, 80, 100] });
   }
 
   // Competitive context (Phase 4 web-search; null when B2B-niche / no peer set)
