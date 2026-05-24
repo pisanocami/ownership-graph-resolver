@@ -633,6 +633,10 @@ async function callAnthropic({ model = DEFAULT_MODEL, system, user, maxSearches 
     body: JSON.stringify({
       model,
       max_tokens: maxTokens,
+      // D1 (NEW.36): deterministic decoding — same focal + same model must
+      // produce byte-identical structural output across runs.
+      temperature: 0,
+      top_p: 1,
       system,
       messages: [{ role: 'user', content: user }],
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: maxSearches }],
@@ -657,7 +661,8 @@ async function callAnthropic({ model = DEFAULT_MODEL, system, user, maxSearches 
 const GEMINI_MAX_OUTPUT_CEILING = 65536;
 
 async function callGeminiOnce({ model, system, user, budget, isFlash }) {
-  const generationConfig = { maxOutputTokens: budget };
+  // D1 (NEW.36): deterministic decoding for Gemini (temperature 0, top_p 1).
+  const generationConfig = { maxOutputTokens: budget, temperature: 0, topP: 1 };
   if (isFlash) generationConfig.thinkingConfig = { thinkingBudget: 0 };
 
   const res = await fetch('/api/gemini', {
