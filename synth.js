@@ -619,29 +619,74 @@ export function collectControlLayers(tree) {
 // decide whether to run a focused backfill call and to merge its result into
 // the tree without losing the LLM's first-pass data.
 
-// Returns { needed, floor, parent_name, focal_segment } describing whether a
-// post-parse backfill call should run. We require:
+// Mega-cap parents where the SIBLING CAPTURE FLOOR rule in OWNERSHIP_PROMPT
+// requires ≥5 in-segment siblings (vs the default ≥3). Matched as a
+// case-insensitive substring against the parent's company name so common
+// suffixes ("Inc", "Co", "S.A.", "N.V.", "Group", "Corporation") don't break
+// it. Keep this list synced with the prompt text — adding a parent here AND
+// to the prompt's exemplar list is the only way to bump its floor.
+const MEGA_CAP_PARENT_PATTERNS = [
+  'mars wrigley', 'mars petcare', 'mars inc', 'mars incorporated',
+  'mondelēz', 'mondelez',
+  'nestlé', 'nestle',
+  'procter & gamble', 'procter and gamble',
+  'unilever',
+  'ab inbev', 'anheuser-busch',
+  'pepsico',
+  'kraft heinz',
+  'coca-cola',
+  'diageo',
+  'lvmh',
+  'inditex',
+  'johnson & johnson',
+  'alphabet', 'google llc',
+  'meta platforms',
+  'amazon.com',
+  'apple inc',
+  'microsoft',
+  'berkshire hathaway',
+  'walmart',
+];
+
+function _isMegaCapParent(parent) {
+  if (!parent) return false;
+  if (parent.is_mega_cap === true) return true;
+  // Explicit revenue hint when the LLM included one (rare at ownership phase).
+  const revHint = Number(parent.anchor_revenue || parent.estimated_revenue_usd || 0);
+  if (revHint >= 50e9) return true;
+  const name = (parent.company || '').toLowerCase();
+  if (!name) return false;
+  return MEGA_CAP_PARENT_PATTERNS.some((pat) => name.includes(pat));
+}
+
+// Returns { needed, floor, parent_name, focal_segment, is_mega_cap } describing
+// whether a post-parse backfill call should run. We require:
 //   - a parent exists (and isn't an individual UBO);
 //   - the parent isn't a PE terminal (no portfolio brands to enumerate);
 //   - the focal isn't standalone;
-//   - the focal's parent has fewer than `floor` siblings (3 by default — the
-//     same floor the prompt's SIBLING CAPTURE FLOOR rule asks the model to
-//     hit). The floor is INDEPENDENT of focal size / rank / clarity — that's
-//     the whole point: capture depth must not vary by which brand is focal.
+//   - the focal's parent has fewer than `floor` siblings (3 by default; 5 when
+//     the parent is a mega-cap, matching synth's "expected ≥M for a
+//     conglomerate this size" rule and the OWNERSHIP_PROMPT's SIBLING CAPTURE
+//     FLOOR text). The floor is INDEPENDENT of FOCAL size / rank / clarity —
+//     that's the whole point: capture depth must not vary by which brand is
+//     focal. Floor depends only on PARENT size.
 export function needsSiblingBackfill(ownership) {
-  if (!ownership) return { needed: false, floor: 3, parent_name: null, focal_segment: null };
-  if (ownership.standalone === true) return { needed: false, floor: 3, parent_name: null, focal_segment: null };
+  const empty = { needed: false, floor: 3, parent_name: null, focal_segment: null, is_mega_cap: false };
+  if (!ownership) return empty;
+  if (ownership.standalone === true) return empty;
   const parent = ownership.parent;
-  if (!parent || !parent.company) return { needed: false, floor: 3, parent_name: null, focal_segment: null };
-  if (parent.node_type === 'individual') return { needed: false, floor: 3, parent_name: parent.company, focal_segment: null };
-  if (parent.terminal_layer === 'private_equity') return { needed: false, floor: 3, parent_name: parent.company, focal_segment: null };
+  if (!parent || !parent.company) return empty;
+  if (parent.node_type === 'individual') return { ...empty, parent_name: parent.company };
+  if (parent.terminal_layer === 'private_equity') return { ...empty, parent_name: parent.company };
   const siblings = Array.isArray(ownership.siblings) ? ownership.siblings : [];
-  const floor = 3;
+  const isMegaCap = _isMegaCapParent(parent);
+  const floor = isMegaCap ? 5 : 3;
   return {
     needed: siblings.length < floor,
     floor,
     parent_name: parent.company,
     focal_segment: ownership.focal_segment || null,
+    is_mega_cap: isMegaCap,
   };
 }
 
@@ -670,6 +715,48 @@ function _matchesFocal(sibName, focalName) {
 // entries are added only when not already present, and dedup is by company
 // name (case-insensitive). The focal itself is never installed as its own
 // sibling — siblings discovery can return it by mistake.
+// Merge a backfilled cousin list (siblings of the focal's PARENT, surfaced
+// via the focal's grandparent). Same dedup/focal-filter discipline as
+// mergeSiblings but preserves cousin-specific fields like `via_division`,
+// `parent_company`, and `relation` that mergeSiblings would strip. Flagged in
+// code review — cousin metadata fidelity matters for the brief rendering.
+export function mergeCousins(existing, discovered, focalCompany = null) {
+  const out = [];
+  const seen = new Set();
+  const safeArr = (a) => (Array.isArray(a) ? a : []);
+  const added = [];
+  const isFocal = (name) => focalCompany && _matchesFocal(name, focalCompany);
+  for (const c of safeArr(existing)) {
+    const k = _sibKey(c);
+    if (!k || isFocal(c.company) || seen.has(k)) continue;
+    seen.add(k);
+    out.push(c);
+  }
+  for (const c of safeArr(discovered)) {
+    const k = _sibKey(c);
+    if (!k || isFocal(c.company) || seen.has(k)) continue;
+    seen.add(k);
+    const normalized = {
+      company: c.company,
+      domain: c.domain || null,
+      node_type: c.node_type || 'operating_brand',
+      category: c.category || '',
+      revenue_model: c.revenue_model || 'direct_revenue',
+      via_division: c.via_division || c.parent_company || null,
+      parent_company: c.parent_company || c.via_division || null,
+      relation: c.relation || 'intra_parent_cousin',
+      in_current_sources: c.in_current_sources === true,
+      in_historical_sources: c.in_historical_sources === true,
+      last_mention_date: c.last_mention_date || null,
+      source_urls: Array.isArray(c.source_urls) ? c.source_urls : [],
+      _backfilled: true,
+    };
+    out.push(normalized);
+    added.push(normalized.company);
+  }
+  return { cousins: out, added };
+}
+
 export function mergeSiblings(existing, discovered, focalCompany = null) {
   const out = [];
   const seen = new Set();

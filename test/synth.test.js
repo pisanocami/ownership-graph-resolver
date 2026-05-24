@@ -7,7 +7,7 @@ import {
   synthesize, collectEntities, deriveStatus, deriveRevenueStatus,
   normalizeChain, deriveDivestiture, isCircularEstimate, collectControlLayers,
   guardConglomerateRevenueOnSubAffiliate, computeRevenueDivergence,
-  needsSiblingBackfill, mergeSiblings,
+  needsSiblingBackfill, mergeSiblings, mergeCousins,
 } from '../synth.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1418,6 +1418,147 @@ test('Task #52: mergeSiblings tolerates null/undefined/garbage inputs', () => {
   assert.deepEqual(mergeSiblings(undefined, [{ company: '' }, { }], 'X'), { siblings: [], added: [] });
   const r = mergeSiblings([{ company: 'A' }], 'not-an-array', 'X');
   assert.equal(r.siblings.length, 1);
+});
+
+test('Task #52: Snickers (Mars Wrigley mega-cap parent) requires floor 5, not 3', () => {
+  // Mars Wrigley is on the mega-cap allowlist — floor must be 5 even when
+  // some siblings were already captured. This is the ticket's explicit
+  // Snickers acceptance criterion.
+  const bf = needsSiblingBackfill({
+    company: 'Snickers',
+    parent: { company: 'Mars Wrigley', node_type: 'legal_entity' },
+    siblings: [{ company: "M&M's" }, { company: 'Twix' }],
+  });
+  assert.equal(bf.needed, true, 'floor 5 not met by 2 captured siblings');
+  assert.equal(bf.floor, 5);
+  assert.equal(bf.is_mega_cap, true);
+});
+
+test('Task #52: mega-cap floor stops requiring backfill once 5 siblings are captured', () => {
+  const bf = needsSiblingBackfill({
+    company: 'Snickers',
+    parent: { company: 'Mars Wrigley' },
+    siblings: ["M&M's", 'Twix', 'Skittles', 'Extra', 'Orbit'].map((c) => ({ company: c })),
+  });
+  assert.equal(bf.needed, false);
+  assert.equal(bf.floor, 5);
+});
+
+test('Task #52: mega-cap detection uses explicit revenue hint when name is unfamiliar', () => {
+  const bf = needsSiblingBackfill({
+    company: 'X', siblings: [],
+    parent: { company: 'Obscure Holdings Ltd', anchor_revenue: 80e9 },
+  });
+  assert.equal(bf.is_mega_cap, true);
+  assert.equal(bf.floor, 5);
+});
+
+test('Task #52: MSC Cruceros (single-segment private holding) — backfill runs at floor 3 and installs ≥1', () => {
+  // MSC Cruises sits under MSC Group — a private, focused-business parent.
+  // Floor is 3 (not 5; not a mega-cap on the allowlist). Backfill should
+  // run and install at least 1 sibling brand (e.g. MSC Cargo, MSC Foundation).
+  const ownership = {
+    company: 'MSC Cruceros',
+    domain: 'msccruceros.es',
+    node_type: 'operating_brand',
+    parent: { company: 'MSC Group', node_type: 'legal_entity', parent: null },
+    siblings: [],
+  };
+  const bf = needsSiblingBackfill(ownership);
+  assert.equal(bf.needed, true);
+  assert.equal(bf.floor, 3, 'MSC Group is not on the mega-cap allowlist');
+  assert.equal(bf.is_mega_cap, false);
+  // Simulate a backfill returning a single related MSC brand.
+  const { siblings, added } = mergeSiblings(
+    ownership.siblings,
+    [{ company: 'MSC Cargo', domain: 'msccargo.com', category: 'logistics' }],
+    ownership.company,
+  );
+  ownership.siblings = siblings;
+  assert.ok(added.length >= 1, 'at least 1 sibling installed for MSC Cruceros');
+  const entities = collectEntities(ownership);
+  assert.ok(entities.some((e) => e.role === 'sibling' && e.company === 'MSC Cargo'));
+});
+
+test('Task #52: Resident Home 4-way focal permutation produces mutually consistent siblings', () => {
+  // Acceptance criterion from the ticket: rotating the focal among
+  // Awara / Nectar / DreamCloud / Siena under Resident Home LLC must yield
+  // ≥3 siblings each AND the four trees must be mutually consistent — i.e.,
+  // every brand that's a sibling in run X is also focal-or-sibling in run Y.
+  const RESIDENT_HOME_BRANDS = ['Awara Sleep', 'Nectar', 'DreamCloud', 'Siena'];
+  // Synthetic backfill returns the other three brands when given any focal.
+  const backfillFor = (focal) =>
+    RESIDENT_HOME_BRANDS.filter((b) => b !== focal).map((b) => ({
+      company: b,
+      domain: `${b.split(' ')[0].toLowerCase()}.com`,
+      category: 'mattress',
+      in_current_sources: true,
+    }));
+
+  const trees = RESIDENT_HOME_BRANDS.map((focal) => {
+    const ownership = {
+      company: focal,
+      domain: `${focal.split(' ')[0].toLowerCase()}.com`,
+      node_type: 'operating_brand',
+      parent: { company: 'Resident Home LLC', node_type: 'legal_entity', parent: null },
+      siblings: [],
+    };
+    const bf = needsSiblingBackfill(ownership);
+    assert.equal(bf.needed, true, `${focal}: backfill should fire when empty`);
+    const { siblings } = mergeSiblings(ownership.siblings, backfillFor(focal), focal);
+    ownership.siblings = siblings;
+    return ownership;
+  });
+
+  // (1) Every run yields ≥3 siblings.
+  trees.forEach((t) => {
+    assert.ok(
+      (t.siblings || []).length >= 3,
+      `${t.company}: only ${(t.siblings || []).length} siblings (expected ≥3)`,
+    );
+  });
+
+  // (2) Mutual consistency: the universe of {focal ∪ siblings} is identical
+  // across all four runs — capture depth doesn't vary by which brand is focal.
+  const universes = trees.map((t) => {
+    const u = new Set([t.company.toLowerCase()]);
+    (t.siblings || []).forEach((s) => u.add(s.company.toLowerCase()));
+    return [...u].sort();
+  });
+  const ref = universes[0];
+  for (let i = 1; i < universes.length; i++) {
+    assert.deepEqual(universes[i], ref, `${trees[i].company} universe diverges from ${trees[0].company}`);
+  }
+
+  // (3) Revenue phase schedules all 4 brands in every run.
+  trees.forEach((t) => {
+    const entities = collectEntities(t);
+    const brandNames = new Set(entities.map((e) => e.company));
+    RESIDENT_HOME_BRANDS.forEach((b) => {
+      assert.ok(brandNames.has(b), `${t.company}: ${b} not scheduled for revenue phase`);
+    });
+  });
+});
+
+test('Task #52: mergeCousins preserves via_division and cousin-specific fields', () => {
+  // Code-review finding: mergeSiblings strips cousin-specific schema. Cousins
+  // must keep via_division so the brief can render "via <division>" context.
+  const existing = [
+    { company: 'Louis Vuitton', via_division: 'Fashion & Leather Goods', custom: 'kept' },
+  ];
+  const discovered = [
+    { company: 'louis vuitton' }, // dedup
+    { company: 'Hennessy', via_division: 'Wines & Spirits', domain: 'hennessy.com' },
+    { company: 'Sephora', via_division: 'Selective Retailing' },
+  ];
+  const { cousins, added } = mergeCousins(existing, discovered, 'Dior');
+  assert.equal(cousins.length, 3);
+  assert.equal(cousins[0].custom, 'kept', 'existing cousin preserved intact');
+  const hennessy = cousins.find((c) => c.company === 'Hennessy');
+  assert.equal(hennessy.via_division, 'Wines & Spirits', 'via_division preserved on backfilled cousin');
+  assert.equal(hennessy.relation, 'intra_parent_cousin');
+  assert.equal(hennessy._backfilled, true);
+  assert.deepEqual(added.sort(), ['Hennessy', 'Sephora'].sort());
 });
 
 test('Task #52: T-Awara regression — after backfill, all 4 Resident Home brands install as siblings', () => {

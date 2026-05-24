@@ -16,6 +16,7 @@ import {
   collectControlLayers,
   needsSiblingBackfill,
   mergeSiblings,
+  mergeCousins,
 } from './synth.js';
 
 const PROVIDERS = {
@@ -1029,7 +1030,7 @@ export default function App() {
             // Also merge cousins when the backfill returned them, applying the
             // same focal/dedup discipline.
             if (Array.isArray(parsedBf?.intra_parent_cousins) && parsedBf.intra_parent_cousins.length) {
-              const { siblings: mergedCousins } = mergeSiblings(
+              const { cousins: mergedCousins } = mergeCousins(
                 ownership.intra_parent_cousins,
                 parsedBf.intra_parent_cousins,
                 ownership.company,
