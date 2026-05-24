@@ -1,4 +1,5 @@
 import { Handle, Position } from 'reactflow';
+import { formatUSD } from '../../synth.js';
 
 export default function IndividualNode({ data, selected }) {
   const { node, role, onSelect } = data;
