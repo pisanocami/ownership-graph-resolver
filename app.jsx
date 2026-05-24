@@ -113,9 +113,22 @@ const REVENUE_PROMPT = `You are a Revenue Inference Agent investigating private 
 
 Goal: estimate the annual revenue of a brand by gathering behavioral signals from the web. The user gives you a brand name; you investigate and produce a revenue range with confidence.
 
+## Disambiguation discipline (CRITICAL — read first)
+
+The user will tell you the brand's role in a corporate family and, for non-root entities, the PARENT company. You MUST verify that every signal you accept belongs to the SAME entity — not a homonymous company.
+
+Common-name siblings (e.g. "Siena", "Mercury", "Apple", "Bundle", "Mars", "Atlas", "Echo", "Origin") routinely collide with unrelated companies (SaaS, fintech, agencies, public corps). Default assumption: a top search hit for a common name is NOT your target unless the page explicitly mentions the parent, its other brands, or the correct sector/category.
+
+Rules:
+1. If a PARENT or category is provided, your FIRST web search for any non-root entity MUST include the parent or category as a qualifier (e.g. \`"Siena" "Resident" mattress\` or \`"Siena" Ashley Furniture brand\`) BEFORE searching the bare name.
+2. For every signal you record, ask: "does the source page mention the parent, sibling brands, the focal's domain, or its sector?" If yes → accept normally. If no → you cannot prove it belongs to this entity. Mark the signal with \`context_unverified: true\` and force its \`weight\` to "low".
+3. Pricing pages, G2/Capterra reviews, hiring counts, and traffic numbers from a same-named SaaS / agency / consultancy are extremely likely to be the WRONG entity for a consumer/DTC brand under a furniture or CPG parent. Be ruthless about marking these context_unverified.
+4. NEVER promote a context_unverified signal to medium/high weight.
+5. If ALL signals end up context_unverified, set the estimate to 0, confidence "low", and write a reason_for_null like: "Could not verify signals belong to {brand} as brand of {parent} vs homonymous entities ({list the colliding entities you saw, e.g. 'Siena AI customer-service SaaS'})."
+
 ## Search strategy
 
-1. Disambiguate first: confirm which entity you are investigating.
+1. Disambiguate first: confirm which entity you are investigating. For non-root entities, the first query must include the parent or category qualifier (see rule 1 above).
 2. Gather behavioral signals — proxies for revenue:
    - Web traffic estimates (SimilarWeb / Semrush mentions)
    - Hiring velocity (LinkedIn count, careers postings)
@@ -153,15 +166,16 @@ Produce a final JSON block in this EXACT format, wrapped in \`\`\`json ... \`\`\
       "label": "<short signal name, max 5 words>",
       "value": "<the actual data point found>",
       "source": "<source name or short URL>",
-      "weight": "low" | "medium" | "high"
+      "weight": "low" | "medium" | "high",
+      "context_unverified": bool      // true when the source does NOT mention the parent / sibling brands / focal domain / sector — i.e. you cannot prove the data point belongs to this entity vs a homonymous one. Forces weight to "low".
     }
   ],
   "reasoning_summary": "<2-4 sentences explaining how the signals triangulate to the estimate>",
-  "reason_for_null": str|null         // when the estimate is 0/unknown, a FREE-TEXT reason (e.g. "brand launched <12mo ago, no traffic or funding data yet"). NOT a code like "n/a".
+  "reason_for_null": str|null         // when the estimate is 0/unknown, a FREE-TEXT reason (e.g. "brand launched <12mo ago, no traffic or funding data yet", or "Could not verify signals belong to {brand} as brand of {parent} vs homonymous entities (...)"). NOT a code like "n/a".
 }
 \`\`\`
 
-Weak/contradictory signals → wider range, "low" confidence. If you genuinely cannot estimate, set the numbers to 0, confidence "low", and write a descriptive reason_for_null explaining why (never the string "n/a").`;
+Weak/contradictory signals → wider range, "low" confidence. If you genuinely cannot estimate — including the case where every signal you found is context_unverified — set the numbers to 0, confidence "low", and write a descriptive reason_for_null explaining why (never the string "n/a").`;
 
 const PARENT_ANCHOR_PROMPT = `You are a filings agent. Given a PARENT company and a FOCAL subsidiary, determine if PARENT is publicly traded and, if so, extract the latest annual-report (10-K / 20-F / annual filing) segment revenue.
 
@@ -683,7 +697,14 @@ export default function App() {
           const tag = `revenue:${ent.company}`;
           appendTrace([{ kind: 'phase', phase: tag, label: `→ ${ent.company} (${ent.role})` }]);
           try {
-            const user = `Investigate the annual revenue of: "${ent.company}"${ent.domain ? ` (domain: ${ent.domain})` : ''}. Role in corporate family: ${ent.role}.`;
+            const ctxParts = [];
+            if (ent.parent_company) ctxParts.push(`parent: "${ent.parent_company}"`);
+            if (ent.category) ctxParts.push(`category: ${ent.category}`);
+            const ctx = ctxParts.length ? ` Context — ${ctxParts.join('; ')}.` : '';
+            const disambiguationNote = ent.role === 'sibling' && ent.parent_company
+              ? ` Disambiguation: "${ent.company}" is a common name — your FIRST web search MUST include the parent ("${ent.parent_company}")${ent.category ? ` or the category ("${ent.category}")` : ''} as a qualifier; mark any signal whose source does not reference ${ent.parent_company}, its other brands, or this sector as context_unverified.`
+              : '';
+            const user = `Investigate the annual revenue of: "${ent.company}"${ent.domain ? ` (domain: ${ent.domain})` : ''}. Role in corporate family: ${ent.role}.${ctx}${disambiguationNote}`;
             const resp = await callLLM({ provider, model, system: REVENUE_PROMPT, user, maxSearches: 4, maxTokens: 3072 });
             appendTrace(resp.trace.map((t) => ({ ...t, tag })));
             const parsed = safeExtractJSON(resp.text);
@@ -703,7 +724,9 @@ export default function App() {
       appendTrace([{ kind: 'phase', phase: 'synthesis', label: 'merging ownership + revenue → positioning' }]);
       const byCompany = {};
       revenueResults.forEach((r) => { byCompany[r.company.toLowerCase().trim()] = r; });
-      const synthesized = synthesize(ownership, byCompany, parentAnchor);
+      const entitiesByCompany = {};
+      entities.forEach((e) => { entitiesByCompany[(e.company || '').toLowerCase().trim()] = e; });
+      const synthesized = synthesize(ownership, byCompany, parentAnchor, entitiesByCompany);
       const finalResult = { ...synthesized, _entities: entities, _revenueResults: revenueResults, _parentAnchor: parentAnchor };
       setResult(finalResult);
       appendTrace([{ kind: 'phase', phase: 'done', label: 'investigation complete' }]);
@@ -1692,6 +1715,18 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
         {node.category && <span className="chip">{node.category}</span>}
         {node.terminal_layer === 'private_equity' && <span className="chip chip-warning">PE-owned</span>}
         {node.standalone && <span className="chip chip-accent">standalone</span>}
+        {(node.context_unverified_all || node.context_unverified_some) && (
+          <span
+            className="chip chip-warning"
+            title={
+              node.context_unverified_all
+                ? 'No captured signal could be tied to this entity in the context of its parent — likely a homonym collision.'
+                : 'Some captured signals could not be tied to this entity in the context of its parent.'
+            }
+          >
+            {node.context_unverified_all ? 'context unverified' : 'context partial'}
+          </span>
+        )}
         <StatusBadge node={node} />
       </div>
 
@@ -1781,7 +1816,18 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
             <div key={i} className="signal-row">
               <div className="signal-type">{s.type}</div>
               <div>
-                <div className="signal-label">{s.label}</div>
+                <div className="signal-label">
+                  {s.label}
+                  {s.context_unverified && (
+                    <span
+                      className="chip chip-warning"
+                      style={{ marginLeft: 6 }}
+                      title="Source does not reference the parent / sibling brands / focal domain or sector — this signal may belong to a homonymous entity."
+                    >
+                      context unverified
+                    </span>
+                  )}
+                </div>
                 <div className="signal-value">{s.value}</div>
                 {s.source && <div className="signal-source">via {s.source}</div>}
               </div>

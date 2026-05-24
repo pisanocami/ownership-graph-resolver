@@ -130,6 +130,51 @@ test('Zara: parent revenue + ratio use the anchor USD total (currency consistenc
   assert.match(out.positioning_analysis.focal_vs_parent_ratio, /70\.9%/);
 });
 
+// ─── Bug #1: context_unverified discipline for homonymous siblings ──────────
+
+test('Bug #1: sibling with ALL context_unverified signals is zeroed with descriptive reason', () => {
+  // Simulate the Siena (Resident sibling) vs Siena AI (SaaS) collision.
+  const ownership = JSON.parse(JSON.stringify(t04.ownership));
+  const revenueByCompany = {
+    ...t04.revenueByCompany,
+    'siena': {
+      company: 'Siena',
+      revenue_estimate: { low: 4_000_000, high: 8_000_000, central: 5_900_000 },
+      confidence: 'medium',
+      signals_found: [
+        { type: 'pricing', label: 'pricing page', value: '$750/mo', source: 'siena.cx', weight: 'medium', context_unverified: true },
+        { type: 'reviews', label: 'G2 4.8/5', value: 'G2 rating', source: 'g2.com', weight: 'high', context_unverified: true },
+      ],
+      reasoning_summary: 'Pricing + G2 rating triangulate to ~$5.9M ARR.',
+    },
+  };
+  // Inject Siena into siblings if not present.
+  if (!ownership.siblings.some((s) => s.company === 'Siena')) {
+    ownership.siblings.push({ company: 'Siena', in_current_sources: true, in_historical_sources: false, category: 'hybrid mattress' });
+  }
+  const entities = collectEntities(ownership);
+  const entByCo = Object.fromEntries(entities.map((e) => [e.company.toLowerCase().trim(), e]));
+  const out = synthesize(ownership, revenueByCompany, t04.parentAnchor, entByCo);
+  const siena = out.ownership_tree.siblings.find((s) => s.company === 'Siena');
+  assert.ok(siena);
+  assert.equal(siena.revenue_estimate.central, 0, 'all context_unverified → estimate zeroed');
+  assert.equal(siena.revenue_estimate.confidence, 'low');
+  assert.equal(siena.context_unverified_all, true, 'flag propagated to node');
+  assert.match(siena.reason_for_null, /homonymous|context_unverified|verify/i);
+  assert.match(siena.reason_for_null, /Resident/, 'reason names the parent for clarity');
+  siena.signals_found.forEach((s) => {
+    assert.equal(s.weight, 'low', 'context_unverified signal weight forced to low');
+  });
+});
+
+test('Bug #1: collectEntities propagates parent_company to siblings', () => {
+  const entities = collectEntities(t04.ownership);
+  const focalParent = t04.ownership.parent.company;
+  const siblingEnt = entities.find((e) => e.role === 'sibling');
+  assert.ok(siblingEnt, 'at least one sibling collected');
+  assert.equal(siblingEnt.parent_company, focalParent, 'sibling carries the focal parent name for disambiguation');
+});
+
 test('Zara: strategic_control is deduplicated across layers', () => {
   const out = synthesize(tZara.ownership, tZara.revenueByCompany, tZara.parentAnchor);
   const tree = out.ownership_tree;

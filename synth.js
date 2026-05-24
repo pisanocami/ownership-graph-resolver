@@ -141,7 +141,7 @@ export function collectEntities(ownership) {
   if (!ownership) return [];
   const out = [];
   const seen = new Set();
-  const push = (entity, role) => {
+  const push = (entity, role, parentName) => {
     if (!entity || !entity.company) return;
     const key = entity.company.toLowerCase().trim();
     if (seen.has(key)) return;
@@ -154,13 +154,18 @@ export function collectEntities(ownership) {
       category: entity.category || null,
       in_current_sources: entity.in_current_sources,
       in_historical_sources: entity.in_historical_sources,
+      // Parent context for disambiguation in the revenue agent — without it,
+      // sibling lookups for common names (Siena, Mercury, Atlas…) collide with
+      // unrelated homonymous companies.
+      parent_company: parentName || null,
     });
   };
-  push(ownership, 'focal');
+  const focalParent = ownership.parent?.company || null;
+  push(ownership, 'focal', focalParent);
   let p = ownership.parent;
   let depth = 0;
   while (p && depth < 2) {
-    push(p, depth === 0 ? 'parent' : 'grandparent');
+    push(p, depth === 0 ? 'parent' : 'grandparent', p.parent?.company || null);
     p = p.parent;
     depth++;
   }
@@ -169,19 +174,56 @@ export function collectEntities(ownership) {
   const orderedSiblings = [...(ownership.siblings || [])].sort(
     (a, b) => (b.in_current_sources === true) - (a.in_current_sources === true)
   );
-  orderedSiblings.slice(0, 8).forEach((s) => push(s, 'sibling'));
-  (ownership.children || []).slice(0, 3).forEach((c) => push(c, 'child'));
+  // Siblings share the focal's parent in the corporate tree.
+  orderedSiblings.slice(0, 8).forEach((s) => push(s, 'sibling', focalParent));
+  (ownership.children || []).slice(0, 3).forEach((c) => push(c, 'child', ownership.company));
   return out;
 }
 
-export function attachRevenue(ownership, revenueByCompany) {
+// Enforce context_unverified discipline downstream of the model:
+//  - Any signal marked context_unverified has its weight forced to "low".
+//  - When EVERY signal on a revenue record is context_unverified (and there is
+//    at least one signal), zero out the estimate, drop confidence to "low",
+//    and synthesize a reason_for_null if the model didn't already write one.
+// This is the safety net for Bug #1: even if the model accidentally promotes
+// a homonym signal to medium/high, we refuse to surface its estimate.
+function applyContextUnverifiedDiscipline(rev, ent) {
+  if (!rev || !Array.isArray(rev.signals_found) || rev.signals_found.length === 0) return rev;
+  rev.signals_found = rev.signals_found.map((s) => (
+    s && s.context_unverified ? { ...s, weight: 'low' } : s
+  ));
+  const allUnverified = rev.signals_found.every((s) => s && s.context_unverified);
+  if (allUnverified) {
+    const central = rev.revenue_estimate?.central || 0;
+    if (central > 0) {
+      rev.revenue_estimate_unverified = { ...rev.revenue_estimate };
+      rev.revenue_estimate = { low: 0, high: 0, central: 0 };
+    }
+    rev.confidence = 'low';
+    if (!rev.reason_for_null) {
+      const parent = ent?.parent_company;
+      const who = ent?.company || 'this entity';
+      rev.reason_for_null = parent
+        ? `Could not verify signals belong to ${who} as brand of ${parent} vs homonymous entities — all captured signals were context_unverified.`
+        : `Could not verify captured signals belong to ${who} vs homonymous entities — all signals were context_unverified.`;
+    }
+    rev.context_unverified_all = true;
+  } else if (rev.signals_found.some((s) => s && s.context_unverified)) {
+    rev.context_unverified_some = true;
+  }
+  return rev;
+}
+
+export function attachRevenue(ownership, revenueByCompany, entitiesByCompany = {}) {
   if (!ownership) return ownership;
   const clone = JSON.parse(JSON.stringify(ownership));
+  const lookupEnt = (k) => entitiesByCompany[k] || null;
   const visit = (node) => {
     if (!node) return;
     const key = (node.company || '').toLowerCase().trim();
     const rev = revenueByCompany[key];
     if (rev) {
+      applyContextUnverifiedDiscipline(rev, lookupEnt(key));
       node.revenue_estimate = {
         low: rev.revenue_estimate?.low ?? 0,
         high: rev.revenue_estimate?.high ?? 0,
@@ -192,6 +234,8 @@ export function attachRevenue(ownership, revenueByCompany) {
       node.reasoning_summary = rev.reasoning_summary || '';
       if (rev.reason_for_null) node.reason_for_null = rev.reason_for_null;
       if (rev.error) node.revenue_error = rev.error;
+      if (rev.context_unverified_all) node.context_unverified_all = true;
+      if (rev.context_unverified_some) node.context_unverified_some = true;
     }
     node._derived_status = deriveStatus(node);
     if (node.parent) visit(node.parent);
@@ -199,6 +243,7 @@ export function attachRevenue(ownership, revenueByCompany) {
       const sk = (s.company || '').toLowerCase().trim();
       const sr = revenueByCompany[sk];
       if (sr) {
+        applyContextUnverifiedDiscipline(sr, lookupEnt(sk));
         s.revenue_estimate = {
           low: sr.revenue_estimate?.low ?? 0,
           high: sr.revenue_estimate?.high ?? 0,
@@ -208,6 +253,8 @@ export function attachRevenue(ownership, revenueByCompany) {
         s.signals_found = sr.signals_found || [];
         s.reasoning_summary = sr.reasoning_summary || '';
         if (sr.reason_for_null) s.reason_for_null = sr.reason_for_null;
+        if (sr.context_unverified_all) s.context_unverified_all = true;
+        if (sr.context_unverified_some) s.context_unverified_some = true;
       }
       s._derived_status = deriveStatus(s);
     });
@@ -342,8 +389,8 @@ function buildReconciliationExplanation({ ratio, tree, siblings, parentAnchor })
 // Deterministic local synthesis. Chosen over a 3rd LLM call because (a) the
 // positioning math is mechanical (ratios, ranking) and (b) it avoids token cost
 // and JSON-parse risk of a synthesis call given two large prior outputs.
-export function synthesize(ownership, revenueByCompany, parentAnchor = null) {
-  const tree = attachRevenue(ownership, revenueByCompany);
+export function synthesize(ownership, revenueByCompany, parentAnchor = null, entitiesByCompany = {}) {
+  const tree = attachRevenue(ownership, revenueByCompany, entitiesByCompany);
   const anchorAdjustment = applyAnchorAdjustment(tree, parentAnchor);
   if (parentAnchor) tree.parent_anchor = parentAnchor;
   const notes = [];
