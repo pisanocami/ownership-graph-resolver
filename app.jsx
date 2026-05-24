@@ -886,6 +886,7 @@ export default function App() {
     confidence: 'all', // all | high | medium | low
     date: 'all', // all | 24h | week | month
   });
+  const [historySortBy, setHistorySortBy] = useState('recent'); // recent | alphabetical | revenue | confidence
 
   // Apply theme + persist
   useEffect(() => {
@@ -1663,6 +1664,8 @@ Search for direct competitors and return the JSON result.`;
                   onHistorySearchChange={setHistorySearch}
                   historyFilters={historyFilters}
                   onHistoryFiltersChange={setHistoryFilters}
+                  historySortBy={historySortBy}
+                  onHistorySortByChange={setHistorySortBy}
                   onOpenFromHistory={(id) => { openFromHistory(id); setMobileDrawerOpen(false); }}
                   onDeleteFromHistory={deleteFromHistory}
                   onKeyDown={onKeyDown}
@@ -1693,6 +1696,8 @@ Search for direct competitors and return the JSON result.`;
                 onHistorySearchChange={setHistorySearch}
                 historyFilters={historyFilters}
                 onHistoryFiltersChange={setHistoryFilters}
+                historySortBy={historySortBy}
+                onHistorySortByChange={setHistorySortBy}
                 onOpenFromHistory={openFromHistory}
                 onDeleteFromHistory={deleteFromHistory}
                 onKeyDown={onKeyDown}
@@ -1787,30 +1792,50 @@ function Sidebar({
   loadedFrom, showStepper, phase, result, trace,
   history, historySearch, onHistorySearchChange,
   historyFilters, onHistoryFiltersChange,
+  historySortBy, onHistorySortByChange,
   onOpenFromHistory, onDeleteFromHistory, onKeyDown, onForceRun,
 }) {
-  const filteredHistory = history.filter((h) => {
-    if (historySearch.trim()) {
-      const search = historySearch.toLowerCase();
-      if (!h.focal_company?.toLowerCase().includes(search) &&
-          !h.brand?.toLowerCase().includes(search) &&
-          !(h.hint || '').toLowerCase().includes(search)) {
+  const filteredHistory = history
+    .filter((h) => {
+      if (historySearch.trim()) {
+        const search = historySearch.toLowerCase();
+        if (!h.focal_company?.toLowerCase().includes(search) &&
+            !h.brand?.toLowerCase().includes(search) &&
+            !(h.hint || '').toLowerCase().includes(search)) {
+          return false;
+        }
+      }
+      if (historyFilters.confidence !== 'all' && h.confidence !== historyFilters.confidence) {
         return false;
       }
-    }
-    if (historyFilters.confidence !== 'all' && h.confidence !== historyFilters.confidence) {
-      return false;
-    }
-    if (historyFilters.date !== 'all') {
-      const now = Date.now();
-      const created = h.createdAt;
-      const daysAgo = (now - created) / (1000 * 60 * 60 * 24);
-      if (historyFilters.date === '24h' && daysAgo > 1) return false;
-      if (historyFilters.date === 'week' && daysAgo > 7) return false;
-      if (historyFilters.date === 'month' && daysAgo > 30) return false;
-    }
-    return true;
-  });
+      if (historyFilters.date !== 'all') {
+        const now = Date.now();
+        const created = h.createdAt;
+        const daysAgo = (now - created) / (1000 * 60 * 60 * 24);
+        if (historyFilters.date === '24h' && daysAgo > 1) return false;
+        if (historyFilters.date === 'week' && daysAgo > 7) return false;
+        if (historyFilters.date === 'month' && daysAgo > 30) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (historySortBy === 'alphabetical') {
+        return (a.focal_company || a.brand || '').localeCompare(b.focal_company || b.brand || '');
+      }
+      if (historySortBy === 'revenue') {
+        const aRev = a.revenue || 0;
+        const bRev = b.revenue || 0;
+        return bRev - aRev;
+      }
+      if (historySortBy === 'confidence') {
+        const confRank = { high: 0, medium: 1, low: 2, unknown: 3 };
+        const aRank = confRank[a.confidence || 'unknown'] ?? 3;
+        const bRank = confRank[b.confidence || 'unknown'] ?? 3;
+        return aRank - bRank;
+      }
+      // 'recent' (default)
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -1921,13 +1946,14 @@ function Sidebar({
             />
           </div>
 
-          <div className="history-filters" style={{ marginBottom: 10 }}>
+          <div className="history-filters" style={{ marginBottom: 10, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, fontSize: 11 }}>
             <div className="filter-group">
-              <label className="filter-label">Confidence</label>
+              <label className="filter-label" style={{ fontSize: 10 }}>Confidence</label>
               <select
                 className="filter-select"
                 value={historyFilters.confidence}
                 onChange={(e) => onHistoryFiltersChange({ ...historyFilters, confidence: e.target.value })}
+                style={{ fontSize: 11 }}
               >
                 <option value="all">All</option>
                 <option value="high">High</option>
@@ -1936,16 +1962,31 @@ function Sidebar({
               </select>
             </div>
             <div className="filter-group">
-              <label className="filter-label">Date</label>
+              <label className="filter-label" style={{ fontSize: 10 }}>Date</label>
               <select
                 className="filter-select"
                 value={historyFilters.date}
                 onChange={(e) => onHistoryFiltersChange({ ...historyFilters, date: e.target.value })}
+                style={{ fontSize: 11 }}
               >
                 <option value="all">All time</option>
                 <option value="24h">Last 24h</option>
                 <option value="week">Last week</option>
                 <option value="month">Last month</option>
+              </select>
+            </div>
+            <div className="filter-group">
+              <label className="filter-label" style={{ fontSize: 10 }}>Sort by</label>
+              <select
+                className="filter-select"
+                value={historySortBy}
+                onChange={(e) => onHistorySortByChange(e.target.value)}
+                style={{ fontSize: 11 }}
+              >
+                <option value="recent">Recent</option>
+                <option value="alphabetical">A-Z</option>
+                <option value="revenue">Revenue</option>
+                <option value="confidence">Confidence</option>
               </select>
             </div>
           </div>
