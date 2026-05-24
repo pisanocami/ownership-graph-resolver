@@ -6,3 +6,6 @@ dist/
 .DS_Store
 .vite/
 .data/
+
+*storybook.log
+storybook-static
