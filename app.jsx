@@ -855,6 +855,16 @@ export default function App() {
     const prov = p && PROVIDERS[p] ? p : DEFAULT_PROVIDER;
     return PROVIDERS[prov].models.some((x) => x.id === m) ? m : PROVIDERS[prov].models[0].id;
   });
+  // New state for sidebar + mode
+  const [mode, setMode] = useState('investigate'); // investigate | brief
+  const [investigateSubNav, setInvestigateSubNav] = useState('tree'); // tree | signals | recon | json
+  const [briefSubNav, setBriefSubNav] = useState('verdict'); // verdict | signals | mispricing | competitive | confidence | audiences
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyFilters, setHistoryFilters] = useState({
+    confidence: 'all', // all | high | medium | low
+    date: 'all', // all | 24h | week | month
+  });
 
   // Apply theme + persist
   useEffect(() => {
@@ -1497,191 +1507,443 @@ Search for direct competitors and return the JSON result.`;
     if (e.key === 'Enter' && !loading) investigate();
   }
 
+  // URL routing: sync hash state with mode/subNav
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      // Ignore share= links
+      if (hash.includes('share=')) return;
+
+      const match = hash.match(/^#i\/([^/]+)(?:\/(investigate|brief))?(?:\/([^/]+))?/);
+      if (!match) return;
+
+      const [_, brandFromHash, modeFromHash, subNavFromHash] = match;
+      if (modeFromHash && ['investigate', 'brief'].includes(modeFromHash)) {
+        setMode(modeFromHash);
+        if (subNavFromHash) {
+          if (modeFromHash === 'investigate') setInvestigateSubNav(subNavFromHash);
+          else setBriefSubNav(subNavFromHash);
+        }
+      }
+      setMobileDrawerOpen(false);
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    handleHashChange(); // on mount
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  // Update URL when mode/subNav changes
+  useEffect(() => {
+    if (!result?.ownership_tree || sharedView) return;
+    const currentBrand = brand || result.focal_company || result.ownership_tree.company || '';
+    const currentSubNav = mode === 'investigate' ? investigateSubNav : briefSubNav;
+    window.location.hash = `#i/${encodeURIComponent(currentBrand)}/${mode}/${currentSubNav}`;
+  }, [mode, investigateSubNav, briefSubNav, result, sharedView, brand]);
+
   const showStepper = loading || (trace.length > 0 && !result?.ownership_tree);
   const toggleTheme = () => setTheme(theme === 'light' ? 'dark' : 'light');
 
   return (
     <div className="app">
-      <div className="container">
-        <header className="app-header">
-          <div className="brand">
-            <div className="brand-title">Ownership &amp; Revenue Agent</div>
-            <div className="brand-sub">Resolve a brand's corporate family with revenue per node.</div>
-          </div>
-          <div className="header-actions no-print">
-            <button
-              className="icon-btn"
-              onClick={toggleTheme}
-              aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-              title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-            >
-              {theme === 'light' ? <MoonIcon /> : <SunIcon />}
-            </button>
-          </div>
-        </header>
+      <header className="app-header no-print">
+        <button
+          className="hamburger-btn"
+          onClick={() => setMobileDrawerOpen(!mobileDrawerOpen)}
+          aria-label="Toggle sidebar"
+          title="Toggle sidebar menu"
+        >
+          ☰
+        </button>
+        <div className="brand">
+          <div className="brand-title">Growth Signal · Ownership Resolver</div>
+          {result?.focal_company && <div className="brand-sub">{result.focal_company}</div>}
+        </div>
+        <div className="header-actions no-print">
+          <button
+            className="icon-btn"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+            title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+          >
+            {theme === 'light' ? <MoonIcon /> : <SunIcon />}
+          </button>
+        </div>
+      </header>
 
-        {sharedView && (
-          <div className="banner banner-shared no-print">
-            <span className="mono" style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              ★ shared report · read-only
-            </span>
-            <a href={window.location.pathname} className="mono" style={{ fontSize: 11 }}>
-              ↳ run new investigation
-            </a>
-          </div>
-        )}
-
+      <div className="app-container">
         {!sharedView && (
-          <section className="no-print">
-            <div className="input-form">
-              <div>
-                <label className="field-label">Target brand</label>
-                <input
-                  className="input"
-                  type="text"
-                  value={brand}
-                  onChange={(e) => setBrand(e.target.value)}
-                  placeholder="e.g. Mercury, MUD\WTR, Whole Foods"
-                  disabled={loading}
+          <>
+            <div className="mobile-drawer" onClick={() => setMobileDrawerOpen(false)}>
+              <div className="sidebar" onClick={(e) => e.stopPropagation()}>
+                <Sidebar
+                  brand={brand}
+                  setBrand={setBrand}
+                  hint={hint}
+                  setHint={setHint}
+                  loading={loading}
+                  onInvestigate={() => investigate()}
+                  provider={provider}
+                  onChangeProvider={changeProvider}
+                  model={model}
+                  onChangeModel={setModel}
+                  loadedFrom={loadedFrom}
+                  showStepper={showStepper}
+                  phase={phase}
+                  result={result}
+                  trace={trace}
+                  history={history}
+                  historySearch={historySearch}
+                  onHistorySearchChange={setHistorySearch}
+                  historyFilters={historyFilters}
+                  onHistoryFiltersChange={setHistoryFilters}
+                  onOpenFromHistory={openFromHistory}
+                  onDeleteFromHistory={deleteFromHistory}
                   onKeyDown={onKeyDown}
+                  onForceRun={() => investigate({ force: true })}
                 />
               </div>
-              <div>
-                <label className="field-label">Context (optional)</label>
-                <input
-                  className="input"
-                  type="text"
-                  value={hint}
-                  onChange={(e) => setHint(e.target.value)}
-                  placeholder="domain, industry, geography…"
-                  disabled={loading}
-                  onKeyDown={onKeyDown}
-                />
-              </div>
-              <button
-                className="btn btn-primary"
-                onClick={() => investigate()}
-                disabled={loading || !brand.trim()}
-                style={{ height: 38 }}
-              >
-                {loading ? '· · · working' : 'Investigate →'}
-              </button>
-              {loadedFrom && !loading && (
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => investigate({ force: true })}
-                  disabled={!brand.trim()}
-                  style={{ height: 38 }}
-                  title="Bypass cache and rerun a fresh investigation"
-                >
-                  ↻ Re-run fresh
-                </button>
-              )}
             </div>
-
-            <div className="provider-bar no-print">
-              <span className="provider-bar-label">Model</span>
-              <select
-                className="select"
-                value={provider}
-                onChange={(e) => changeProvider(e.target.value)}
-                disabled={loading}
-                aria-label="Provider"
-              >
-                {Object.entries(PROVIDERS).map(([id, p]) => (
-                  <option key={id} value={id}>{p.label}</option>
-                ))}
-              </select>
-              <select
-                className="select"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                disabled={loading}
-                aria-label="Model"
-              >
-                {(PROVIDERS[provider]?.models || []).map((m) => (
-                  <option key={m.id} value={m.id}>{m.label}</option>
-                ))}
-              </select>
+            <div className="sidebar no-print">
+              <Sidebar
+                brand={brand}
+                setBrand={setBrand}
+                hint={hint}
+                setHint={setHint}
+                loading={loading}
+                onInvestigate={() => investigate()}
+                provider={provider}
+                onChangeProvider={changeProvider}
+                model={model}
+                onChangeModel={setModel}
+                loadedFrom={loadedFrom}
+                showStepper={showStepper}
+                phase={phase}
+                result={result}
+                trace={trace}
+                history={history}
+                historySearch={historySearch}
+                onHistorySearchChange={setHistorySearch}
+                historyFilters={historyFilters}
+                onHistoryFiltersChange={setHistoryFilters}
+                onOpenFromHistory={openFromHistory}
+                onDeleteFromHistory={deleteFromHistory}
+                onKeyDown={onKeyDown}
+                onForceRun={() => investigate({ force: true })}
+              />
             </div>
-
-            {loadedFrom && !loading && (
-              <div className="mono" style={{ marginTop: 10, fontSize: 11, color: 'var(--text-subtle)' }}>
-                ✓ loaded from cache · {formatRelativeTime(loadedFrom.createdAt)}
-              </div>
-            )}
-
-            {showStepper && (
-              <Stepper phase={phase} loading={loading} result={result} />
-            )}
-          </section>
+          </>
         )}
 
-        {error && (
-          <div className="banner banner-danger no-print" style={{ marginTop: 16 }}>
-            <span className="banner-icon">⚠</span>
-            <span>{error}</span>
+        <div className="main-content">
+          <div className="main-wrapper">
+            {sharedView && (
+              <div className="banner banner-shared no-print">
+                <span className="mono" style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  ★ shared report · read-only
+                </span>
+                <a href={window.location.pathname} className="mono" style={{ fontSize: 11 }}>
+                  ↳ run new investigation
+                </a>
+              </div>
+            )}
+
+            {error && (
+              <div className="banner banner-danger no-print" style={{ marginBottom: 16 }}>
+                <span className="banner-icon">⚠</span>
+                <span>{error}</span>
+              </div>
+            )}
+
+            {result?.disambiguation && (
+              <section className="section">
+                <div className="section-head">
+                  <span className="section-title">Disambiguation candidates</span>
+                </div>
+                <div className="card">
+                  {(result.disambiguation.disambiguation_candidates || []).map((c, i) => (
+                    <div key={i} className="strategic-item">
+                      <div className="strategic-head">
+                        <span className="strategic-entity">{c.company}</span>
+                      </div>
+                      <div className="strategic-details" style={{ marginLeft: 0 }}>
+                        {c.sector} · {c.country}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {!result?.ownership_tree && !result?.disambiguation ? (
+              <EmptyState onExampleClick={(brandName) => {
+                setBrand(brandName);
+                setHint('');
+              }} />
+            ) : (
+              result?.ownership_tree && (
+                <ResultView
+                  result={result}
+                  showRaw={showRaw}
+                  setShowRaw={setShowRaw}
+                  selectedKey={selectedKey}
+                  setSelectedKey={setSelectedKey}
+                  viewMode={viewMode}
+                  setViewMode={setViewMode}
+                  theme={theme}
+                  mode={mode}
+                  setMode={setMode}
+                  investigateSubNav={investigateSubNav}
+                  setInvestigateSubNav={setInvestigateSubNav}
+                  briefSubNav={briefSubNav}
+                  setBriefSubNav={setBriefSubNav}
+                />
+              )
+            )}
+          </div>
+
+          {!sharedView && trace.length > 0 && (
+            <LogsPanel trace={trace} open={logsOpen} setOpen={setLogsOpen} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Sidebar ─────────────────────────────────────────────────────────────────
+
+function Sidebar({
+  brand, setBrand, hint, setHint, loading, onInvestigate,
+  provider, onChangeProvider, model, onChangeModel,
+  loadedFrom, showStepper, phase, result, trace,
+  history, historySearch, onHistorySearchChange,
+  historyFilters, onHistoryFiltersChange,
+  onOpenFromHistory, onDeleteFromHistory, onKeyDown, onForceRun,
+}) {
+  const filteredHistory = history.filter((h) => {
+    if (historySearch.trim()) {
+      const search = historySearch.toLowerCase();
+      if (!h.focal_company?.toLowerCase().includes(search) &&
+          !h.brand?.toLowerCase().includes(search) &&
+          !(h.hint || '').toLowerCase().includes(search)) {
+        return false;
+      }
+    }
+    if (historyFilters.confidence !== 'all' && h.confidence !== historyFilters.confidence) {
+      return false;
+    }
+    if (historyFilters.date !== 'all') {
+      const now = Date.now();
+      const created = h.createdAt;
+      const daysAgo = (now - created) / (1000 * 60 * 60 * 24);
+      if (historyFilters.date === '24h' && daysAgo > 1) return false;
+      if (historyFilters.date === 'week' && daysAgo > 7) return false;
+      if (historyFilters.date === 'month' && daysAgo > 30) return false;
+    }
+    return true;
+  });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div className="sidebar-section">
+        <h3 style={{ margin: '0 0 12px', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+          ⊕ New Investigation
+        </h3>
+        <form className="new-investigation-form" onSubmit={(e) => { e.preventDefault(); onInvestigate(); }}>
+          <div>
+            <label className="sidebar-label">Target brand</label>
+            <input
+              className="sidebar-input"
+              type="text"
+              value={brand}
+              onChange={(e) => setBrand(e.target.value)}
+              placeholder="e.g. TikTok, Patagonia"
+              disabled={loading}
+              onKeyDown={onKeyDown}
+            />
+          </div>
+          <div>
+            <label className="sidebar-label">Context (optional)</label>
+            <input
+              className="sidebar-input"
+              type="text"
+              value={hint}
+              onChange={(e) => setHint(e.target.value)}
+              placeholder="domain, industry…"
+              disabled={loading}
+              onKeyDown={onKeyDown}
+            />
+          </div>
+          <button
+            className="btn btn-primary"
+            onClick={onInvestigate}
+            disabled={loading || !brand.trim()}
+            style={{ fontSize: 12 }}
+          >
+            {loading ? '· · · working' : 'Investigate →'}
+          </button>
+          {loadedFrom && !loading && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={onForceRun}
+              disabled={!brand.trim()}
+              style={{ fontSize: 12 }}
+              title="Bypass cache and rerun a fresh investigation"
+            >
+              ↻ Re-run fresh
+            </button>
+          )}
+        </form>
+
+        {loadedFrom && !loading && (
+          <div className="mono" style={{ marginTop: 8, fontSize: 11, color: 'var(--text-subtle)' }}>
+            ✓ from cache · {formatRelativeTime(loadedFrom.createdAt)}
           </div>
         )}
 
-        {!sharedView && history.length > 0 && (
-          <section className="section no-print">
-            <div className="section-head">
-              <span className="section-title">Prior investigations</span>
-              <span className="mono" style={{ fontSize: 11, color: 'var(--text-subtle)' }}>
-                {history.length} saved
-              </span>
+        {showStepper && (
+          <Stepper phase={phase} loading={loading} result={result} />
+        )}
+
+        <div className="provider-bar" style={{ marginTop: 12 }}>
+          <span className="provider-bar-label">Model</span>
+          <select
+            className="select"
+            value={provider}
+            onChange={(e) => onChangeProvider(e.target.value)}
+            disabled={loading}
+            aria-label="Provider"
+            style={{ fontSize: 12 }}
+          >
+            {Object.entries(PROVIDERS).map(([id, p]) => (
+              <option key={id} value={id}>{p.label}</option>
+            ))}
+          </select>
+          <select
+            className="select"
+            value={model}
+            onChange={(e) => onChangeModel(e.target.value)}
+            disabled={loading}
+            aria-label="Model"
+            style={{ fontSize: 12 }}
+          >
+            {(PROVIDERS[provider]?.models || []).map((m) => (
+              <option key={m.id} value={m.id}>{m.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {history.length > 0 && (
+        <div className="sidebar-section" style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <h3 style={{ margin: '0 0 12px', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+            📁 Investigations ({history.length})
+          </h3>
+
+          <div className="history-search-container" style={{ marginBottom: 10 }}>
+            <span className="history-search-icon">🔍</span>
+            <input
+              className="history-search"
+              type="text"
+              value={historySearch}
+              onChange={(e) => onHistorySearchChange(e.target.value)}
+              placeholder="Search…"
+            />
+          </div>
+
+          <div className="history-filters" style={{ marginBottom: 10 }}>
+            <div className="filter-group">
+              <label className="filter-label">Confidence</label>
+              <select
+                className="filter-select"
+                value={historyFilters.confidence}
+                onChange={(e) => onHistoryFiltersChange({ ...historyFilters, confidence: e.target.value })}
+              >
+                <option value="all">All</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
             </div>
-            <div className="card">
-              {history.map((h) => (
+            <div className="filter-group">
+              <label className="filter-label">Date</label>
+              <select
+                className="filter-select"
+                value={historyFilters.date}
+                onChange={(e) => onHistoryFiltersChange({ ...historyFilters, date: e.target.value })}
+              >
+                <option value="all">All time</option>
+                <option value="24h">Last 24h</option>
+                <option value="week">Last week</option>
+                <option value="month">Last month</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="history-list">
+            {filteredHistory.length === 0 ? (
+              <div style={{ padding: '12px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>
+                No investigations found
+              </div>
+            ) : (
+              filteredHistory.map((h) => (
                 <HistoryRow
                   key={h.id}
                   item={h}
-                  active={loadedFrom?.id === h.id}
-                  onOpen={() => openFromHistory(h.id)}
-                  onDelete={() => deleteFromHistory(h.id)}
+                  active={false}
+                  onOpen={() => onOpenFromHistory(h.id)}
+                  onDelete={() => onDeleteFromHistory(h.id)}
                 />
-              ))}
-            </div>
-          </section>
-        )}
+              ))
+            )}
+          </div>
+        </div>
+      )}
 
-        {result?.disambiguation && (
-          <section className="section">
-            <div className="section-head">
-              <span className="section-title">Disambiguation candidates</span>
-            </div>
-            <div className="card">
-              {(result.disambiguation.disambiguation_candidates || []).map((c, i) => (
-                <div key={i} className="strategic-item">
-                  <div className="strategic-head">
-                    <span className="strategic-entity">{c.company}</span>
-                  </div>
-                  <div className="strategic-details" style={{ marginLeft: 0 }}>
-                    {c.sector} · {c.country}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
+      <div className="sidebar-section" style={{ marginTop: 'auto' }}>
+        <h3 style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+          📤 Exports
+        </h3>
+        <p style={{ margin: 0, fontSize: 11, color: 'var(--text-muted)' }}>Brief PDFs, JSON exports, etc.</p>
+      </div>
+    </div>
+  );
+}
 
-        {result?.ownership_tree && (
-          <ResultView
-            result={result}
-            showRaw={showRaw}
-            setShowRaw={setShowRaw}
-            selectedKey={selectedKey}
-            setSelectedKey={setSelectedKey}
-            viewMode={viewMode}
-            setViewMode={setViewMode}
-            theme={theme}
-          />
-        )}
+// ─── EmptyState ──────────────────────────────────────────────────────────────
 
-        {!sharedView && trace.length > 0 && (
-          <LogsPanel trace={trace} open={logsOpen} setOpen={setLogsOpen} />
-        )}
+function EmptyState({ onExampleClick }) {
+  const examples = [
+    { name: 'Toblerone', category: 'Chocolate brand', desc: 'Owned by Mondelez' },
+    { name: 'MSC Cruceros', category: 'Cruise operator', desc: 'Family-held' },
+    { name: 'Patagonia', category: 'Outdoor apparel', desc: 'Steward ownership' },
+    { name: 'MUD\\WTR', category: 'DTC growth-stage', desc: 'Coffee alternative' },
+  ];
+
+  return (
+    <div className="empty-state">
+      <div className="empty-state-icon">🔍</div>
+      <h2 className="empty-state-title">Investigate a brand to start</h2>
+      <p className="empty-state-description">
+        Enter any company or brand name in the left panel.
+        The agent will resolve its corporate family and
+        estimate revenue per node.
+      </p>
+      <div className="empty-state-examples">
+        {examples.map((ex, i) => (
+          <button
+            key={i}
+            className="example-card"
+            onClick={() => onExampleClick(ex.name)}
+            style={{ border: 'none', background: 'var(--surface-2)', cursor: 'pointer', padding: '12px' }}
+          >
+            <div className="example-card-title">{ex.name}</div>
+            <div className="example-card-desc">{ex.category}</div>
+            <div className="example-card-desc" style={{ fontSize: 9, marginTop: 2 }}>{ex.desc}</div>
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -1710,7 +1972,10 @@ function Stepper({ phase, loading, result }) {
 
 // ─── ResultView ──────────────────────────────────────────────────────────────
 
-function ResultView({ result, showRaw, setShowRaw, selectedKey, setSelectedKey, viewMode, setViewMode, theme }) {
+function ResultView({
+  result, showRaw, setShowRaw, selectedKey, setSelectedKey, viewMode, setViewMode, theme,
+  mode, setMode, investigateSubNav, setInvestigateSubNav, briefSubNav, setBriefSubNav,
+}) {
   const tree = result.ownership_tree;
   const positioning = result.positioning_analysis || {};
   const recon = positioning.reconciliation;
@@ -1752,18 +2017,110 @@ function ResultView({ result, showRaw, setShowRaw, selectedKey, setSelectedKey, 
     ? positioning.strategic_notes
     : [positioning.strategic_notes].filter(Boolean);
 
-  const handleGeneratePDF = async (mode = 'brief') => {
+  const handleGeneratePDF = async (pdfMode = 'brief') => {
     let svgImage = null;
     if (graphViewRef.current && viewMode === 'graph') {
       svgImage = await graphViewRef.current.exportSVG();
     }
-    await generatePDF(result, svgImage, mode);
+    await generatePDF(result, svgImage, pdfMode);
   };
+
+  const currentSubNav = mode === 'investigate' ? investigateSubNav : briefSubNav;
 
   return (
     <>
+      {/* Investigation header card with mode toggle */}
+      <div className="investigation-header-card">
+        <div className="investigation-header-top">
+          <div>
+            <h2 className="investigation-header-title">{result.focal_company || tree.company}</h2>
+            <p className="investigation-header-meta">
+              {tree.node_type} · {tree.status || 'operating'} · Owned by {tree.parent?.company || 'N/A'}
+            </p>
+          </div>
+          <div className="mode-toggle">
+            <button
+              onClick={() => setMode('investigate')}
+              className={`${mode === 'investigate' ? 'active' : ''}`}
+            >
+              📊 Investigate
+            </button>
+            <button
+              onClick={() => setMode('brief')}
+              className={`${mode === 'brief' ? 'active' : ''}`}
+            >
+              📄 Brief
+            </button>
+          </div>
+        </div>
+
+        <div className="sub-nav">
+          {mode === 'investigate' ? (
+            <>
+              <button
+                onClick={() => setInvestigateSubNav('tree')}
+                className={investigateSubNav === 'tree' ? 'active' : ''}
+              >
+                Tree
+              </button>
+              <button
+                onClick={() => setInvestigateSubNav('signals')}
+                className={investigateSubNav === 'signals' ? 'active' : ''}
+              >
+                Signals
+              </button>
+              <button
+                onClick={() => setInvestigateSubNav('recon')}
+                className={investigateSubNav === 'recon' ? 'active' : ''}
+              >
+                Recon
+              </button>
+              <button
+                onClick={() => setInvestigateSubNav('json')}
+                className={investigateSubNav === 'json' ? 'active' : ''}
+              >
+                JSON
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setBriefSubNav('verdict')}
+                className={briefSubNav === 'verdict' ? 'active' : ''}
+              >
+                Verdict
+              </button>
+              <button
+                onClick={() => setBriefSubNav('signals')}
+                className={briefSubNav === 'signals' ? 'active' : ''}
+              >
+                Signals
+              </button>
+              <button
+                onClick={() => setBriefSubNav('mispricing')}
+                className={briefSubNav === 'mispricing' ? 'active' : ''}
+              >
+                Mispricing
+              </button>
+              <button
+                onClick={() => setBriefSubNav('competitive')}
+                className={briefSubNav === 'competitive' ? 'active' : ''}
+              >
+                Competitive
+              </button>
+              <button
+                onClick={() => setBriefSubNav('confidence')}
+                className={briefSubNav === 'confidence' ? 'active' : ''}
+              >
+                Confidence
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* Export actions */}
-      <div className="no-print" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
+      <div className="no-print" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12, marginBottom: 16 }}>
         <button className="btn btn-sm" onClick={() => handleGeneratePDF('brief')}>↓ Brief (V2)</button>
         <button className="btn btn-sm" onClick={() => handleGeneratePDF('legacy')}>↓ Legacy</button>
         <button
