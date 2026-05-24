@@ -3283,7 +3283,8 @@ async function generatePDF(result) {
         ...siblings.map((s) => ({ company: s.company, central: s.revenue_estimate?.central || 0, isFocal: false }))]
         .sort((a, b) => b.central - a.central);
 
-      const maxRevenue = Math.max(...ranked.map((r) => r.central), 1);
+      // Scale by siblings max (not focal) so sibling bars are visible; focal shows as #1 anchor
+      const maxRevenue = Math.max(...siblings.map((s) => s.revenue_estimate?.central || 0), 1);
       const barH = 6;
       const barMaxW = contentW * 0.65;
 
