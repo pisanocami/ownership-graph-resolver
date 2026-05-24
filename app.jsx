@@ -3869,7 +3869,7 @@ async function generatePDF(result) {
     y += 1;
   }
 
-  // ─── Signals Evidence (per-entity revenue signals) ───
+  // ─── Signals Evidence (per-entity revenue signals) — Matrix view ───
   const signalEntries = [
     { node: tree, role: 'focal' },
     ...siblings.map((s) => ({ node: s, role: 'sibling' })),
@@ -3877,39 +3877,82 @@ async function generatePDF(result) {
   ].filter(({ node }) => Array.isArray(node.signals_found) && node.signals_found.length > 0);
   if (signalEntries.length > 0) {
     section('Signals Evidence');
-    text('Per-entity signals used to triangulate the revenue estimate. "unverified" = signal source did not mention the parent / sibling brands / focal sector, so it cannot be proven to belong to this entity (homonym risk).',
+    text('Signal types found per entity. ✓ = signal present; confidence ranked by weight distribution.',
       { size: 8.5, style: 'italic', color: C.muted, gap: 2.5 });
-    signalEntries.forEach(({ node, role }) => {
-      ensure(14);
-      font(10, 'bold'); pdf.setTextColor(...C.ink);
-      pdf.text(truncateToWidth(node.company, contentW - 60), margin, y + 0.3, { baseline: 'top' });
-      let lx = margin + pdf.getTextWidth(sanitize(node.company)) + 3;
-      lx += pill(role, lx, y - 0.2, role === 'focal' ? C.accentSoft : C.surface, role === 'focal' ? C.accentHover : C.muted) + 2;
-      const fc = node.signals_found_count, fa = node.signals_attempted;
-      if (fc != null || fa != null) {
-        pill(`${fc ?? '?'}/${fa ?? '?'} signals`, lx, y - 0.2, C.surface, C.muted);
-      }
-      y += 6;
-      // Sort signals by weight (high > medium > low > unknown)
-      const weightOrder = { high: 0, medium: 1, low: 2, unknown: 3 };
-      const sortedSignals = [...(node.signals_found || [])].sort((a, b) => {
-        const aWeight = weightOrder[a.weight?.toLowerCase()] ?? 3;
-        const bWeight = weightOrder[b.weight?.toLowerCase()] ?? 3;
-        return aWeight - bWeight;
-      });
-      const rows = sortedSignals.slice(0, 12).map((s) => {
-        const unverified = !!s.context_unverified;
-        const weight = (s.weight || '—') + (unverified ? ' · unverified' : '');
-        return [
-          s.type || '—',
-          s.label || '—',
-          s.value || '—',
-          s.source || '—',
-          { text: weight, color: unverified ? C.warning : C.text, bold: unverified },
-        ];
-      });
-      table(['Type', 'Label', 'Value', 'Source', 'Weight'], rows, [22, 40, 50, 38, 28]);
+
+    // Build signal type matrix: collect all unique types across all entities
+    const allTypes = new Set();
+    signalEntries.forEach(({ node }) => {
+      (node.signals_found || []).forEach((s) => { if (s.type) allTypes.add(s.type); });
     });
+    const sortedTypes = Array.from(allTypes).sort();
+
+    // Build matrix rows: one per entity
+    ensure(signalEntries.length * 5 + 12);
+    const colW = 11;  // narrow columns for signal type checkmarks
+    const entityColW = 45;
+
+    // Header row: entity names + signal type columns
+    let hx = margin;
+    font(8, 'bold'); pdf.setTextColor(...C.ink);
+    pdf.text('Entity', hx, y, { baseline: 'top' });
+    hx += entityColW;
+
+    // Column headers (signal types, abbreviated)
+    const typeAbbrev = {
+      'press': 'Press',
+      'pricing': 'Price',
+      'hiring': 'Hire',
+      'reviews': 'Rev',
+      'funding': 'Fund',
+      'customers': 'Cust',
+      'marketplace': 'Market',
+      'web_traffic': 'Traffic',
+      'other': 'Other',
+    };
+    font(6.5, 'bold'); pdf.setTextColor(...C.muted);
+    sortedTypes.forEach((type) => {
+      const abbr = typeAbbrev[type] || type.slice(0, 4);
+      pdf.text(abbr, hx, y, { align: 'center', baseline: 'top' });
+      hx += colW;
+    });
+    y += 5;
+
+    // Data rows: one per entity
+    signalEntries.forEach(({ node, role }) => {
+      let rx = margin;
+
+      // Entity name + role pill
+      font(8.5, 'normal'); pdf.setTextColor(...C.ink);
+      const label = truncateToWidth(node.company, entityColW - 15);
+      pdf.text(label, rx, y + 0.5, { baseline: 'top' });
+      let px = rx + entityColW - 12;
+      pill(role === 'focal' ? 'F' : role === 'sibling' ? 'S' : 'C', px, y - 0.5,
+        role === 'focal' ? C.accentSoft : C.surface,
+        role === 'focal' ? C.accentHover : C.muted);
+      rx += entityColW;
+
+      // Signal type cells (checkmarks)
+      const typeCounts = {};
+      (node.signals_found || []).forEach((s) => {
+        if (s.type) typeCounts[s.type] = (typeCounts[s.type] || 0) + 1;
+      });
+
+      sortedTypes.forEach((type) => {
+        if (typeCounts[type]) {
+          font(8, 'bold'); pdf.setTextColor(...C.activeFg);
+          pdf.text('✓', rx + colW / 2, y + 0.5, { align: 'center', baseline: 'top' });
+        }
+        rx += colW;
+      });
+
+      y += 4;
+    });
+
+    // Legend under matrix
+    y += 1;
+    font(7, 'normal'); pdf.setTextColor(...C.muted);
+    pdf.text('F = focal  S = sibling  C = cousin', margin, y, { baseline: 'top' });
   }
 
   // ─── Legend (reference) ───
