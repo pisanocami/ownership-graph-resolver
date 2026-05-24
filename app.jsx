@@ -404,6 +404,28 @@ Return STRICT JSON (array):
   }
 ]`;
 
+const COMPETITOR_PROMPT = `You are a competitive intelligence analyst. Given the focal company's category, segment, and revenue range, identify 5–7 direct competitors in the same category/segment.
+
+Rules:
+- Return ONLY companies with identifiable parents and estimated revenues that can be defended by web search
+- Set competitive_distance: "direct" (same segment), "adjacent" (neighboring segment), "tangential" (adjacent category), null (unknown)
+- If no identifiable peer set exists (B2B niche, proprietary/private-only, single-vendor category), return an empty array []
+- Avoid hallucinating competitors — do NOT invent companies that don't appear in search results
+
+Return STRICT JSON:
+{
+  "has_peer_set": boolean,
+  "competitors": [
+    {
+      "competitor": "<company name>",
+      "parent": "<parent company>" | null,
+      "positioning": "<1-2 sentence description of how it competes>",
+      "estimated_revenue_usd": <number> | null,
+      "competitive_distance": "direct" | "adjacent" | "tangential" | null
+    }
+  ] | []
+}`;
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function b64urlEncode(bytes) {
@@ -1153,6 +1175,74 @@ RESPOND WITH A SINGLE JSON OBJECT (no markdown, no code fences):
             appendTrace([{ kind: 'phase', phase: 'brief', label: 'brief enrichment complete' }]);
           } else {
             appendTrace([{ kind: 'phase', phase: 'brief', label: 'brief enrichment parse failed — using deterministic brief' }]);
+          }
+
+          // ── Competitor discovery (optional, gated for B2B-niche)
+          try {
+            const B2B_NICHE_KEYWORDS = ['SaaS', 'B2B', 'enterprise software', 'infrastructure', 'API', 'platform', 'middleware', 'vertical'];
+            const isBToBNiche = (
+              finalResult.focal_company?.includes('B2B')
+              || finalResult.focal_company?.includes('SaaS')
+              || (finalResult.focal_company && B2B_NICHE_KEYWORDS.some((kw) => finalResult.focal_company.toLowerCase().includes(kw.toLowerCase())))
+            );
+
+            if (!isBToBNiche && finalResult.intelligence_brief && finalResult.intelligence_brief.competitive_context !== null) {
+              appendTrace([{ kind: 'phase', phase: 'brief', label: 'discovering competitive context (web search)' }]);
+
+              const competitorPrompt = `
+${COMPETITOR_PROMPT}
+
+FOCAL COMPANY:
+name: "${finalResult.focal_company}"
+category: "${finalResult.focal_company || 'unknown'}"
+estimated_revenue_usd: ${finalResult.ownership_tree?.revenue_estimate?.central || 'unknown'}
+
+Search for direct competitors and return the JSON result.`;
+
+              const compResp = await callLLM({
+                provider: 'anthropic',
+                model: DEFAULT_MODEL,
+                system: 'You are a competitive intelligence analyst.',
+                user: competitorPrompt,
+                maxSearches: 4,
+                maxTokens: 2048,
+              });
+              appendTrace(compResp.trace.map((t) => ({ ...t, tag: 'competitor' })));
+              const compEnrich = safeExtractJSON(compResp.text);
+
+              if (compEnrich && compEnrich.competitors) {
+                if (compEnrich.competitors.length > 0) {
+                  finalResult.intelligence_brief.competitive_context = compEnrich.competitors;
+                  appendTrace([{
+                    kind: 'phase',
+                    phase: 'brief',
+                    label: `discovered ${compEnrich.competitors.length} competitors`,
+                  }]);
+                } else {
+                  finalResult.intelligence_brief.competitive_context = null;
+                  appendTrace([{
+                    kind: 'phase',
+                    phase: 'brief',
+                    label: 'no identifiable peer set found',
+                  }]);
+                }
+              } else {
+                appendTrace([{
+                  kind: 'phase',
+                  phase: 'brief',
+                  label: 'competitor discovery parse failed',
+                }]);
+              }
+            } else if (isBToBNiche) {
+              finalResult.intelligence_brief.competitive_context = null;
+              appendTrace([{
+                kind: 'phase',
+                phase: 'brief',
+                label: 'skipped competitor discovery (B2B-niche brand)',
+              }]);
+            }
+          } catch (e) {
+            appendTrace([{ kind: 'error', tag: 'competitor', message: e.message }]);
           }
         }
       } catch (e) {
