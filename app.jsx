@@ -1583,7 +1583,17 @@ function StatusBadge({ node }) {
   const { label } = node._derived_status || deriveStatus(node);
   if (label === 'active') return null;
   const cls = label === 'discontinued' ? 'chip-danger' : label === 'legacy' ? 'chip-warning' : '';
-  return <span className={`chip ${cls}`}>{label}</span>;
+  // Surface the most recent date the source corpus referenced this entity when
+  // it has been classified as legacy or discontinued — this is the timestamp
+  // that justifies the "no longer current" label.
+  const date = node.last_mention_date && (label === 'legacy' || label === 'discontinued')
+    ? node.last_mention_date
+    : null;
+  return (
+    <span className={`chip ${cls}`} title={date ? `last seen: ${date}` : undefined}>
+      {label}{date ? ` · last seen ${date}` : ''}
+    </span>
+  );
 }
 
 // Bug #3: render brands of the same parent but DIFFERENT segment as a
@@ -1736,12 +1746,16 @@ function TreeNode({ node, role, selectedKey, onSelect }) {
   const isSelected = keyOf(node) === selectedKey;
   const rev = node.revenue_estimate;
   const uboMeta = uboTypeMeta(node.ubo_type);
+  const collapsedFrom = Array.isArray(node._collapsed_from) && node._collapsed_from.length > 0
+    ? `Normalized from: ${node._collapsed_from.join(', ')}`
+    : null;
+  const titleText = [uboMeta?.title, collapsedFrom].filter(Boolean).join('\n') || undefined;
   return (
     <button
       type="button"
       className={`tree-node ${isFocal ? 'focal' : ''} ${isIndividual ? 'individual' : ''} ${isSelected ? 'selected' : ''}`}
       onClick={() => onSelect(keyOf(node))}
-      title={uboMeta?.title}
+      title={titleText}
     >
       <div className="tree-node-main">
         <span className="tree-node-name">
@@ -1786,12 +1800,16 @@ function FlowNode({ data }) {
   const isFocal = role === 'focal';
   const isIndividual = node.node_type === 'individual';
   const uboMeta = uboTypeMeta(node.ubo_type);
+  const collapsedFrom = Array.isArray(node._collapsed_from) && node._collapsed_from.length > 0
+    ? `Normalized from: ${node._collapsed_from.join(', ')}`
+    : null;
+  const titleText = [uboMeta?.title, collapsedFrom].filter(Boolean).join('\n') || undefined;
   const handleStyle = { background: 'transparent', border: 'none', width: 1, height: 1 };
   return (
     <div
       className={`flow-node ${isFocal ? 'focal' : ''} ${isIndividual ? 'individual' : ''} ${selected ? 'selected' : ''}`}
       onClick={() => onSelect(keyOf(node))}
-      title={uboMeta?.title}
+      title={titleText}
     >
       <Handle type="target" position={Position.Top} style={handleStyle} className="flow-handle" />
       <div className="flow-node-name">
@@ -2052,6 +2070,15 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
         <StatusBadge node={node} />
       </div>
 
+      {Array.isArray(node._collapsed_from) && node._collapsed_from.length > 0 && (
+        <div
+          style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}
+          title={node._collapsed_shared?.length ? `Shared identifiers: ${node._collapsed_shared.join(', ')}` : undefined}
+        >
+          normalized from: {node._collapsed_from.join(', ')}
+        </div>
+      )}
+
       {node.stake && (node.stake.equity_pct != null || node.stake.voting_pct != null || node.stake.evidence) && (
         <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid var(--accent-soft-border)', borderRadius: 6, background: 'var(--accent-soft)', fontSize: 13 }}>
           <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>
@@ -2110,9 +2137,17 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
           <div style={{ marginTop: 4, fontStyle: 'italic', color: 'var(--text-muted)' }}>
             Parent & siblings shown reflect the current legal owner — not the post-close acquirer.
           </div>
+          {node.post_close_consolidated_parent?.company && (
+            <div style={{ marginTop: 6, color: 'var(--text-muted)' }}>
+              Post-close parent: <strong style={{ color: 'var(--text)' }}>{node.post_close_consolidated_parent.company}</strong>
+              {node.post_close_consolidated_parent.source_url && isSafeUrl(node.post_close_consolidated_parent.source_url) && (
+                <> · <a href={node.post_close_consolidated_parent.source_url} target="_blank" rel="noopener noreferrer">source</a></>
+              )}
+            </div>
+          )}
           {Array.isArray(node.future_cousins_post_close) && node.future_cousins_post_close.length > 0 && (
             <div style={{ marginTop: 6, color: 'var(--text-muted)' }}>
-              Future cousins post-close: {node.future_cousins_post_close.map((c) => c.company).filter(Boolean).join(', ')}
+              Will sit alongside: {node.future_cousins_post_close.map((c) => c.company).filter(Boolean).join(', ')}
             </div>
           )}
         </div>
