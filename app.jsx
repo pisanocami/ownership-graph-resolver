@@ -2038,6 +2038,509 @@ function Stepper({ phase, loading, result }) {
   );
 }
 
+// ─── Signal extraction & views ───────────────────────────────────────────────
+
+function extractAllSignals(tree) {
+  const signals = [];
+
+  function walk(node) {
+    if (!node) return;
+
+    // Strategic control
+    if (node.strategic_control && Array.isArray(node.strategic_control)) {
+      node.strategic_control.forEach(sc => {
+        signals.push({
+          entity: node.company,
+          type: sc.relationship || 'strategic_control',
+          value: sc.entity,
+          details: sc.evidence,
+          confidence: node.confidence,
+          sourceUrl: sc.source_url,
+          context: 'strategic_control',
+          layer: node.layer
+        });
+      });
+    }
+
+    // Co-owners
+    if (node.co_owners && Array.isArray(node.co_owners)) {
+      node.co_owners.forEach(co => {
+        signals.push({
+          entity: node.company,
+          type: 'co_owner',
+          value: co.company,
+          stake: co.stake_pct,
+          confidence: node.confidence,
+          context: 'ownership',
+          layer: node.layer
+        });
+      });
+    }
+
+    // Acquisition
+    if (node.acquisition) {
+      signals.push({
+        entity: node.company,
+        type: 'acquisition',
+        value: `Acquired by ${node.acquisition.acquired_by}`,
+        details: `${node.acquisition.year}, ${node.acquisition.price_display || ''}`,
+        confidence: 'high',
+        context: 'acquisition',
+        layer: node.layer
+      });
+    }
+
+    // Pending acquisition
+    if (node.pending_acquisition) {
+      signals.push({
+        entity: node.company,
+        type: 'pending_acquisition',
+        value: `Potential acquirer: ${node.pending_acquisition.acquirer}`,
+        details: `Announced: ${node.pending_acquisition.announced_date}`,
+        confidence: 'medium',
+        context: 'pending',
+        layer: node.layer
+      });
+    }
+
+    // Parent relationship
+    if (node.parent) {
+      signals.push({
+        entity: node.company,
+        type: 'parent_relationship',
+        value: node.parent.company,
+        stake: node.stake?.equity_pct,
+        confidence: node.confidence,
+        context: 'ownership_structure',
+        layer: node.layer
+      });
+    }
+
+    // Captured signals
+    if (node.signals_found && Array.isArray(node.signals_found)) {
+      node.signals_found.forEach(sig => {
+        signals.push({
+          entity: node.company,
+          type: sig.type || 'signal',
+          label: sig.label,
+          value: sig.value,
+          weight: sig.weight,
+          confidence: node.confidence,
+          sourceUrl: sig.source,
+          context: 'captured_signal',
+          layer: node.layer
+        });
+      });
+    }
+
+    // Recurse
+    if (node.children && Array.isArray(node.children)) {
+      node.children.forEach(child => walk(child));
+    }
+    if (node.siblings && Array.isArray(node.siblings)) {
+      node.siblings.forEach(sibling => walk(sibling));
+    }
+  }
+
+  walk(tree);
+  return signals;
+}
+
+function SignalsView({ tree, positioning, selectedKey, onSelect }) {
+  const signals = useMemo(() => extractAllSignals(tree), [tree]);
+  const [filterType, setFilterType] = useState('all');
+  const [sortBy, setSortBy] = useState('entity');
+
+  const signalTypes = useMemo(() => {
+    const types = new Set(signals.map(s => s.type));
+    return Array.from(types).sort();
+  }, [signals]);
+
+  const filtered = signals.filter(s =>
+    filterType === 'all' || s.type === filterType
+  );
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === 'entity') return a.entity.localeCompare(b.entity);
+    if (sortBy === 'type') return a.type.localeCompare(b.type);
+    if (sortBy === 'confidence') {
+      const confRank = { high: 0, medium: 1, low: 2, unknown: 3 };
+      return (confRank[a.confidence] ?? 3) - (confRank[b.confidence] ?? 3);
+    }
+    return 0;
+  });
+
+  if (signals.length === 0) {
+    return (
+      <div className="empty-state">
+        <div style={{ fontSize: 32, marginBottom: 8 }}>◇</div>
+        <div className="empty-state-title">No signals captured</div>
+        <div className="empty-state-desc">No behavioral signals found in this ownership tree.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ paddingBottom: 20 }}>
+      <div className="card" style={{ marginBottom: 16, padding: 12 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label style={{ fontSize: 12, fontWeight: 600, minWidth: 80 }}>Filter by:</label>
+          <select
+            value={filterType}
+            onChange={e => setFilterType(e.target.value)}
+            className="filter-select"
+            style={{ minWidth: 180 }}
+          >
+            <option value="all">All ({signals.length})</option>
+            {signalTypes.map(type => (
+              <option key={type} value={type}>
+                {type} ({signals.filter(s => s.type === type).length})
+              </option>
+            ))}
+          </select>
+
+          <label style={{ fontSize: 12, fontWeight: 600, minWidth: 50 }}>Sort:</label>
+          <select
+            value={sortBy}
+            onChange={e => setSortBy(e.target.value)}
+            className="filter-select"
+            style={{ minWidth: 130 }}
+          >
+            <option value="entity">By entity</option>
+            <option value="type">By type</option>
+            <option value="confidence">By confidence</option>
+          </select>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-subtle)', marginTop: 8 }}>
+          Showing {sorted.length} of {signals.length} signals
+        </div>
+      </div>
+
+      <div className="card" style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 800 }}>
+          <thead style={{ borderBottom: '2px solid var(--border-strong)' }}>
+            <tr>
+              <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 600 }}>Entity</th>
+              <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 600, minWidth: 120 }}>Signal Type</th>
+              <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 600, minWidth: 150 }}>Value</th>
+              <th style={{ textAlign: 'center', padding: '10px 12px', fontWeight: 600, minWidth: 80 }}>Confidence</th>
+              <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 600, minWidth: 60 }}>Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((signal, i) => (
+              <tr
+                key={i}
+                style={{
+                  borderBottom: '1px solid var(--border)',
+                  cursor: 'pointer',
+                  background: selectedKey === keyOf({ company: signal.entity }) ? 'var(--accent-soft)' : 'transparent',
+                  transition: 'background 0.2s'
+                }}
+                onClick={() => onSelect && onSelect(keyOf({ company: signal.entity }))}
+              >
+                <td style={{ padding: '10px 12px', fontWeight: 500, color: 'var(--text)' }}>
+                  {signal.entity}
+                </td>
+                <td style={{ padding: '10px 12px', fontSize: 12 }}>
+                  <code style={{ color: 'var(--text-muted)', background: 'var(--surface-2)', padding: '2px 6px', borderRadius: 3, fontFamily: 'monospace', fontSize: 11 }}>
+                    {signal.type}
+                  </code>
+                </td>
+                <td style={{ padding: '10px 12px', color: 'var(--text)' }}>
+                  <div>{signal.value}</div>
+                  {signal.details && (
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                      {signal.details}
+                    </div>
+                  )}
+                  {signal.stake && (
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                      Stake: {signal.stake}%
+                    </div>
+                  )}
+                </td>
+                <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                  <div
+                    className={`confidence-dot confidence-${signal.confidence || 'unknown'}`}
+                    style={{ margin: '0 auto', width: 8, height: 8, borderRadius: '50%' }}
+                    title={signal.confidence || 'unknown'}
+                  />
+                </td>
+                <td style={{ padding: '10px 12px' }}>
+                  {signal.sourceUrl ? (
+                    <a
+                      href={signal.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: 11 }}
+                    >
+                      🔗
+                    </a>
+                  ) : (
+                    <span style={{ color: 'var(--text-subtle)', fontSize: 11 }}>—</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ReconView({ tree, positioning }) {
+  const recon = positioning?.reconciliation || {};
+  const anchor = positioning?.parent_anchor || {};
+
+  if (!tree) return null;
+
+  const focalRev = tree.revenue_estimate?.central || 0;
+  const siblingsRev = (tree.siblings || []).reduce(
+    (sum, s) => sum + (s.revenue_estimate?.central || 0),
+    0
+  );
+  const childrenRev = (tree.children || []).reduce(
+    (sum, c) => sum + (c.revenue_estimate?.central || 0),
+    0
+  );
+  const totalOurs = focalRev + siblingsRev + childrenRev;
+
+  const parentDisclosed = anchor.revenue_estimate?.central || null;
+  const gap = parentDisclosed ? parentDisclosed - totalOurs : null;
+  const gapPct = gap && parentDisclosed ? Math.abs(gap) / parentDisclosed * 100 : null;
+  const coverageRatio = parentDisclosed ? (totalOurs / parentDisclosed) * 100 : null;
+
+  const gapColor = gapPct
+    ? gapPct > 30 ? 'var(--danger)'
+    : gapPct > 15 ? 'var(--warning)'
+    : 'var(--success)'
+    : null;
+
+  const gapBgColor = gapPct
+    ? gapPct > 30 ? 'var(--danger-bg)'
+    : gapPct > 15 ? 'var(--warning-bg)'
+    : 'var(--info-bg)'
+    : null;
+
+  const strategicNotes = Array.isArray(positioning.strategic_notes)
+    ? positioning.strategic_notes
+    : [positioning.strategic_notes].filter(Boolean);
+
+  return (
+    <div style={{ paddingBottom: 20 }}>
+      <section className="section">
+        <div className="section-head">
+          <span className="section-title">Coverage Analysis</span>
+        </div>
+        <div className="card" style={{ padding: 16 }}>
+          {!parentDisclosed ? (
+            <div style={{ color: 'var(--text-muted)', fontSize: 13, padding: '8px 0' }}>
+              ℹ Parent revenue not publicly available. Showing internal estimates only.
+            </div>
+          ) : (
+            <>
+              <div style={{ marginBottom: 16 }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  marginBottom: 6,
+                  alignItems: 'center'
+                }}>
+                  <span style={{ fontSize: 12, fontWeight: 500 }}>Coverage</span>
+                  <span style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: gapColor,
+                    fontFamily: 'monospace'
+                  }}>
+                    {coverageRatio.toFixed(1)}%
+                  </span>
+                </div>
+                <div style={{
+                  width: '100%',
+                  height: 20,
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 4,
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    width: `${Math.min(100, coverageRatio)}%`,
+                    height: '100%',
+                    background: coverageRatio > 90 ? 'var(--success)' : 'var(--warning)',
+                    transition: 'width 0.3s ease'
+                  }} />
+                </div>
+              </div>
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 12,
+                fontSize: 12
+              }}>
+                <div style={{ background: 'var(--surface)', padding: 10, borderRadius: 6 }}>
+                  <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>Our total estimate</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, fontFamily: 'monospace' }}>
+                    {formatUSD(totalOurs)}
+                  </div>
+                </div>
+                <div style={{ background: 'var(--surface)', padding: 10, borderRadius: 6 }}>
+                  <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>Parent official revenue</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, fontFamily: 'monospace' }}>
+                    {formatUSD(parentDisclosed)}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </section>
+
+      <section className="section" style={{ marginTop: 16 }}>
+        <div className="section-head">
+          <span className="section-title">Revenue Breakdown</span>
+        </div>
+        <div className="card" style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', fontSize: 13, minWidth: 500 }}>
+            <tbody>
+              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={{ padding: '10px 12px', fontWeight: 500 }}>
+                  {tree.company} (focal)
+                </td>
+                <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 500 }}>
+                  {formatUSD(focalRev)}
+                </td>
+                <td style={{ padding: '10px 12px', minWidth: 100 }}>
+                  <span className={`chip chip-${tree.confidence}`} style={{ fontSize: 10, padding: '2px 6px' }}>
+                    {tree.confidence}
+                  </span>
+                </td>
+              </tr>
+
+              {siblingsRev > 0 && (
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>
+                    {tree.siblings?.length || 0} sibling units
+                  </td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                    {formatUSD(siblingsRev)}
+                  </td>
+                  <td style={{ padding: '10px 12px' }}>—</td>
+                </tr>
+              )}
+
+              {childrenRev > 0 && (
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>
+                    {tree.children?.length || 0} subsidiaries
+                  </td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                    {formatUSD(childrenRev)}
+                  </td>
+                  <td style={{ padding: '10px 12px' }}>—</td>
+                </tr>
+              )}
+
+              <tr style={{
+                borderBottom: parentDisclosed ? '2px solid var(--border-strong)' : '1px solid var(--border)',
+                background: 'var(--surface-2)',
+                fontWeight: 600
+              }}>
+                <td style={{ padding: '10px 12px' }}>Our total estimate</td>
+                <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                  {formatUSD(totalOurs)}
+                </td>
+                <td style={{ padding: '10px 12px' }}>—</td>
+              </tr>
+
+              {parentDisclosed && (
+                <>
+                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>
+                      {tree.parent?.company} (parent - official 10-K)
+                    </td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                      {formatUSD(parentDisclosed)}
+                    </td>
+                    <td style={{ padding: '10px 12px', fontSize: 11, color: 'var(--text-subtle)' }}>
+                      FY {anchor.fiscal_year || '?'}
+                    </td>
+                  </tr>
+
+                  <tr style={{
+                    background: gapBgColor,
+                    borderBottom: '1px solid var(--border)',
+                    fontWeight: 600
+                  }}>
+                    <td style={{ padding: '10px 12px', color: gapColor }}>Gap</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'monospace', color: gapColor }}>
+                      {gap < 0 ? '+' : ''}{formatUSD(gap)} ({gapPct?.toFixed(1)}%)
+                    </td>
+                    <td style={{ padding: '10px 12px' }}>—</td>
+                  </tr>
+                </>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {parentDisclosed && gapPct && gapPct > 10 && (
+        <section className="section" style={{ marginTop: 16 }}>
+          <div className="section-head">
+            <span className="section-title">Gap Analysis ({gapPct.toFixed(1)}%)</span>
+          </div>
+          <div className="card">
+            {recon.likely_causes && Array.isArray(recon.likely_causes) && recon.likely_causes.length > 0 ? (
+              <>
+                <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 10 }}>Likely causes:</div>
+                <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
+                  {recon.likely_causes.map((cause, i) => (
+                    <li key={i} style={{ marginBottom: 6, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                      {cause}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                <strong>Possible explanations:</strong>
+                <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
+                  <li>Parent owns other operating units not in this tree</li>
+                  <li>Some siblings/children do not disclose revenue</li>
+                  <li>Consolidation or foreign exchange differences</li>
+                  <li>Complex or circular ownership structure detected</li>
+                </ul>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {strategicNotes.length > 0 && (
+        <section className="section" style={{ marginTop: 16 }}>
+          <div className="section-head">
+            <span className="section-title">Strategic Notes</span>
+          </div>
+          <div className="card">
+            <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
+              {strategicNotes.map((note, i) => (
+                <li key={i} style={{ marginBottom: 8, color: 'var(--text)' }}>
+                  {note}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
 // ─── ResultView ──────────────────────────────────────────────────────────────
 
 function ResultView({
@@ -2287,18 +2790,22 @@ function ResultView({
             </section>
           )}
 
-          {/* Signals tab placeholder */}
+          {/* Signals tab */}
           {investigateSubNav === 'signals' && (
-            <div className="card" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
-              Signals view coming soon
-            </div>
+            <SignalsView
+              tree={tree}
+              positioning={positioning}
+              selectedKey={selectedKey}
+              onSelect={setSelectedKey}
+            />
           )}
 
-          {/* Recon tab placeholder */}
+          {/* Recon tab */}
           {investigateSubNav === 'recon' && (
-            <div className="card" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
-              Reconciliation details coming soon
-            </div>
+            <ReconView
+              tree={tree}
+              positioning={positioning}
+            />
           )}
         </>
       )}
