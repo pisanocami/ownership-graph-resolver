@@ -11,6 +11,8 @@ import {
   deriveStatus,
   deriveRevenueStatus,
   normalizeChain,
+  deriveDivestiture,
+  collectControlLayers,
 } from './synth.js';
 
 const PROVIDERS = {
@@ -1214,12 +1216,14 @@ function ReconciliationBanner({ recon, parent, anchor, focal }) {
   const ratio = recon.ratio;
   const pctDelta = recon.pct_delta;
   const absDelta = Math.abs(pctDelta);
-  const variant = ratio > 1.5 || ratio < 0.5
+  const variant = recon.circular || ratio > 1.5 || ratio < 0.5
     ? 'warning'
     : absDelta <= 20
     ? 'success'
     : 'info';
-  const severityLabel = absDelta <= 20 ? 'reconciles' : absDelta <= 50 ? 'soft mismatch' : 'large gap';
+  const severityLabel = recon.circular
+    ? 'circular — unverified'
+    : absDelta <= 20 ? 'reconciles' : absDelta <= 50 ? 'soft mismatch' : 'large gap';
 
   const sumStr = formatUSD(recon.sum_children_central);
   const benchStr = formatUSD(recon.parent_benchmark);
@@ -1265,6 +1269,16 @@ function ReconciliationBanner({ recon, parent, anchor, focal }) {
           <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4, fontStyle: 'italic' }}>
             {levelLabel}
           </div>
+          {recon.circular && (
+            <div style={{ fontSize: 12, marginTop: 6, color: 'var(--warning)' }}>
+              ⚠ {recon.circular_siblings?.join(', ')} {recon.circular_siblings?.length > 1 ? 'were' : 'was'} estimated top-down as a share of {parentName}'s own total — summing back to that total is self-fulfilling. Treat the coverage as unverified, not confirmation.
+            </div>
+          )}
+          {recon.consolidated_siblings && recon.consolidated_siblings.length > 0 && (
+            <div style={{ fontSize: 12, marginTop: 4, opacity: 0.85 }}>
+              {recon.consolidated_siblings.join(', ')} excluded from the sum (consolidated within the focal's reported segment).
+            </div>
+          )}
         </div>
       </div>
 
@@ -1437,30 +1451,24 @@ function ReconciliationBanner({ recon, parent, anchor, focal }) {
 // ─── Strategic control (per layer) ───────────────────────────────────────────
 
 function StrategicControlSection({ tree }) {
-  // Build root → focal chain so control is shown for every layer, not just focal.
-  const chain = [];
-  let p = tree.parent;
-  while (p) { chain.unshift(p); p = p.parent; }
-  const layers = [...chain, tree];
-
-  const hasAny = layers.some(
-    (n) => (n.strategic_control || []).length > 0 || n.strategic_control_note
-  );
-  if (!hasAny) return null;
+  // Surface control for every node that has it — including the parent's other
+  // children (JVs/subsidiaries), not just the focal→root chain.
+  const layers = collectControlLayers(tree);
+  if (layers.length === 0) return null;
 
   return (
     <section className="section">
       <div className="section-head"><span className="section-title">Strategic control</span></div>
       <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {layers.map((node, i) => (
-          <StrategicControlLayer key={keyOf(node) || i} node={node} isFocal={node === tree} />
+        {layers.map(({ node, isFocal, under }, i) => (
+          <StrategicControlLayer key={keyOf(node) || i} node={node} isFocal={isFocal} under={under} />
         ))}
       </div>
     </section>
   );
 }
 
-function StrategicControlLayer({ node, isFocal }) {
+function StrategicControlLayer({ node, isFocal, under }) {
   const items = node.strategic_control || [];
   const [open, setOpen] = useState(isFocal);
   if (items.length === 0 && !node.strategic_control_note) return null;
@@ -1478,6 +1486,7 @@ function StrategicControlLayer({ node, isFocal }) {
         <span style={{ color: 'var(--text-subtle)', fontSize: 11 }}>{open ? '▾' : '▸'}</span>
         <span style={{ fontWeight: 600, fontSize: 13 }}>{node.company}</span>
         {isFocal && <span className="chip chip-accent">focal</span>}
+        {under && <span className="chip" style={{ fontSize: 10 }}>under {under}</span>}
         <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-subtle)' }}>
           {items.length > 0 ? `${items.length} relationship${items.length === 1 ? '' : 's'}` : 'no data'}
         </span>
@@ -1525,6 +1534,20 @@ function TreeView({ tree, selectedKey, onSelect }) {
         </React.Fragment>
       ))}
       <TreeNode node={tree} role="focal" selectedKey={selectedKey} onSelect={onSelect} />
+      {(() => {
+        const immediate = parents[parents.length - 1];
+        const units = (immediate?.children || []).filter((c) => keyOf(c) !== keyOf(tree));
+        return units.length > 0 ? (
+          <>
+            <div className="tree-section-label">Units under {immediate.company}</div>
+            <div className="tree-grid">
+              {units.map((u, i) => (
+                <TreeNode key={`u${i}`} node={u} role="subsidiary" selectedKey={selectedKey} onSelect={onSelect} />
+              ))}
+            </div>
+          </>
+        ) : null;
+      })()}
       {(tree.siblings || []).length > 0 && (
         <>
           <div className="tree-section-label">
@@ -1734,6 +1757,7 @@ function TreeNode({ node, role, selectedKey, onSelect }) {
             <span className="chip chip-accent" title={uboMeta.title}>{uboMeta.label}</span>
           )}
           <StatusBadge node={node} />
+          {(node._divestiture || deriveDivestiture(node)) && <span className="chip chip-warning">divesting</span>}
         </div>
       </div>
       <div className={`tree-node-rev ${rev && rev.central > 0 ? '' : 'empty'}`}>
@@ -1962,6 +1986,23 @@ function buildFlowData(tree, selectedKey, onSelect) {
     edges.push({ id: `efc_${id}`, source: 'focal', target: id });
   });
 
+  // Other units under the immediate parent (e.g. a JV/subsidiary), placed to the
+  // right of the parent so their ownership split isn't lost.
+  if (parents.length > 0) {
+    const immediate = parents[parents.length - 1];
+    const units = (immediate.children || []).filter((c) => keyOf(c) !== keyOf(tree));
+    units.forEach((node, i) => {
+      const id = `pc${i}`;
+      nodes.push({
+        id,
+        type: 'entity',
+        position: { x: (i + 1.5) * GAP_X, y: (parents.length - 1) * GAP_Y },
+        data: { node, role: 'subsidiary', selected: keyOf(node) === selectedKey, onSelect },
+      });
+      edges.push({ id: `epc_${id}`, source: `p${parents.length - 1}`, target: id });
+    });
+  }
+
   return { nodes, edges };
 }
 
@@ -2077,6 +2118,13 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
         </div>
       )}
 
+      {(() => { const d = node._divestiture || deriveDivestiture(node); return d && d.divesting ? (
+        <div style={{ marginTop: 12, padding: '8px 10px', border: '1px solid var(--warning-border, #c79a3b)', borderRadius: 6, background: 'var(--warning-soft, rgba(199,154,59,0.08))', fontSize: 13 }}>
+          <div style={{ fontWeight: 600, color: 'var(--text)' }}>↗ Pending divestiture</div>
+          {d.detail && <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>{d.detail}</div>}
+        </div>
+      ) : null; })()}
+
       {rev && rev.central > 0 ? (
         <div className="rev-card">
           <div className="card-title">Annual revenue estimate</div>
@@ -2119,6 +2167,15 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
       {reasoning && (
         <div style={{ marginTop: 14, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6 }}>
           {reasoning}
+        </div>
+      )}
+
+      {(node.last_mention_date || node.signals_found_count != null || revenueResult?.signals_found_count != null) && (
+        <div style={{ marginTop: 12, fontSize: 11, color: 'var(--text-subtle)', display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+          {node.last_mention_date && <span>last referenced · {node.last_mention_date}</span>}
+          {(node.signals_found_count ?? revenueResult?.signals_found_count) != null && (
+            <span>signals · {node.signals_found_count ?? revenueResult?.signals_found_count}/{node.signals_attempted ?? revenueResult?.signals_attempted ?? '?'} found</span>
+          )}
         </div>
       )}
 
@@ -2258,6 +2315,8 @@ function flattenTree(tree) {
   const chain = [];
   while (p) { chain.unshift(p); p = p.parent; }
   chain.forEach(add);
+  // Ancestors' other children (e.g. a JV/subsidiary under the parent) so they're selectable.
+  chain.forEach((anc) => (anc.children || []).forEach(add));
   add(tree);
   (tree.siblings || []).forEach(add);
   (tree.intra_parent_cousins || []).forEach(add);
@@ -2447,6 +2506,11 @@ async function generatePDF(result) {
       font(6.6, 'normal'); pdf.setTextColor(...C.subtle);
       pdf.text(truncateToWidth(node.category, w - 6), x + 3, yy + h - 3.2, { baseline: 'middle' });
     }
+    if (node._divestiture || deriveDivestiture(node)) {
+      font(7.5, 'bold');
+      const dw = pdf.getTextWidth('divesting') + 4.4;
+      pill('divesting', x + w - 3 - dw, yy + 2, C.warnBg, C.warning);
+    }
   };
 
   const drawGrid = (items) => {
@@ -2487,6 +2551,13 @@ async function generatePDF(result) {
     y += 1;
     text('Children', { size: 8.5, style: 'bold', color: C.muted, gap: 2 });
     drawGrid(tree.children);
+  }
+  const immediateParent = chain[chain.length - 1];
+  const parentUnits = (immediateParent?.children || []).filter((c) => keyOf(c) !== keyOf(tree));
+  if (parentUnits.length > 0) {
+    y += 1;
+    text(`Units under ${immediateParent.company}`, { size: 8.5, style: 'bold', color: C.muted, gap: 2 });
+    drawGrid(parentUnits);
   }
   y += 2;
 
@@ -2548,6 +2619,10 @@ async function generatePDF(result) {
     pdf.text('1.0× parent', margin + barW / 2, y, { align: 'center', baseline: 'top' });
     pdf.text('2.0×+', margin + barW, y, { align: 'right', baseline: 'top' });
     y += 6;
+    if (recon.circular && recon.circular_siblings?.length) {
+      text(`Caveat: ${recon.circular_siblings.join(', ')} ${recon.circular_siblings.length > 1 ? 'were' : 'was'} estimated top-down as a share of the parent's own total — summing back to that total is self-fulfilling. Treat the coverage as unverified, not confirmation.`,
+        { size: 8.5, style: 'italic', color: C.warning, maxW: contentW, gap: 2 });
+    }
     if (recon.consolidated_siblings && recon.consolidated_siblings.length) {
       text(`${recon.consolidated_siblings.join(', ')} consolidated within the focal's reported segment — excluded from the sum to avoid double-counting.`,
         { size: 8.5, style: 'italic', color: C.muted, maxW: contentW, gap: 2 });
@@ -2562,17 +2637,19 @@ async function generatePDF(result) {
     }
   }
 
-  // ─── Strategic Control (per layer) ───
-  const scLayers = [...chain, tree];
-  if (scLayers.some((n) => (n.strategic_control || []).length > 0 || n.strategic_control_note)) {
+  // ─── Strategic Control (every node that has it, incl. parent's JVs/subsidiaries) ───
+  const scLayers = collectControlLayers(tree);
+  if (scLayers.length > 0) {
     section('Strategic Control');
-    scLayers.forEach((node) => {
+    scLayers.forEach(({ node, under }) => {
       const items = node.strategic_control || [];
       if (items.length === 0 && !node.strategic_control_note) return;
       ensure(7);
       font(10, 'bold'); pdf.setTextColor(...C.ink);
-      pdf.text(node.company, margin, y + 0.3, { baseline: 'top' });
-      if (node.layer) pill(node.layer, margin + pdf.getTextWidth(node.company) + 3, y - 0.2, C.surface, C.muted);
+      pdf.text(truncateToWidth(node.company, contentW - 50), margin, y + 0.3, { baseline: 'top' });
+      let lx = margin + pdf.getTextWidth(sanitize(node.company)) + 3;
+      if (node.layer) lx += pill(node.layer, lx, y - 0.2, C.surface, C.muted) + 2;
+      if (under) pill(`under ${under}`, lx, y - 0.2, C.accentSoft, C.accentHover);
       y += 6;
       if (items.length === 0) {
         text(node.strategic_control_note || 'no_data_found', { size: 8.5, style: 'italic', color: C.subtle, x: margin + 3 });

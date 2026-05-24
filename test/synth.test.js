@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { synthesize, collectEntities, deriveStatus, deriveRevenueStatus, normalizeChain } from '../synth.js';
+import {
+  synthesize, collectEntities, deriveStatus, deriveRevenueStatus,
+  normalizeChain, deriveDivestiture, isCircularEstimate, collectControlLayers,
+} from '../synth.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const load = (f) => JSON.parse(readFileSync(join(here, 'fixtures', f), 'utf8'));
@@ -11,6 +14,7 @@ const load = (f) => JSON.parse(readFileSync(join(here, 'fixtures', f), 'utf8'));
 const t04 = load('t04-nectar.json');
 const t01 = load('t01-anthropic.json');
 const tZara = load('t-zara.json');
+const tTikTok = load('t-tiktok.json');
 
 // ─── Bundle A: Cloverlane temporal accuracy + status (T04) ──────────────────
 
@@ -173,6 +177,41 @@ test('Bug #1: collectEntities propagates parent_company to siblings', () => {
   const siblingEnt = entities.find((e) => e.role === 'sibling');
   assert.ok(siblingEnt, 'at least one sibling collected');
   assert.equal(siblingEnt.parent_company, focalParent, 'sibling carries the focal parent name for disambiguation');
+});
+
+// ─── TikTok: surface buried data, circular reconciliation, divestiture ──────
+
+test('TikTok: the parent\'s JV (USDS) and its ownership split are surfaced', () => {
+  const out = synthesize(tTikTok.ownership, tTikTok.revenueByCompany, tTikTok.parentAnchor);
+  const layers = collectControlLayers(out.ownership_tree);
+  const jv = layers.find((l) => l.node.company === 'TikTok USDS Joint Venture LLC');
+  assert.ok(jv, 'USDS JV (child of the parent) must appear in the control layers');
+  assert.equal(jv.under, 'ByteDance Ltd.');
+  assert.ok(jv.node.strategic_control.some((s) => s.entity === 'Oracle Corporation'));
+});
+
+test('TikTok: a top-down-from-parent estimate makes reconciliation circular', () => {
+  const out = synthesize(tTikTok.ownership, tTikTok.revenueByCompany, tTikTok.parentAnchor);
+  const recon = out.positioning_analysis.reconciliation;
+  assert.ok(recon);
+  assert.equal(recon.circular, true, 'Douyin estimated as a share of the parent → circular');
+  assert.ok(recon.circular_siblings.includes('Douyin'));
+  assert.ok(isCircularEstimate(out.ownership_tree.siblings.find((s) => s.company === 'Douyin')));
+});
+
+test('TikTok: a pending divestiture is detected from captured signals', () => {
+  const out = synthesize(tTikTok.ownership, tTikTok.revenueByCompany, tTikTok.parentAnchor);
+  const ml = out.ownership_tree.siblings.find((s) => s.company === 'Mobile Legends: Bang Bang');
+  assert.ok(ml._divestiture && ml._divestiture.divesting, 'Moonton sale → divesting flag');
+  assert.match(ml._divestiture.detail, /Moonton|Savvy/);
+  assert.equal(deriveDivestiture({ signals_found: [] }), null);
+});
+
+test('TikTok: signal coverage counts are attached to nodes', () => {
+  const out = synthesize(tTikTok.ownership, tTikTok.revenueByCompany, tTikTok.parentAnchor);
+  const douyin = out.ownership_tree.siblings.find((s) => s.company === 'Douyin');
+  assert.equal(douyin.signals_found_count, 4);
+  assert.equal(out.ownership_tree.signals_attempted, 2);
 });
 
 test('Zara: strategic_control is deduplicated across layers', () => {
