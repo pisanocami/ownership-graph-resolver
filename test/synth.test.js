@@ -1277,6 +1277,90 @@ test('Issue #11: too few siblings under a large parent raises an incompleteness 
   assert.match(notes, /reconciliation coverage is a floor/);
 });
 
+test('Task #53: single-segment public parent does not trigger the incomplete-capture warning', () => {
+  const ownership = {
+    company: 'PDD Marketplace', node_type: 'operating_brand', focal_segment: 'Online Marketplace',
+    siblings: [{ company: 'Temu', in_current_sources: true }],
+    parent: { company: 'PDD Holdings', node_type: 'legal_entity', parent: null },
+  };
+  const revenueByCompany = {
+    'pdd marketplace': { revenue_estimate: { low: 20e9, high: 30e9, central: 25e9 }, confidence: 'high', signals_found: [], reasoning_summary: '' },
+    'temu': { revenue_estimate: { low: 15e9, high: 20e9, central: 18e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+    'pdd holdings': { revenue_estimate: { low: 40e9, high: 50e9, central: 45e9 }, confidence: 'high', signals_found: [], reasoning_summary: '' },
+  };
+  const parentAnchor = {
+    is_public: true,
+    total_revenue_usd: 45e9,
+    fiscal_year: '2024',
+    segments: [{ name: 'Online Marketplace', revenue_usd: 45e9, contains_focal: true }],
+  };
+  const out = synthesize(ownership, revenueByCompany, parentAnchor, {});
+  const notes = out.positioning_analysis.strategic_notes.join(' | ');
+  assert.doesNotMatch(notes, /sibling set may be incomplete/, 'no incomplete-capture warning for single-segment parent');
+  assert.doesNotMatch(notes, /sibling capture is likely incomplete/, 'no multi-segment warning for single-segment parent');
+  assert.match(notes, /focused single-segment parent/, 'surfaces focused-business explanation instead');
+});
+
+test('Task #53: private focused/single-segment parent (MSC Cruises-like) does not trigger the warning', () => {
+  const ownership = {
+    company: 'MSC Cruises', node_type: 'operating_brand', focal_segment: 'MSC Cruises',
+    siblings: [{ company: 'Explora Journeys', in_current_sources: true }],
+    parent: { company: 'MSC Cruises S.A.', node_type: 'legal_entity', parent: null },
+  };
+  const revenueByCompany = {
+    'msc cruises': { revenue_estimate: { low: 8e9, high: 12e9, central: 10e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+    'explora journeys': { revenue_estimate: { low: 0.2e9, high: 0.5e9, central: 0.3e9 }, confidence: 'low', signals_found: [], reasoning_summary: '' },
+    'msc cruises s.a.': { revenue_estimate: { low: 9e9, high: 12e9, central: 10.5e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+  };
+  const out = synthesize(ownership, revenueByCompany, null, {});
+  const notes = out.positioning_analysis.strategic_notes.join(' | ');
+  assert.doesNotMatch(notes, /sibling capture is likely incomplete/, 'no strong incompleteness warning for private focused parent');
+  assert.doesNotMatch(notes, /sibling capture may be incomplete/, 'no ambiguous warning either');
+  assert.match(notes, /focused single-segment parent/, 'surfaces focused-business explanation for private parents too');
+});
+
+test('Task #53: private multi-brand conglomerate with shared first token still raises the incompleteness warning', () => {
+  const ownership = {
+    company: 'Snickers', node_type: 'operating_brand', focal_segment: 'Mars Wrigley',
+    siblings: [],
+    parent: { company: 'Mars Incorporated', node_type: 'legal_entity', parent: null },
+  };
+  const revenueByCompany = {
+    'snickers': { revenue_estimate: { low: 2e9, high: 4e9, central: 3e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+    'mars incorporated': { revenue_estimate: { low: 45e9, high: 50e9, central: 47e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+  };
+  const out = synthesize(ownership, revenueByCompany, null, {});
+  const notes = out.positioning_analysis.strategic_notes.join(' | ');
+  assert.doesNotMatch(notes, /focused single-segment parent/, 'shared first token alone must not classify as focused');
+  assert.match(notes, /sibling capture may be incomplete/, 'still emits incompleteness warning for true conglomerate');
+});
+
+test('Task #53: multi-segment parent with few captured siblings still raises the incompleteness warning', () => {
+  const ownership = {
+    company: 'Snickers', node_type: 'operating_brand', focal_segment: 'Mars Wrigley',
+    siblings: [],
+    parent: { company: 'BigCo', node_type: 'legal_entity', parent: null },
+  };
+  const revenueByCompany = {
+    'snickers': { revenue_estimate: { low: 2e9, high: 4e9, central: 3e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+    'bigco': { revenue_estimate: { low: 40e9, high: 50e9, central: 45e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+  };
+  const parentAnchor = {
+    is_public: true,
+    total_revenue_usd: 45e9,
+    fiscal_year: '2024',
+    segments: [
+      { name: 'Mars Wrigley', revenue_usd: 15e9, contains_focal: true },
+      { name: 'Petcare', revenue_usd: 20e9, contains_focal: false },
+      { name: 'Food', revenue_usd: 10e9, contains_focal: false },
+    ],
+  };
+  const out = synthesize(ownership, revenueByCompany, parentAnchor, {});
+  const notes = out.positioning_analysis.strategic_notes.join(' | ');
+  assert.match(notes, /sibling capture is likely incomplete/, 'multi-segment evidence keeps the strong warning');
+  assert.match(notes, /3 reported segments/);
+});
+
 test('Issue #11: a well-covered conglomerate (≥ floor siblings) raises no incompleteness warning', () => {
   const ownership = {
     company: 'Royal Canin', node_type: 'operating_brand', focal_segment: 'Mars Petcare',

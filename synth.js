@@ -1457,7 +1457,53 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
     const sibCount = (tree.siblings || []).length;
     const floor = parentSize > 50e9 ? 5 : 3;
     if (parentSize > 5e9 && sibCount < floor) {
-      notes.push(`⚠ Only ${sibCount} sibling${sibCount === 1 ? '' : 's'} captured under ${tree.parent.company} (${formatUSD(parentSize)} parent) — expected ≥${floor} for a conglomerate this size; the sibling set may be incomplete and reconciliation coverage is a floor, not a ceiling.`);
+      // Task #53: focused single-segment parents (MSC Cruises, PDD, etc.)
+      // genuinely have only 1–2 in-segment siblings. When the 10-K reports a
+      // single operating segment, or when the focal's segment is ~all of the
+      // parent's revenue, the low capture count is the correct answer — not
+      // a coverage gap. Surface that distinction rather than crying wolf.
+      const segArr = parentAnchor && Array.isArray(parentAnchor.segments) ? parentAnchor.segments : [];
+      const focalSegAnchor = segArr.find((s) => s && s.contains_focal);
+      const focalSegRev = focalSegAnchor && Number.isFinite(focalSegAnchor.revenue_usd) ? focalSegAnchor.revenue_usd : 0;
+      // Use the best available denominator so private/non-10-K parents can
+      // also qualify as focused-business (MSC Cruises etc.): anchor total
+      // when public, else the parent's estimated central revenue.
+      const focusDenom = anchorTot > 0 ? anchorTot : (parentRev || 0);
+      const focalSegShare = focalSegRev > 0 && focusDenom > 0 ? focalSegRev / focusDenom : 0;
+      // Single-segment evidence is meaningful whenever the anchor reports
+      // exactly one segment, regardless of public/private listing status.
+      const isSingleSegment = segArr.length === 1;
+      const isFocusedBusiness = focalSegShare >= 0.9;
+      const hasMultiSegmentEvidence = segArr.length >= 2;
+      // Private parents with no segment data but a `focal_segment` whose
+      // canonicalized name equals the parent's own brand (e.g. "MSC Cruises"
+      // focal under "MSC Cruises S.A.") are structurally single-segment too.
+      // Strict match: strip legal suffixes / punctuation, then require an
+      // exact equality. A shared first token (e.g. parent "Mars Incorporated"
+      // + focal_segment "Mars Wrigley") is NOT enough — that's a true
+      // multi-brand conglomerate and must keep raising the warning.
+      const _canonName = (s) => (s || '')
+        .toLowerCase()
+        .replace(/[.,]/g, ' ')
+        .replace(/\b(s\s*a|s\s*a\s*s|s\s*p\s*a|n\s*v|a\s*g|p\s*l\s*c|l\s*l\s*c|l\s*p|l\s*t\s*d|limited|inc(?:orporated)?|corp(?:oration)?|co|company|holdings?|group|the)\b/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const focalSegCanon = _canonName(tree.focal_segment);
+      const parentCanon = _canonName(tree.parent.company);
+      const nameSingleSeg = !segArr.length && focalSegCanon && parentCanon
+        && focalSegCanon === parentCanon;
+      if (isSingleSegment || isFocusedBusiness || nameSingleSeg) {
+        const reason = isSingleSegment
+          ? `reports a single operating segment${parentAnchor && parentAnchor.fiscal_year ? ` in its ${parentAnchor.fiscal_year} 10-K` : ''}`
+          : isFocusedBusiness
+          ? `${tree.focal_segment || 'focal'} segment is ~${Math.round(focalSegShare * 100)}% of reported revenue`
+          : `appears to be a focused single-segment business (${tree.focal_segment} ≈ parent)`;
+        notes.push(`${tree.parent.company} ${reason} — the ${sibCount} sibling${sibCount === 1 ? '' : 's'} captured reflects a focused single-segment parent, not incomplete capture.`);
+      } else if (hasMultiSegmentEvidence) {
+        notes.push(`⚠ Only ${sibCount} sibling${sibCount === 1 ? '' : 's'} captured under ${tree.parent.company} (${formatUSD(parentSize)} parent, ${segArr.length} reported segments) — expected ≥${floor} for a multi-segment conglomerate this size; sibling capture is likely incomplete and reconciliation coverage is a floor, not a ceiling.`);
+      } else {
+        notes.push(`⚠ Only ${sibCount} sibling${sibCount === 1 ? '' : 's'} captured under ${tree.parent.company} (${formatUSD(parentSize)} parent) — expected ≥${floor} for a conglomerate this size; sibling capture may be incomplete (or the parent may be a focused single-segment business — segment data unavailable), so reconciliation coverage is a floor, not a ceiling.`);
+      }
     }
   }
 
