@@ -780,6 +780,61 @@ a:hover { text-decoration: underline; }
   padding: 6px 12px; font-size: 12px;
 }
 
+/* ─── Mobile Touch-friendly Adjustments ────────────────────────────── */
+@media (max-width: 720px) {
+  .hamburger-btn { padding: 10px 12px; min-height: 44px; min-width: 44px; }
+
+  .btn, .btn-primary, .btn-ghost {
+    padding: 10px 16px; min-height: 40px;
+    font-size: 13px;
+  }
+
+  .btn-sm {
+    padding: 8px 12px; min-height: 40px;
+    font-size: 12px;
+  }
+
+  .btn-icon {
+    min-height: 40px; min-width: 40px;
+    padding: 6px;
+  }
+
+  .sidebar-input, .filter-select, .select {
+    min-height: 40px; padding: 8px 10px;
+    font-size: 14px;
+  }
+
+  .history-row {
+    padding: 12px 10px;
+  }
+
+  input[type="text"], input[type="email"], textarea {
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 640px) {
+  .history-filters {
+    gap: 4px !important;
+  }
+
+  .history-filters .filter-select {
+    font-size: 11px;
+  }
+
+  .signal-row, .co-owner-row {
+    padding: 10px 8px;
+  }
+
+  table {
+    font-size: 12px;
+  }
+
+  table td, table th {
+    padding: 8px 10px;
+  }
+}
+
 /* ─── Print ────────────────────────────────────────────────────────── */
 @media print {
   body { background: #fff !important; color: #111 !important; }
