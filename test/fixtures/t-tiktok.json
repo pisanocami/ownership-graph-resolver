@@ -1,0 +1,77 @@
+{
+  "ownership": {
+    "company": "TikTok",
+    "domain": "tiktok.com",
+    "node_type": "operating_brand",
+    "layer": "brand",
+    "in_current_sources": true,
+    "in_historical_sources": true,
+    "category": "Short-form video sharing platform",
+    "strategic_control": [
+      { "entity": "Shou Zi Chew", "role_description": "CEO", "evidence": "CEO of TikTok", "source_url": "https://www.cbsnews.com/news/tiktok-ceo-shou-zi-chew/" },
+      { "entity": "Vanessa Pappas", "role_description": "COO", "evidence": "named TikTok COO", "source_url": "https://newsroom.tiktok.com/en-us/tiktok-names-ceo-and-coo" }
+    ],
+    "strategic_control_note": null,
+    "parent": {
+      "company": "ByteDance Ltd.",
+      "domain": "bytedance.com",
+      "node_type": "legal_entity",
+      "layer": "parent",
+      "in_current_sources": true,
+      "in_historical_sources": true,
+      "category": "Internet Technology",
+      "parent": null,
+      "siblings": [],
+      "children": [
+        {
+          "company": "TikTok USDS Joint Venture LLC",
+          "domain": "usdsjv.tiktok.com",
+          "node_type": "legal_entity",
+          "layer": "aggregator",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "category": "US Operations for TikTok",
+          "children": [],
+          "strategic_control": [
+            { "entity": "ByteDance", "role_description": "19.9% owner", "evidence": "ByteDance will retain a 19.9% stake in the U.S. operation.", "source_url": "https://example.com/deal" },
+            { "entity": "Oracle Corporation", "role_description": "15% owner", "evidence": "Oracle holds a 15% ownership stake.", "source_url": "https://example.com/deal" },
+            { "entity": "Silver Lake", "role_description": "15% owner", "evidence": "Silver Lake is part of the investor group.", "source_url": "https://example.com/deal" },
+            { "entity": "MGX Fund Management Limited", "role_description": "15% owner", "evidence": "MGX is part of the investor group.", "source_url": "https://example.com/deal" },
+            { "entity": "Adam Presser", "role_description": "CEO", "evidence": "The new company will be led by Adam Presser.", "source_url": "https://example.com/deal" }
+          ],
+          "strategic_control_note": null
+        }
+      ],
+      "strategic_control": [
+        { "entity": "Zhang Yiming", "role_description": "Co-founder & Chairman, >50% voting control", "evidence": "founder", "source_url": "https://www.forbes.com/profile/zhang-yiming/" },
+        { "entity": "Liang Rubo", "role_description": "Co-founder & CEO", "evidence": "took over as CEO in 2021", "source_url": "https://en.wikipedia.org/wiki/ByteDance" }
+      ],
+      "strategic_control_note": null
+    },
+    "siblings": [
+      { "company": "Douyin", "domain": null, "node_type": "operating_brand", "category": "Short-form video (China)", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://vidboard.ai/"] },
+      { "company": "Toutiao", "domain": null, "node_type": "operating_brand", "category": "News aggregation", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://vidboard.ai/"] },
+      { "company": "Mobile Legends: Bang Bang", "domain": null, "node_type": "operating_brand", "category": "Mobile MOBA game", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.bytedance.com/"] }
+    ],
+    "children": [],
+    "acquisition": { "acquired_by": "ByteDance", "year": 2017, "source_url": "https://www.bytedance.com/" },
+    "confidence": "high",
+    "sources": ["https://www.tiktok.com/"]
+  },
+  "revenueByCompany": {
+    "tiktok": { "revenue_estimate": { "low": 16000000000, "high": 23000000000, "central": 16100000000 }, "confidence": "high", "signals_attempted": 2, "signals_found_count": 2, "signals_found": [{ "type": "press", "label": "2023 Global Revenue", "value": "US$16.1 billion in 2023", "source": "Electro IQ", "weight": "high" }], "reasoning_summary": "Reported global revenue of $16.1B for 2023." },
+    "bytedance ltd.": { "revenue_estimate": { "low": 150000000000, "high": 160000000000, "central": 155000000000 }, "confidence": "high", "signals_attempted": 4, "signals_found_count": 4, "signals_found": [{ "type": "press", "label": "2024 Annual Revenue", "value": "US$155 billion in 2024", "source": "Bloomberg", "weight": "high" }], "reasoning_summary": "Multiple reports state ByteDance achieved $155B in 2024." },
+    "douyin": { "revenue_estimate": { "low": 105000000000, "high": 120000000000, "central": 112000000000 }, "confidence": "high", "signals_attempted": 4, "signals_found_count": 4, "signals_found": [{ "type": "press", "label": "Parent 2024 Revenue", "value": "ByteDance ~$155B in 2024", "source": "Sacra", "weight": "high" }], "reasoning_summary": "Estimate derived using a top-down approach, taking ByteDance's reported 2024 total revenue and applying the reported share generated from China operations where Douyin is dominant." },
+    "toutiao": { "revenue_estimate": { "low": 8000000000, "high": 15000000000, "central": 11500000000 }, "confidence": "low", "signals_attempted": 4, "signals_found_count": 4, "signals_found": [], "reasoning_summary": "Part of ByteDance domestic revenue, primarily Douyin and Toutiao. Wide range due to uncertainty." },
+    "mobile legends: bang bang": { "revenue_estimate": { "low": 180000000, "high": 225000000, "central": 200000000 }, "confidence": "high", "signals_attempted": 3, "signals_found_count": 3, "signals_found": [{ "type": "funding", "label": "Moonton Acquisition (Developer)", "value": "ByteDance agreed to sell Moonton to Saudi Arabia's Savvy Games Group for a reported $6 billion in March 2026.", "source": "Bloomberg", "weight": "low" }], "reasoning_summary": "Annual revenue around $195M-$222M." }
+  },
+  "parentAnchor": {
+    "is_public": false,
+    "ticker": null,
+    "fiscal_year": null,
+    "total_revenue_usd": null,
+    "segments": [],
+    "source_url": null,
+    "notes": "ByteDance is privately held; no public filing."
+  }
+}

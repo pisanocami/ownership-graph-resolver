@@ -135,6 +135,55 @@ export function deriveStrategicRoleClass(roleDescription) {
   return 'other';
 }
 
+// Detect a pending/announced divestiture from captured free text (signals, reasoning,
+// notes). F11-compliant classifier — surfaces structural change the model recorded only
+// as prose (e.g. "ByteDance agreed to sell Moonton to Savvy Games Group").
+const DIVEST_RE = /agreed to sell|to be sold|is being sold|sold .{0,40}? to |divest|spin[- ]?off|spun off|spinning off|carve[- ]?out|carved out/i;
+export function deriveDivestiture(node) {
+  if (!node || typeof node !== 'object') return null;
+  const sigs = node.signals_found || [];
+  for (const s of sigs) {
+    const txt = `${s.label || ''} ${s.value || ''}`;
+    if (DIVEST_RE.test(txt)) return { divesting: true, detail: (s.value || s.label || '').trim(), source_url: s.source || null };
+  }
+  const blob = `${node.reasoning_summary || ''} ${node.notes || ''}`;
+  if (DIVEST_RE.test(blob)) {
+    const sentence = blob.split(/(?<=[.!?])\s+/).find((seg) => DIVEST_RE.test(seg));
+    return { divesting: true, detail: (sentence || '').trim(), source_url: null };
+  }
+  return null;
+}
+
+// A revenue estimate is "circular" for reconciliation when it was derived top-down as a
+// fraction of the parent/group total — summing it back to compare against that same total
+// is self-fulfilling and gives false confidence.
+const CIRCULAR_RE = /top[- ]?down|%\s*of\s*(the\s*)?(parent|group|total|bytedance|company)|share\s*(generated\s*)?(from|of)\b|applying the reported share|fraction of .{0,30}(parent|total|group)|derived (from|using) .{0,40}(parent|total|group|reported)|reported share/i;
+export function isCircularEstimate(node) {
+  return CIRCULAR_RE.test(`${node?.reasoning_summary || ''}`);
+}
+
+// Collect every node that carries strategic_control (or a no-data note) for display,
+// not just the focal→root chain. Crucially includes the ancestors' OTHER children
+// (e.g. a JV/subsidiary under the parent like "TikTok USDS JV") whose ownership split
+// is otherwise buried in raw JSON. Returns ordered { node, isFocal, under } entries.
+export function collectControlLayers(tree) {
+  if (!tree) return [];
+  const chain = [];
+  let p = tree.parent;
+  while (p) { chain.unshift(p); p = p.parent; }
+  const has = (n) => n && ((n.strategic_control || []).length > 0 || n.strategic_control_note);
+  const out = [];
+  const focalKey = keyOf(tree);
+  chain.forEach((n) => { if (has(n)) out.push({ node: n, isFocal: false, under: null }); });
+  chain.forEach((anc) => (anc.children || []).forEach((c) => {
+    if (keyOf(c) !== focalKey && has(c)) out.push({ node: c, isFocal: false, under: anc.company });
+  }));
+  if (has(tree)) out.push({ node: tree, isFocal: true, under: null });
+  (tree.children || []).forEach((c) => { if (has(c)) out.push({ node: c, isFocal: false, under: tree.company }); });
+  (tree.siblings || []).forEach((s) => { if (has(s)) out.push({ node: s, isFocal: false, under: tree.parent?.company || null }); });
+  return out;
+}
+
 // ─── Entity collection for revenue enrichment ───────────────────────────────
 
 export function collectEntities(ownership) {
@@ -190,10 +239,13 @@ export function attachRevenue(ownership, revenueByCompany) {
       };
       node.signals_found = rev.signals_found || [];
       node.reasoning_summary = rev.reasoning_summary || '';
+      if (rev.signals_attempted != null) node.signals_attempted = rev.signals_attempted;
+      if (rev.signals_found_count != null) node.signals_found_count = rev.signals_found_count;
       if (rev.reason_for_null) node.reason_for_null = rev.reason_for_null;
       if (rev.error) node.revenue_error = rev.error;
     }
     node._derived_status = deriveStatus(node);
+    node._divestiture = deriveDivestiture(node);
     if (node.parent) visit(node.parent);
     (node.siblings || []).forEach((s) => {
       const sk = (s.company || '').toLowerCase().trim();
@@ -207,9 +259,12 @@ export function attachRevenue(ownership, revenueByCompany) {
         };
         s.signals_found = sr.signals_found || [];
         s.reasoning_summary = sr.reasoning_summary || '';
+        if (sr.signals_attempted != null) s.signals_attempted = sr.signals_attempted;
+        if (sr.signals_found_count != null) s.signals_found_count = sr.signals_found_count;
         if (sr.reason_for_null) s.reason_for_null = sr.reason_for_null;
       }
       s._derived_status = deriveStatus(s);
+      s._divestiture = deriveDivestiture(s);
     });
     (node.children || []).forEach(visit);
   };
@@ -478,7 +533,19 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null) {
     const sumChildCentralAdj = sumChildren;
     const childrenCounted = countedSiblings + (rawFocalRev > 0 ? 1 : 0);
 
+    // Circular detection: when the benchmark is the parent's ESTIMATED central (no
+    // independent filing) and a counted sibling was itself estimated top-down as a
+    // share of that parent total, summing it back is self-fulfilling. Only flag when
+    // such siblings make up a meaningful chunk of the benchmark.
+    const isConsolidated = (s) => {
+      const name = (s.company || '').toLowerCase().trim();
+      return anchorTotal > 0 && focalSegName && name && focalSegName.includes(name);
+    };
+    const circular_siblings = siblings.filter((s, i) => !isConsolidated(s) && sibCentrals[i] > 0 && isCircularEstimate(s)).map((s) => s.company);
+    const circularCentral = siblings.reduce((a, s, i) => (!isConsolidated(s) && isCircularEstimate(s) ? a + (sibCentrals[i] || 0) : a), 0);
+
     const benchmark = anchorTotal > 0 ? anchorTotal : parentRev;
+    const circular = anchorTotal === 0 && circular_siblings.length > 0 && benchmark > 0 && circularCentral >= 0.3 * benchmark;
     const benchmarkLabel = anchorTotal > 0
       ? `${tree.parent.company} ${parentAnchor.fiscal_year || 'latest'} 10-K reported revenue`
       : `${tree.parent.company} estimated central revenue`;
@@ -495,11 +562,17 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null) {
         focal_segment_revenue: focalSegmentRev || null,
         children_counted: childrenCounted,
         consolidated_siblings: consolidated_siblings.length ? consolidated_siblings : undefined,
+        circular: circular || undefined,
+        circular_siblings: circular ? circular_siblings : undefined,
         anchor_adjustment: anchorAdjustment,
       };
       if (consolidated_siblings.length) {
         const verb = consolidated_siblings.length > 1 ? 'are' : 'is';
         notes.push(`${consolidated_siblings.join(', ')} ${verb} consolidated within the ${tree.parent.company} "${focalSeg.name}" segment — excluded from the sum to avoid double-counting.`);
+      }
+      if (circular) {
+        const verb = circular_siblings.length > 1 ? 'were' : 'was';
+        notes.push(`⚠ Reconciliation may be circular: ${circular_siblings.join(', ')} ${verb} estimated top-down as a share of ${tree.parent.company}'s own total, so summing back to that total is self-fulfilling — treat the ${Math.round(ratio * 100)}% coverage as unverified, not confirmation.`);
       }
       // Bundle B: when the gap is material (>20% either way), attach a
       // deterministic explanation built from captured facts.
