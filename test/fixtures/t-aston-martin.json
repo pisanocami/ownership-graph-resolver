@@ -10,14 +10,26 @@
     "type": "Brand",
     "parent": {
       "name": "Aston Martin Lagonda Global Holdings",
-      "type": "PublicCo"
+      "type": "PublicCo",
+      "company": "Aston Martin Lagonda Global Holdings"
+    },
+    "revenue_estimate": {
+      "central": 1400,
+      "low": 1000,
+      "high": 1800,
+      "source": "estimate",
+      "confidence": "low"
     },
     "control_blocs": [
-      { "name": "Mercedes-AMG", "stake": "blended_tech", "status": "partnership" },
-      { "name": "Lawrence Stroll", "stake": "major_shareholder" }
+      { "company": "Mercedes-AMG", "stake": "blended_tech", "status": "partnership" },
+      { "company": "Lawrence Stroll", "stake": "major_shareholder" }
     ],
-    "pending_acquisition": "Rumored takeover interest from multiple PE firms",
-    "acquisition": { "year": 2024, "status": "rumored" },
+    "pending_acquisition": null,
+    "acquisition": {
+      "year": 2024,
+      "status": "rumored",
+      "acquirer": "Multiple PE firms"
+    },
     "siblings": [],
     "signals_found": [
       {
@@ -29,17 +41,23 @@
       },
       {
         "type": "operational",
-        "label": "Production challenges",
+        "label": "Workforce reduction",
         "value": "Recent layoffs and restructuring",
         "source": "news",
         "weight": "high"
       }
-    ]
+    ],
+    "strategic_control": [
+      { "company": "Lawrence Stroll", "role_description": "major_shareholder" },
+      { "company": "Mercedes-AMG", "role_description": "technology_partner" }
+    ],
+    "terminal_layer": "public",
+    "co_owners": []
   },
   "positioning_analysis": {
     "focal_vs_parent_ratio": "Entirety of public company value",
-    "focal_vs_siblings": "No sibling comparison",
-    "growth_signals": "• M&A interest • Operational restructuring",
+    "focal_vs_siblings": "No siblings",
+    "growth_signals": "Acquisition rumor (bloomberg); Workforce reduction (news)",
     "strategic_notes": "Under pressure; potential acquisition target",
     "reconciliation": null,
     "parent_anchor": null
