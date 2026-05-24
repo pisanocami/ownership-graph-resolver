@@ -229,7 +229,7 @@ a:hover { text-decoration: underline; }
 /* ─── Report two-column layout ─────────────────────────────────────────── */
 .report-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(300px, 1fr);
+  grid-template-columns: minmax(0, 2fr) minmax(360px, 3fr);
   gap: 24px;
   margin-top: 20px;
   align-items: start;
@@ -325,13 +325,16 @@ a:hover { text-decoration: underline; }
 .rev-range { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text-muted); margin-top: 6px; }
 .rev-foot { display: flex; gap: 12px; margin-top: 12px; font-size: 12px; color: var(--text-muted); flex-wrap: wrap; align-items: center; }
 
+.signal-list { margin-top: 6px; }
 .signal-row {
   display: grid; grid-template-columns: 80px 1fr 70px;
-  gap: 12px; padding: 10px 0;
+  gap: 12px; padding: 10px 8px;
   border-bottom: 1px solid var(--border);
+  border-radius: 4px;
   font-size: 12px; align-items: start;
 }
 @media (max-width: 640px) { .signal-row { grid-template-columns: 70px 1fr auto; gap: 8px; } }
+.signal-list .signal-row:nth-child(even) { background: var(--surface); }
 .signal-row:last-child { border-bottom: none; }
 .signal-type { color: var(--text-muted); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
 .signal-label { font-weight: 500; color: var(--text); display: block; }
@@ -343,15 +346,48 @@ a:hover { text-decoration: underline; }
   border-radius: 3px; border: 1px solid var(--border);
   color: var(--text-muted); align-self: start; white-space: nowrap;
 }
+.signal-weight-high { color: var(--success); border-color: var(--success); }
+.signal-weight-medium { color: var(--warning); border-color: var(--warning-border); background: var(--warning-bg); }
+.signal-weight-low { color: var(--text-subtle); }
 
 /* ─── Strategic control list ───────────────────────────────────────────── */
 .strategic-item { padding: 12px 0; border-bottom: 1px solid var(--border); }
 .strategic-item:last-child { border-bottom: none; }
-.strategic-head { display: flex; gap: 8px; align-items: baseline; font-size: 13px; flex-wrap: wrap; }
-.strategic-rel { color: var(--accent); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; min-width: 110px; }
-.strategic-entity { color: var(--text); font-weight: 600; flex: 1; }
+.strategic-head { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; font-size: 13px; }
+.strategic-rel { color: var(--accent); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.strategic-entity { color: var(--text); font-weight: 600; font-size: 14px; }
 .strategic-details { font-size: 12px; color: var(--text-muted); margin: 6px 0 0 0; }
 .strategic-source { font-size: 11px; color: var(--text-subtle); margin: 4px 0 0 0; word-break: break-all; }
+
+/* ─── Prior investigations list ────────────────────────────────────────── */
+.history-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto 72px 32px;
+  align-items: center; gap: 12px; padding: 10px 12px;
+}
+.history-head {
+  font-size: 11px; font-weight: 700; color: var(--text-muted);
+  letter-spacing: 0.05em; text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+}
+.history-head .history-num, .history-head .history-time { text-align: right; }
+.history-row {
+  border-bottom: 1px solid var(--border);
+  border-left: 2px solid transparent;
+  cursor: pointer;
+}
+.history-row:hover { background: var(--surface); }
+.history-row.active { background: var(--accent-soft); border-left-color: var(--accent); }
+.history-row:last-child { border-bottom: none; }
+.history-company { font-weight: 600; font-size: 14px; color: var(--text); min-width: 0; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.history-num { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-muted); text-align: right; white-space: nowrap; }
+.history-time { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-subtle); text-align: right; white-space: nowrap; }
+
+/* ─── Reasoning summary ────────────────────────────────────────────────── */
+.reasoning-text {
+  margin-top: 16px; font-size: 13px; color: var(--text-muted);
+  line-height: 1.65; max-width: 62ch;
+}
 
 /* ─── Logs panel ───────────────────────────────────────────────────────── */
 .logs-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-top: 12px; }

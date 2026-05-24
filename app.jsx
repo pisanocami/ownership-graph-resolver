@@ -871,6 +871,13 @@ export default function App() {
               </span>
             </div>
             <div className="card">
+              <div className="history-grid history-head">
+                <span>Company</span>
+                <span className="history-num">Revenue</span>
+                <span>Confidence</span>
+                <span className="history-time">Time</span>
+                <span />
+              </div>
               {history.map((h) => (
                 <HistoryRow
                   key={h.id}
@@ -1536,60 +1543,36 @@ function FlowNode({ data }) {
 function HistoryRow({ item, active, onOpen, onDelete }) {
   return (
     <div
-      className="history-row"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        padding: '10px 12px',
-        borderBottom: '1px solid var(--border)',
-        background: active ? 'var(--accent-soft)' : 'transparent',
-        borderLeft: active ? '2px solid var(--accent)' : '2px solid transparent',
+      className={`history-grid history-row${active ? ' active' : ''}`}
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen();
+        }
       }}
     >
-      <button
-        onClick={onOpen}
-        className="history-row-open"
-        style={{
-          flex: 1,
-          background: 'transparent',
-          border: 'none',
-          color: 'var(--text)',
-          textAlign: 'left',
-          cursor: 'pointer',
-          padding: 0,
-          display: 'flex',
-          alignItems: 'baseline',
-          gap: 10,
-          flexWrap: 'wrap',
-          font: 'inherit',
-        }}
-      >
-        <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>
-          {item.focal_company || item.brand}
-        </span>
+      <span className="history-company">
+        {item.focal_company || item.brand}
         {item.hint && (
-          <span className="mono" style={{ fontSize: 11, color: 'var(--text-subtle)' }}>
-            · {item.hint}
+          <span className="mono" style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-subtle)' }}>
+            {item.hint}
           </span>
         )}
-        <span style={{ flex: 1 }} />
-        {item.central != null && (
-          <span className="mono" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            {formatUSD(item.central)}
-          </span>
-        )}
-        {item.confidence && (
-          <span className={`chip confidence-${item.confidence}`}>
-            {item.confidence}
-          </span>
-        )}
-        <span className="mono" style={{ fontSize: 11, color: 'var(--text-subtle)', minWidth: 70, textAlign: 'right' }}>
-          {formatRelativeTime(item.createdAt)}
-        </span>
-      </button>
+      </span>
+      <span className="history-num">
+        {item.central != null ? formatUSD(item.central) : '—'}
+      </span>
+      <span>
+        {item.confidence ? (
+          <span className={`chip confidence-${item.confidence}`}>{item.confidence}</span>
+        ) : null}
+      </span>
+      <span className="history-time">{formatRelativeTime(item.createdAt)}</span>
       <button
-        onClick={onDelete}
+        onClick={(e) => { e.stopPropagation(); onDelete(); }}
         title="Delete"
         className="icon-btn"
         style={{
@@ -1817,7 +1800,7 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
       )}
 
       {reasoning && (
-        <div style={{ marginTop: 14, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+        <div className="reasoning-text">
           {reasoning}
         </div>
       )}
@@ -1834,17 +1817,19 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
       {signals.length > 0 && (
         <div style={{ marginTop: 18 }}>
           <div className="card-title">Signals captured</div>
-          {signals.map((s, i) => (
-            <div key={i} className="signal-row">
-              <div className="signal-type">{s.type}</div>
-              <div>
-                <div className="signal-label">{s.label}</div>
-                <div className="signal-value">{s.value}</div>
-                {s.source && <div className="signal-source">via {s.source}</div>}
+          <div className="signal-list">
+            {signals.map((s, i) => (
+              <div key={i} className="signal-row">
+                <div className="signal-type">{s.type}</div>
+                <div>
+                  <div className="signal-label">{s.label}</div>
+                  <div className="signal-value">{s.value}</div>
+                  {s.source && <div className="signal-source">via {s.source}</div>}
+                </div>
+                <div className={`signal-weight signal-weight-${String(s.weight || '').toLowerCase()}`}>{s.weight}</div>
               </div>
-              <div className="signal-weight">{s.weight}</div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
