@@ -1,0 +1,65 @@
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import {
+  synthesize, collectEntities, deriveStatus, deriveRevenueStatus,
+  deriveDivestiture, isCircularEstimate, collectControlLayers,
+} from '../synth.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const load = (f) => JSON.parse(readFileSync(join(here, 'fixtures', f), 'utf8'));
+
+const t04 = load('t04-nectar.json');
+const t01 = load('t01-anthropic.json');
+const tZara = load('t-zara.json');
+const tTikTok = load('t-tiktok.json');
+
+// ─── Bundle A: Cloverlane temporal accuracy + status (T04) ──────────────────
+
+test('T04: Cloverlane (recent active brand) survives the sibling pipeline', () => {
+  const entities = collectEntities(t04.ownership);
+  assert.ok(
+    entities.some((e) => e.company === 'Cloverlane'),
+    'Cloverlane must be collected for revenue enrichment, not dropped by the cap'
+  );
+
+  const out = synthesize(t04.ownership, t04.revenueByCompany, t04.parentAnchor);
+  const clover = out.ownership_tree.siblings.find((s) => s.company === 'Cloverlane');
+  assert.ok(clover, 'Cloverlane present among synthesized siblings');
+  assert.equal(deriveStatus(clover).label, 'active', 'in_current_sources:true → active');
+});
+
+test('T04: historical-only siblings derive to legacy/discontinued', () => {
+  const out = synthesize(t04.ownership, t04.revenueByCompany, t04.parentAnchor);
+  const legacyCount = out.ownership_tree.siblings.filter((s) =>
+    ['legacy', 'discontinued'].includes(deriveStatus(s).label)
+  ).length;
+  assert.ok(legacyCount >= 1, 'at least one historical-only brand (Bundle/Wovenly/Level) is legacy');
+});
+
+test('T04: sibling with no estimate exposes a descriptive reason, not "n/a"', () => {
+  const out = synthesize(t04.ownership, t04.revenueByCompany, t04.parentAnchor);
+  const clover = out.ownership_tree.siblings.find((s) => s.company === 'Cloverlane');
+  const rs = deriveRevenueStatus(clover);
+  assert.equal(rs.hasEstimate, false);
+
+AI
+
+JavaScript
+
+3
+0
+
+Diff
+
+
+Ln 6, Col 1
+
+Spaces: 2
+
+History
+Unsupported state: you are in the middle of a rebase.
+Please finish the rebase manually.
