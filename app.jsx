@@ -2996,7 +2996,7 @@ async function generatePDF(result) {
       { size: 8.5, style: 'italic', color: C.muted, gap: 3 });
     const levels = [...chain, tree];
     const boxH = 16, vGap = 10;
-    const maxW = contentW * 0.85, minW = contentW * 0.38;
+    const maxW = contentW * 0.9, minW = contentW * 0.55;
 
     levels.forEach((node, idx) => {
       ensure(boxH + vGap + 2);
@@ -3006,78 +3006,65 @@ async function generatePDF(result) {
       const isFocal = node === tree;
       const isRoot = idx === 0;
 
-      // Background gradient effect (using layered rectangles)
-      if (isFocal) {
-        pdf.setFillColor(...[8, 145, 178, 0.08]); // very faint teal
-        pdf.rect(x - 2, y - 1, w + 4, boxH + 2, 'F');
-      }
-
       // Main box with enhanced styling
       pdf.setFillColor(...(isFocal ? C.accent : C.surface));
       pdf.setDrawColor(...(isFocal ? C.accentHover : C.border));
       pdf.setLineWidth(isFocal ? 0.8 : 0.4);
       pdf.roundedRect(x, y, w, boxH, 2.2, 2.2, 'FD');
 
-      // Left badge/icon area
-      const badgeSize = 5;
-      const badgeX = x + 3;
-      const badgeY = y + 3.5;
+      // Left marker shape (drawn with primitives — no Unicode glyphs).
+      // focal: filled circle · root: filled square · intermediate: ring.
+      const mCx = x + 5, mCy = y + 5.5, mR = 2;
       if (isFocal) {
-        pdf.setFillColor(...C.accent);
-        pdf.circle(badgeX + badgeSize/2, badgeY + badgeSize/2, badgeSize/2, 'F');
-        font(4, 'bold'); pdf.setTextColor(...C.white);
-        pdf.text('★', badgeX + 2.5, badgeY + 2.5, { align: 'center', baseline: 'middle' });
+        pdf.setFillColor(...C.tint);
+        pdf.circle(mCx, mCy, mR, 'F');
       } else if (isRoot) {
-        pdf.setFillColor(...[100, 100, 100]);
-        pdf.rect(badgeX, badgeY, badgeSize, badgeSize, 'F');
-        font(4, 'bold'); pdf.setTextColor(...C.white);
-        pdf.text('◆', badgeX + 2.5, badgeY + 2.5, { align: 'center', baseline: 'middle' });
+        pdf.setFillColor(...[100, 116, 139]);
+        pdf.rect(mCx - mR, mCy - mR, mR * 2, mR * 2, 'F');
       } else {
-        pdf.setFillColor(...C.accentSoft);
-        pdf.circle(badgeX + badgeSize/2, badgeY + badgeSize/2, badgeSize/2, 'F');
-        font(4, 'bold'); pdf.setTextColor(...C.accent);
-        pdf.text('●', badgeX + 2.5, badgeY + 2.5, { align: 'center', baseline: 'middle' });
+        pdf.setFillColor(...C.accent);
+        pdf.circle(mCx, mCy, mR, 'F');
+        pdf.setFillColor(...C.surface);
+        pdf.circle(mCx, mCy, mR - 0.8, 'F');
       }
 
-      // Company name with better spacing
+      // Company name
       font(9.5, 'bold'); pdf.setTextColor(...(isFocal ? C.white : C.ink));
-      pdf.text(truncateToWidth(node.company || '?', w - 50), x + 13, y + 5.5, { baseline: 'middle' });
+      pdf.text(truncateToWidth(node.company || '?', w - 42), x + 10, y + 5.5, { baseline: 'middle' });
 
-      // Revenue on right with better formatting
+      // Revenue on right
       const rv = node.revenue_estimate;
       const revStr = rv && rv.central > 0 ? formatUSD(rv.central) : '—';
       font(8, isFocal ? 'bold' : 'normal');
       pdf.setTextColor(...(isFocal ? C.tint : C.muted));
       pdf.text(revStr, x + w - 4, y + 5.5, { align: 'right', baseline: 'middle' });
 
-      // Level label with better positioning
+      // Level label (plain text, no glyphs)
       font(6.5, 'normal'); pdf.setTextColor(...(isFocal ? C.tint : C.subtle));
-      const levelLabel = isFocal ? '◉ FOCAL COMPANY' : (isRoot ? '◆ ULTIMATE PARENT' : `● OWNER LEVEL ${idx}`);
-      pdf.text(levelLabel, x + 13, y + 11.2, { baseline: 'middle' });
+      const levelLabel = isFocal ? 'FOCAL COMPANY' : (isRoot ? 'ULTIMATE PARENT' : `OWNER LEVEL ${idx}`);
+      pdf.text(levelLabel, x + 10, y + 11.2, { baseline: 'middle' });
 
-      // Confidence indicator (small)
+      // Confidence indicator: a colored dot + letter side-by-side (no overlap)
       if (rv && rv.confidence) {
         const confColor = rv.confidence === 'high' ? [34, 197, 94]
                         : rv.confidence === 'medium' ? [234, 179, 8]
                         : [239, 68, 68];
+        const cy = y + 11.2;
+        font(6, 'normal'); pdf.setTextColor(...(isFocal ? C.tint : C.subtle));
+        const confLabel = rv.confidence.toUpperCase();
+        const cw = pdf.getTextWidth(confLabel);
+        pdf.text(confLabel, x + w - 4, cy, { align: 'right', baseline: 'middle' });
         pdf.setFillColor(...confColor);
-        const confDot = 1.2;
-        pdf.circle(x + w - 8, y + 11.2, confDot, 'F');
-        font(5.5, 'normal'); pdf.setTextColor(...C.subtle);
-        pdf.text(rv.confidence[0].toUpperCase(), x + w - 8, y + 11.2, { align: 'center', baseline: 'middle' });
+        pdf.circle(x + w - 6 - cw - 1.5, cy, 1.2, 'F');
       }
 
-      // Enhanced connector with arrow effect
+      // Connector with arrow head between levels
       if (idx < levels.length - 1) {
         pdf.setDrawColor(...C.border); pdf.setLineWidth(0.5);
         const centerX = margin + contentW / 2;
         const connectorY1 = y + boxH;
         const connectorY2 = y + boxH + vGap;
-
-        // Main line
         pdf.line(centerX, connectorY1, centerX, connectorY2);
-
-        // Small arrow head effect
         const arrowSize = 1.2;
         pdf.line(centerX - arrowSize, connectorY2 - arrowSize, centerX, connectorY2);
         pdf.line(centerX + arrowSize, connectorY2 - arrowSize, centerX, connectorY2);
@@ -3229,9 +3216,9 @@ async function generatePDF(result) {
         .find((s) => s.contains_focal)?.revenue_usd || 0;
       const focalRev = revEst.central || 0;
       const steps = [];
-      if (parentRev > 0) steps.push({ label: tree.parent?.company || 'Parent', value: parentRev, col: C.ink, icon: '▪' });
-      if (segRev > 0) steps.push({ label: tree.focal_segment || 'Segment', value: segRev, col: C.accentHover, icon: '▸' });
-      if (focalRev > 0) steps.push({ label: focal, value: focalRev, col: C.accent, icon: '◉' });
+      if (parentRev > 0) steps.push({ label: tree.parent?.company || 'Parent', value: parentRev, col: C.ink, tier: 'PARENT' });
+      if (segRev > 0) steps.push({ label: tree.focal_segment || 'Segment', value: segRev, col: C.accentHover, tier: 'SEGMENT' });
+      if (focalRev > 0) steps.push({ label: focal, value: focalRev, col: C.accent, tier: 'FOCAL' });
       if (steps.length >= 2) {
         const maxV = steps[0].value;
         const barMaxW = contentW * 0.58, barH = 9;
@@ -3247,32 +3234,35 @@ async function generatePDF(result) {
           const w = Math.max((s.value / maxV) * barMaxW, 2);
           const barY = y;
 
-          // Background connector line (if not first)
+          // Connector line linking this bar to the one above
           if (i > 0) {
-            pdf.setDrawColor(...[220, 220, 220]); pdf.setLineWidth(0.3);
-            pdf.line(margin + 4, barY - 2, margin + 4, barY);
+            pdf.setDrawColor(...[200, 200, 200]); pdf.setLineWidth(0.4);
+            pdf.line(margin + 3, barY - 4, margin + 3, barY);
           }
 
           // Main bar
           pdf.setFillColor(...s.col);
           pdf.rect(margin, barY, w, barH, 'F');
 
-          // Border
-          pdf.setDrawColor(...s.col); pdf.setLineWidth(0.4);
-          pdf.rect(margin, barY, w, barH);
+          // Label inside the bar (white text, always legible on the colored fill).
+          // Only render inside if the bar is wide enough to fit the text.
+          font(8, 'bold'); pdf.setTextColor(...C.white);
+          const labelStr = truncateToWidth(s.label, Math.max(w - 6, 10));
+          const labelW = pdf.getTextWidth(labelStr);
+          if (w > labelW + 5) {
+            pdf.text(labelStr, margin + 3, barY + barH / 2 + 0.4, { baseline: 'middle' });
+          } else {
+            // Bar too narrow — place the label outside, after the value
+            pdf.setTextColor(...s.col);
+            pdf.text(truncateToWidth(s.label, 30), margin + w + 32, barY + barH / 2 + 0.4, { baseline: 'middle' });
+          }
 
-          // Icon + label
-          font(9, 'bold'); pdf.setTextColor(...s.col);
-          pdf.text(s.icon, margin + 2.5, barY + barH / 2 + 0.4, { baseline: 'middle' });
-          font(8.5, 'bold'); pdf.setTextColor(...s.col);
-          pdf.text(truncateToWidth(s.label, 24), margin + 8, barY + barH / 2 + 0.4, { baseline: 'middle' });
-
-          // Value and percentage on the right
+          // Value + percentage immediately to the right of the bar
           const pct = i === 0 ? '100%' : `${((s.value / maxV) * 100).toFixed(1)}%`;
-          font(8, 'normal'); pdf.setTextColor(...C.text);
+          font(8, 'bold'); pdf.setTextColor(...C.text);
           pdf.text(formatUSD(s.value), margin + w + 3, barY + 3, { baseline: 'middle' });
           font(7, 'normal'); pdf.setTextColor(...C.subtle);
-          pdf.text(pct, margin + w + 3, barY + 6.5, { baseline: 'middle' });
+          pdf.text(`${s.tier} · ${pct}`, margin + w + 3, barY + 6.8, { baseline: 'middle' });
 
           y = barY + barH + 4;
         });
@@ -3382,48 +3372,58 @@ async function generatePDF(result) {
         ...siblings.map((s) => ({ company: s.company, central: s.revenue_estimate?.central || 0, isFocal: false }))]
         .sort((a, b) => b.central - a.central);
 
-      // Scale by siblings max (not focal) so sibling bars are visible; focal shows as #1 anchor
+      // Scale by siblings max (not focal) so sibling bars are visible; the focal
+      // is clamped to full width when it out-earns every sibling.
       const maxRevenue = Math.max(...siblings.map((s) => s.revenue_estimate?.central || 0), 1);
       const barH = 7;
-      const barMaxW = contentW * 0.63;
+      const labelW = 8;                       // gutter for the #-rank badge
+      const valueW = 26;                      // fixed column for the value
+      const barAreaX = margin + labelW;
+      const barMaxW = contentW - labelW - valueW;
 
       ranked.forEach((r, i) => {
         ensure(barH + 2);
-        const barW = (r.central / maxRevenue) * barMaxW;
+        const barW = Math.min((r.central / maxRevenue) * barMaxW, barMaxW);
         const rankY = y;
 
-        // Rank badge
+        // Rank badge (kept inside the content area, left gutter)
         font(7.5, 'bold');
         pdf.setTextColor(...(r.isFocal ? C.accent : C.muted));
-        const rankBadge = `#${i + 1}`;
-        pdf.text(rankBadge, margin - 8, rankY + barH / 2 + 0.3, { baseline: 'middle', align: 'right' });
+        pdf.text(`#${i + 1}`, margin, rankY + barH / 2 + 0.3, { baseline: 'middle' });
 
-        // Bar with enhanced styling
+        // Bar
         pdf.setFillColor(...(r.isFocal ? C.accent : C.surface));
-        pdf.rect(margin, rankY, barW, barH, 'F');
+        if (barW > 0.5) pdf.rect(barAreaX, rankY, barW, barH, 'F');
 
-        // Border with different weight for focal
+        // Border
         pdf.setDrawColor(...(r.isFocal ? C.accentHover : C.border));
         pdf.setLineWidth(r.isFocal ? 0.5 : 0.25);
-        pdf.rect(margin, rankY, barW, barH);
+        if (barW > 0.5) pdf.rect(barAreaX, rankY, barW, barH);
 
-        // Optional shine effect (white overlay on top of bar for visual depth)
-        if (r.isFocal) {
-          pdf.setFillColor(...[255, 255, 255, 0.3]);
-          pdf.rect(margin, rankY, barW, barH * 0.3, 'F');
+        // Highlight stripe on focal bar (solid lighter teal — never a 4-arg/CMYK
+        // fill, which jsPDF mis-renders as red).
+        if (r.isFocal && barW > 4) {
+          pdf.setFillColor(...C.accentHover);
+          pdf.rect(barAreaX, rankY, barW, barH * 0.28, 'F');
         }
 
-        // Label and value
+        // Company label: inside the bar when it fits, otherwise just past it.
+        const companyText = truncateToWidth(r.company, 34);
         font(8, r.isFocal ? 'bold' : 'normal');
-        pdf.setTextColor(...(r.isFocal ? C.white : C.ink));
-        const companyText = truncateToWidth(r.company, 30);
-        pdf.text(companyText, margin + 3, rankY + barH / 2 + 0.3, { baseline: 'middle' });
+        const txtW = pdf.getTextWidth(companyText);
+        if (barW > txtW + 5) {
+          pdf.setTextColor(...(r.isFocal ? C.white : C.ink));
+          pdf.text(companyText, barAreaX + 3, rankY + barH / 2 + 0.3, { baseline: 'middle' });
+        } else {
+          pdf.setTextColor(...C.ink);
+          pdf.text(companyText, barAreaX + barW + 2, rankY + barH / 2 + 0.3, { baseline: 'middle' });
+        }
 
-        // Value on the right
+        // Value in the fixed right column (never overlaps the bar/label)
         const valueStr = r.central > 0 ? formatUSD(r.central) : '—';
         font(7.5, r.isFocal ? 'bold' : 'normal');
-        pdf.setTextColor(...(r.isFocal ? C.tint : C.muted));
-        pdf.text(valueStr, margin + barW - 2, rankY + barH / 2 + 0.3, { align: 'right', baseline: 'middle' });
+        pdf.setTextColor(...(r.isFocal ? C.accent : C.muted));
+        pdf.text(valueStr, margin + contentW, rankY + barH / 2 + 0.3, { align: 'right', baseline: 'middle' });
 
         y = rankY + barH + 2;
       });
