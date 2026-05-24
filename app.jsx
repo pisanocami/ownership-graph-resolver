@@ -74,6 +74,12 @@ The "siblings" field is ALWAYS current_siblings_under_current_parent_AND_same_se
 
 For EACH sibling AND each intra_parent_cousin capture: a free-text "category" describing what it sells (e.g. "premium hybrid mattress", "rugs", "B2B billing SaaS" — whatever the sources say; "" if unknown), and presence signals: in_current_sources (true if it appears in a PRIMARY/current source), in_historical_sources (true if it appears in a SECONDARY/older source), and last_mention_date (most recent date you saw it referenced, or null). Do NOT label a sibling active/legacy/discontinued — only report the raw flags and date; classification happens downstream.
 
+REVENUE MODEL (Issue #4-bis — do NOT double-count non-revenue brands). For EACH sibling and intra_parent_cousin, set "revenue_model":
+  - "direct_revenue" — generates its OWN standalone revenue (Office, Pixel hardware, LinkedIn subscriptions, Tide, most consumer brands). This is the DEFAULT when unsure.
+  - "distribution_channel" — a FREE product / OS / browser that is a vehicle for the parent's revenue, not an independent P&L line (Google Chrome, Android). Its economics are the parent's (e.g. Search ad revenue), so it must NOT receive a standalone revenue number — listing Chrome at "$120B" double-counts Search ads.
+  - "sub_product_line" — a separable slice of a LARGER brand (YouTube Premium vs YouTube advertising; Prime Video within Amazon Prime).
+Classify free distribution vehicles as "distribution_channel" so downstream skips estimating a fictional standalone figure for them.
+
 SOURCE PRIORITIZATION (apply when listing siblings and children):
 PRIMARY (current state, last ~24 months): the aggregator's official brand portfolio / "our brands" page, press releases dated within the last 24 months, and communications about the most recent acquisition. These reflect the CURRENT lineup.
 SECONDARY (historical, may be stale): FTC/SEC filings, press releases older than 2 years, Wikipedia/Wikidata.
@@ -100,12 +106,14 @@ Trigger this when ANY of the following applies, with clear evidence (foundation 
   - STEWARD OWNERSHIP / SPLIT VOTING-vs-ECONOMIC: e.g. Patagonia → Patagonia Purpose Trust holds ~2% / 100% voting (parent, ownership_role:"voting_control"); Holdfast Collective holds ~98% / 0% voting (co_owner, ownership_role:"economic_beneficiary"). Bosch → Robert Bosch Stiftung 94% economic / 0% voting; Robert Bosch Industrietreuhand KG 0% economic / 93% voting.
   - JOINT VENTURE with two declared owners: e.g. Hulu pre-2023 → Disney 67% (parent), Comcast 33% (co_owner). Verizon/Vodafone JVs. Sony Music / SonyBMG era.
   - DUAL-CLASS PUBLIC STRUCTURE where a SEPARATE legal entity holds the controlling class (not just an individual — those go through UBO Step 7.5): e.g. NYT Class B holding company.
+  - CONCENTRATED STRATEGIC BLOCS (Issue #2-bis): 2+ NAMED holders that EACH hold an explicit equity stake >10% and together form the control bloc — NOT passive index funds. E.g. Aston Martin Lagonda → Yew Tree Consortium ~33% (largest → parent), Public Investment Fund (PIF) ~20.5%, Mercedes-Benz ~20%, Geely ~17% (all co_owners). Saudi Aramco → PIF majority + minority free float. Capture each bloc as a co_owner with stake_pct and a one-line evidence string.
+  - INDIVIDUAL DUAL-CLASS SUPER-VOTING (Issue #2-bis): when 1–3 individuals TOGETHER hold majority VOTING power via a super-voting share class. E.g. Alphabet → Larry Page ~27.4% voting + Sergey Brin ~25.3% voting (combined ~52.7% control via Class B); Meta → Mark Zuckerberg; Snap → Spiegel + Murphy. Promote the single largest as "parent" via UBO Step 7.5 and capture the OTHER controlling individual(s) as co_owners with voting_pct and entity_type:"individual". This OVERRIDES the "widely-held public" exclusion — Page+Brin are NOT dispersed holders.
 On the parent itself, populate "ownership_role" — describe the role in FREE TEXT (e.g. "voting_control", "majority_economic", "joint_venture_partner", "controlling_holder"). On a single-owner standard subsidiary, ownership_role can be "sole_owner" or null.
 DO NOT use co_owners for:
-  - Generic minority shareholders or institutional holders (BlackRock, Vanguard) — those are strategic_control.
+  - PASSIVE / DISPERSED index or institutional holders with no control bloc (BlackRock, Vanguard, State Street holding ordinary index positions) — those are strategic_control. This exclusion does NOT cover named, concentrated, strategically-active stakes (a sovereign fund's 20% block, a strategic partner's 20%, a founder's super-voting class) — those ARE co_owners per the triggers above.
   - Pending acquisitions — that goes in pending_acquisition.
-  - Founders/individuals — promote via UBO Step 7.5 instead.
-Cap co_owners at 4 entries. Document each role transition in "notes" (e.g. "Holdfast Collective captured as economic_beneficiary co-owner; Purpose Trust kept as parent because it holds 100% voting power.").
+  - A SINGLE founder/individual who is the sole controlling owner — promote via UBO Step 7.5 instead (but when 2+ individuals SHARE voting control, the largest is the UBO/parent and the rest are co_owners, per the super-voting trigger above).
+Cap co_owners at 5 entries. Document each role transition in "notes" (e.g. "Holdfast Collective captured as economic_beneficiary co-owner; Purpose Trust kept as parent because it holds 100% voting power.").
 For EACH co_owner capture: company, ownership_role (free text), stake_pct (economic %, 0-100), voting_pct (voting %, 0-100, may differ from economic), evidence (one sentence quote/paraphrase), entity_type ("trust"|"nonprofit"|"corporation"|"individual"|"government"|"family_group"), source_urls.
 
 Step 6.7 — Prior joint-venture history (consolidated subsidiaries). When the focal (or its parent) is TODAY a wholly-consolidated subsidiary BUT was a declared joint venture with multiple owners within the LAST ~5 YEARS, capture that prior JV configuration in ONE plain "notes" sentence on the affected node (focal or parent). Trigger when evidence shows: (a) a prior JV/partnership ownership split, AND (b) a buyout/consolidation event within the last ~5 years that ended the JV (e.g. Hulu — Disney 67% / Comcast 33% JV consolidated in 2023 when Disney bought out NBCUniversal's 33% stake for ~$8.61B). The sentence MUST name the prior owners with their stakes and the consolidation year (e.g. "Prior joint venture: Disney 67% / Comcast (NBCUniversal) 33% — consolidated by Disney in 2023 via $8.61B buyout of NBCUniversal's stake."). Do NOT use co_owners for these historical owners — co_owners is for CURRENT formal owners only. Do NOT invent JV history without primary-source evidence (M&A press release, SEC filing, IR communication). Skip this step entirely when the JV ended more than ~5 years ago, or when the entity was always wholly-owned.
@@ -137,6 +145,8 @@ If multiple triggers apply, prefer the most concrete vehicle (a named family off
 DEPTH/FAN-OUT CAP
 Limit ownership recursion to 2–3 generations. Cap siblings to the 8 most material brands, but ALWAYS include every brand with in_current_sources:true before any historical-only brand — only drop historical-only brands when over the cap. Cap children to 6 direct subsidiaries.
 
+SIBLING CAPTURE FLOOR (Issue #11 — capture depth must NOT vary by which brand is focal). When the current legal parent is an identified multi-brand conglomerate (Mars, Mondelēz, Nestlé, P&G, Unilever, AB InBev, PepsiCo, Kraft Heinz, etc.), you MUST capture at least 3 in-segment siblings — at least 5 when the parent is a mega-cap (>$50B revenue). Do NOT stop after resolving only the focal just because its segment is less famous. If your first sibling search returns none, run targeted fallbacks before emitting: "[parent] [segment] brands", "[parent] brands portfolio", "[parent] [category] brands" (e.g. focal Snickers → search "Mars Wrigley brands" / "Mars snacking brands" → siblings M&M's, Skittles, Twix, Extra, Orbit). Apply the SEGMENT-FILTER and the 8-cap above to whatever you find. This guarantees Royal Canin (Mars Petcare) and Snickers (Mars Wrigley) get comparable sibling coverage.
+
 ANTI-HALLUCINATION
 Without parent evidence → standalone:true. Without evidence → don't emit. Internal memory loses to search.
 
@@ -164,7 +174,7 @@ STRICT JSON OUTPUT, NO PROSE, NO MARKDOWN FENCES:
   "category": str,                     // free text from sources; "" if unknown. NOT an enum.
   "parent": {recursive} | null,             // ALWAYS the current legal parent. Never the post-close acquirer of an unclosed deal.
   "ownership_role": str | null,             // Free-text role of "parent" over THIS node: "voting_control" | "majority_economic" | "joint_venture_partner" | "controlling_holder" | "sole_owner" | etc. null when no co_owners exist.
-  "co_owners": [{                           // Additional formal owners beyond the parent slot — only with measurable stake evidence (Step 6.6). Cap 4. Empty/[] when single-owner.
+  "co_owners": [{                           // Additional formal owners beyond the parent slot — only with measurable stake evidence (Step 6.6). Cap 5. Empty/[] when single-owner.
     "company": str,
     "ownership_role": str,                  // Free text: "economic_beneficiary" | "joint_venture_partner" | "non_voting_holder" | etc.
     "stake_pct": <number 0-100> | null,     // Economic ownership %.
@@ -174,8 +184,8 @@ STRICT JSON OUTPUT, NO PROSE, NO MARKDOWN FENCES:
     "source_urls": [url]
   }],
   "focal_segment": str | null,              // The parent's segment/division/operating-label that contains the focal (e.g. "Watches & Jewelry", "Fabric & Home Care", or the publishing label "Activision"). null only when parent is genuinely single-segment with no internal grouping.
-  "siblings": [{"company": str, "domain": str, "node_type": str, "category": str, "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}],   // current_siblings_under_current_parent AND inside focal_segment ONLY.
-  "intra_parent_cousins": [{"company": str, "domain": str, "node_type": str, "category": str, "via_division": str, "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}] | null,   // Brands of the SAME parent but in a DIFFERENT segment/division/operating-label than the focal. via_division names that other segment OR label (e.g. "Blizzard", "King"). null only when parent is genuinely single-segment.
+  "siblings": [{"company": str, "domain": str, "node_type": str, "category": str, "revenue_model": "direct_revenue"|"distribution_channel"|"sub_product_line", "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}],   // current_siblings_under_current_parent AND inside focal_segment ONLY. revenue_model: "distribution_channel" = free vehicle (Chrome, Android), no standalone revenue.
+  "intra_parent_cousins": [{"company": str, "domain": str, "node_type": str, "category": str, "revenue_model": "direct_revenue"|"distribution_channel"|"sub_product_line", "via_division": str, "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}] | null,   // Brands of the SAME parent but in a DIFFERENT segment/division/operating-label than the focal. via_division names that other segment OR label (e.g. "Blizzard", "King"). null only when parent is genuinely single-segment.
   "future_cousins_post_close": [{"company": str, "domain": str, "category": str, "source_urls": [url]}] | null,   // ONLY when pending_acquisition is non-null. Brands of the announced acquirer that would become cousins post-close. Empty/null otherwise.
   "pending_acquisition": {                  // null if no announced-but-unclosed deal
     "acquirer": str,
@@ -186,7 +196,7 @@ STRICT JSON OUTPUT, NO PROSE, NO MARKDOWN FENCES:
   } | null,
   "post_close_consolidated_parent": {"company": str, "source_url": str} | null,   // entity that WILL own focal once pending_acquisition closes
   "children": [{recursive}],
-  "acquisition": {"acquired_by": str, "year": int, "month": int|null, "day": int|null, "price_usd": int|null, "price_display": str|null, "price_source_url": str|null, "price_confidence": "high"|"medium"|"low"|null, "deal_type": "all_cash"|"stock_swap"|"mixed"|null, "source_url": str} | null,   // CLOSED acquisitions only (historical). Pending deals go in pending_acquisition. ALWAYS capture price_usd + price_display + deal_type when the deal value was publicly disclosed (e.g. Microsoft–Activision $68.7B all_cash, LVMH–Tiffany $15.8B). price_usd is the integer USD value (68700000000). Leave price fields null for undisclosed private deals.
+  "acquisition": {"acquired_by": str, "year": int, "month": int|null, "day": int|null, "price_usd": int|null, "price_display": str|null, "price_source_url": str|null, "price_confidence": "high"|"medium"|"low"|null, "deal_type": "all_cash"|"stock_swap"|"mixed"|null, "source_url": str} | null,   // CLOSED acquisitions only (historical). Pending deals go in pending_acquisition. ALWAYS capture price_usd + price_display + deal_type when the deal value was publicly disclosed (e.g. Microsoft–Activision $68.7B all_cash, LVMH–Tiffany $15.8B). price_usd is the integer USD value (68700000000). Stock-swap and mixed deals ALSO have a publicly disclosed announced value — capture it identically (Issue #6-bis): YouTube $1.65B all-stock 2006 → price_usd 1650000000, deal_type "stock_swap"; Pixar $7.4B all-stock 2006; Nest $3.2B 2014; Instagram ~$1B cash+stock → deal_type "mixed". Do NOT leave price_usd null just because the consideration was stock. Leave price fields null only for genuinely undisclosed private deals.
   "strategic_control": [{"entity": str, "role_description": str, "evidence": str, "source_url": str}],
   "strategic_control_note": str|null,  // when strategic_control is []: "no_data_found: <reason>"
   "confidence": "high"|"medium"|"low",
@@ -270,7 +280,13 @@ CRITICAL: PARENT here is the CURRENT LEGAL PARENT (the entity that owns FOCAL to
 
 Rules:
 - Search authoritative sources only: SEC EDGAR, the company's IR site, the actual 10-K/20-F PDF, or a reputable financial press summary of the filing.
-- If the filing breaks revenue by segment, list each segment with USD revenue. Mark "contains_focal":true on the segment that most plausibly contains FOCAL (by brand list, business description, or geography).
+- SEGMENT GRANULARITY (CRITICAL — Issue #12): "segments" means the OFFICIAL PRIMARY REPORTABLE OPERATING SEGMENTS as defined in the filing's segment footnote — the coarsest revenue cut the filing itself labels as reportable segments. These are NOT product lines, brands, or business units inside a segment.
+    - Microsoft → "Productivity and Business Processes", "Intelligent Cloud", "More Personal Computing". (LinkedIn, Office, Dynamics, Windows are product lines INSIDE those segments — never emit them as segments.)
+    - Alphabet → "Google Services", "Google Cloud", "Other Bets". (YouTube ads, Search, Android, Chrome, Play are product lines INSIDE Google Services — never emit them as segments.)
+    - Berkshire Hathaway → "Insurance and Other", "Railroad", "Utilities and Energy", "Manufacturing", "Service and Retailing".
+  List each OFFICIAL segment with its USD revenue. Mark "contains_focal":true on the OFFICIAL segment that contains FOCAL (LinkedIn → Productivity and Business Processes; YouTube → Google Services; GEICO → Insurance and Other). NEVER mark a product line / sub-brand as a segment or as contains_focal.
+- If the filing ALSO discloses the focal's own product-line revenue (e.g. LinkedIn $17.81B, YouTube advertising $31.51B), capture it in "focal_product_line" as {name, revenue_usd} — this is INFORMATIONAL only, it is NOT a segment and NOT the reconciliation anchor. Leave focal_product_line null when undisclosed.
+- SANITY: segments[].revenue_usd should roughly sum to total_revenue_usd. If your segments sum to only a small fraction of total, you have captured product lines, not reportable segments — re-cut to the official segments before answering.
 - If PARENT is private (family-owned, mutual, cooperative, PE-held, etc.) or no filing is locatable, return is_public:false and null fields. Do NOT substitute the pending acquirer's filing — that is a different universe.
 - In "notes", mention if a segment mixes wholesale vs DTC revenue, or includes discontinued/legacy brands — this helps explain reconciliation gaps downstream.
 - HARD CAP: 2 web searches. Be decisive.
@@ -283,8 +299,9 @@ Return STRICT JSON in a \`\`\`json ... \`\`\` block:
   "fiscal_year": int | null,
   "total_revenue_usd": <int USD> | null,
   "segments": [
-    {"name": str, "revenue_usd": <int USD>, "contains_focal": bool}
+    {"name": str, "revenue_usd": <int USD>, "contains_focal": bool}    // OFFICIAL reportable segments ONLY — never product lines/brands inside a segment.
   ],
+  "focal_product_line": {"name": str, "revenue_usd": <int USD>} | null,   // INFORMATIONAL: focal's own line-item revenue if disclosed (e.g. LinkedIn $17.81B). NOT a segment, NOT the anchor.
   "source_url": str | null,
   "notes": str
 }

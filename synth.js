@@ -657,18 +657,23 @@ export function collectEntities(ownership) {
   if (root && root.node_type !== 'individual') {
     push(root, 'root', null);
   }
+  // Issue #4-bis: distribution-channel brands (free OS/browser vehicles such as
+  // Chrome or Android) have no standalone revenue — their economics roll up to
+  // the parent. Skip the revenue-inference call entirely so we neither pay for it
+  // nor invent a misleading figure; they render as "—" downstream.
+  const earnsStandalone = (n) => n && n.revenue_model !== 'distribution_channel';
   // Prioritize current/active brands before slicing so a recently launched brand
   // (e.g. Cloverlane) is never the one dropped by the cap.
-  const orderedSiblings = [...(ownership.siblings || [])].sort(
-    (a, b) => (b.in_current_sources === true) - (a.in_current_sources === true)
-  );
+  const orderedSiblings = [...(ownership.siblings || [])]
+    .filter(earnsStandalone)
+    .sort((a, b) => (b.in_current_sources === true) - (a.in_current_sources === true));
   // Siblings share the focal's parent in the corporate tree.
   orderedSiblings.slice(0, 8).forEach((s) => push(s, 'sibling', focalParent));
-  (ownership.children || []).slice(0, 3).forEach((c) => push(c, 'child', ownership.company));
+  (ownership.children || []).filter(earnsStandalone).slice(0, 3).forEach((c) => push(c, 'child', ownership.company));
   // Bug #2 co-owners: additional formal owners (steward ownership, JVs,
   // dual-class). Estimate revenue for each so the UI and reconciliation can
   // surface their economic contribution (e.g. Comcast in pre-2023 Hulu).
-  (ownership.co_owners || []).slice(0, 4).forEach((co) => push(co, 'co_owner', null, {
+  (ownership.co_owners || []).slice(0, 5).forEach((co) => push(co, 'co_owner', null, {
     ownership_role: co.ownership_role || null,
     stake_pct: co.stake_pct ?? null,
     voting_pct: co.voting_pct ?? null,
@@ -677,9 +682,9 @@ export function collectEntities(ownership) {
   // Cousins: same parent, different segment. Capped to keep cost predictable
   // on mega-aggregators (LVMH, P&G, Unilever…). Current-source brands first so
   // a cap never drops a live brand in favor of a historical one.
-  const orderedCousins = [...(ownership.intra_parent_cousins || [])].sort(
-    (a, b) => (b.in_current_sources === true) - (a.in_current_sources === true)
-  );
+  const orderedCousins = [...(ownership.intra_parent_cousins || [])]
+    .filter(earnsStandalone)
+    .sort((a, b) => (b.in_current_sources === true) - (a.in_current_sources === true));
   orderedCousins.slice(0, 6).forEach((c) => push(c, 'cousin', focalParent, {
     via_division: c.via_division || null,
   }));
@@ -774,7 +779,9 @@ export function attachRevenue(ownership, revenueByCompany, entitiesByCompany = {
     const applyToPeer = (peer) => {
       const pk = (peer.company || '').toLowerCase().trim();
       const pr = revenueByCompany[pk];
-      if (pr) {
+      // Issue #4-bis: a distribution channel never carries a standalone estimate,
+      // even if a stray revenue record exists upstream — refuse to attach it.
+      if (pr && peer.revenue_model !== 'distribution_channel') {
         applyContextUnverifiedDiscipline(pr, lookupEnt(pk));
         const pdiv = computeRevenueDivergence(pr);
         peer.revenue_estimate = {
@@ -804,6 +811,13 @@ export function attachRevenue(ownership, revenueByCompany, entitiesByCompany = {
         if (pr.reason_for_null) peer.reason_for_null = pr.reason_for_null;
         if (pr.context_unverified_all) peer.context_unverified_all = true;
         if (pr.context_unverified_some) peer.context_unverified_some = true;
+      } else if (peer.revenue_model === 'distribution_channel') {
+        // Issue #4-bis: no standalone revenue was estimated by design (the call
+        // was skipped in collectEntities). Surface a contextual reason so the UI
+        // explains the dash instead of leaving it blank or showing $0.
+        const owner = node.parent?.company || node.company || 'the parent brand';
+        peer.reason_for_null = peer.reason_for_null
+          || `Distribution channel — revenue accrues to ${owner}; not estimated standalone.`;
       }
       peer._derived_status = deriveStatus(peer);
       peer._divestiture = deriveDivestiture(peer);
@@ -860,6 +874,24 @@ function flagRevenueConsistency(tree) {
   (tree.children || []).forEach((c) => check(c, tree));
   (tree.siblings || []).forEach((s) => check(s, tree.parent));
   return flagged;
+}
+
+// Issue #5-bis: pull a declared segment revenue figure (e.g. "Mars Petcare $22B")
+// out of free-text signals/notes so reconciliation can flag a within-segment
+// coverage gap even when there is no 10-K segment anchor. Requires the segment
+// name to appear within a short window before the dollar figure (avoids matching
+// an unrelated number elsewhere in the blob). Returns USD or null.
+function parseDeclaredSegmentRevenue(segmentName, blob) {
+  if (!segmentName || !blob) return null;
+  const seg = String(segmentName).trim();
+  if (seg.length < 3) return null;
+  const esc = seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(esc + '[^$]{0,40}\\$\\s?([0-9]+(?:\\.[0-9]+)?)\\s?(b|bn|billion|m|mm|million)\\b', 'i');
+  const m = blob.match(re);
+  if (!m) return null;
+  const val = parseFloat(m[1]);
+  if (!isFinite(val) || val <= 0) return null;
+  return m[2].toLowerCase().startsWith('b') ? val * 1e9 : val * 1e6;
 }
 
 // Deterministic explanation for a reconciliation gap > 20% (Bundle B). Built
@@ -1030,17 +1062,24 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
   const siblings = tree.siblings || [];
   let focal_vs_siblings = 'No siblings';
   if (siblings.length > 0) {
+    // Issue #10: distinguish "not computed" (no estimate, or a distribution
+    // channel that is never estimated) from a real $0. Uncomputed entries render
+    // "—", sort last, and are counted separately so they don't masquerade as
+    // zero-revenue brands (e.g. Bud Light's Budweiser/Michelob were showing $0).
+    const entryOf = (company, rev, focal) => {
+      const c = rev?.central;
+      const computed = typeof c === 'number' && c > 0;
+      return { company, central: computed ? c : 0, computed, focal };
+    };
     const ranked = [
-      { company: tree.company, central: focalRev, focal: true },
-      ...siblings.map((s) => ({
-        company: s.company,
-        central: s.revenue_estimate?.central || 0,
-        focal: false,
-      })),
-    ].sort((a, b) => b.central - a.central);
+      entryOf(tree.company, tree.revenue_estimate, true),
+      ...siblings.map((s) => entryOf(s.company, s.revenue_estimate, false)),
+    ].sort((a, b) => (Number(b.computed) - Number(a.computed)) || (b.central - a.central));
+    const uncomputed = ranked.filter((r) => !r.computed).length;
     const rank = ranked.findIndex((r) => r.focal) + 1;
-    focal_vs_siblings = `Ranked ${rank} of ${ranked.length} in family — ${ranked
-      .map((r) => `${r.focal ? '★ ' : ''}${r.company} ${formatUSD(r.central)}`)
+    const tail = uncomputed > 0 ? ` (${uncomputed} not computed)` : '';
+    focal_vs_siblings = `Ranked ${rank} of ${ranked.length}${tail} in family — ${ranked
+      .map((r) => `${r.focal ? '★ ' : ''}${r.company} ${r.computed ? formatUSD(r.central) : '—'}`)
       .join(' · ')}`;
   }
 
@@ -1106,6 +1145,9 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
     let sumChildren = rawFocalRev;
     let countedSiblings = 0;
     siblings.forEach((s, i) => {
+      // Issue #4-bis: distribution channels (Chrome, Android) carry no standalone
+      // revenue — never add them to the numerator (they'd double-count the parent).
+      if (s.revenue_model === 'distribution_channel') return;
       const name = (s.company || '').toLowerCase().trim();
       if (anchorTotal > 0 && focalSegName && name && focalSegName.includes(name)) {
         consolidated_siblings.push(s.company);
@@ -1123,7 +1165,17 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
     // PARENT total guarantees a permanent under-count for multi-division
     // aggregators (LVMH, P&G, Inditex). Fall back to parent total, then to
     // parent's estimated central.
-    const useSegmentBenchmark = focalSegmentRev > 0;
+    //
+    // Issue #12 guardrail: a reported "segment" whose revenue is far SMALLER than
+    // the focal + siblings it supposedly contains is really a sub-product line
+    // mis-labelled as a segment (e.g. "LinkedIn $17.81B" reported as Microsoft's
+    // focal segment while the siblings sit at the Productivity & Business
+    // Processes level). Trusting it yields nonsense ratios (444%, 1642%). Distrust
+    // it when the captured sum overshoots it >2× AND the parent's consolidated
+    // total is larger — fall back to the parent total.
+    const segmentLooksLikeSubLine =
+      focalSegmentRev > 0 && sumChildCentralAdj > 2 * focalSegmentRev && anchorTotal > focalSegmentRev;
+    const useSegmentBenchmark = focalSegmentRev > 0 && !segmentLooksLikeSubLine;
     const benchmark = useSegmentBenchmark
       ? focalSegmentRev
       : anchorTotal > 0 ? anchorTotal : parentRev;
@@ -1135,6 +1187,9 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
       : anchorTotal > 0
         ? `${tree.parent.company} ${parentAnchor.fiscal_year || 'latest'} 10-K reported revenue`
         : `${tree.parent.company} estimated central revenue`;
+    if (segmentLooksLikeSubLine) {
+      notes.push(`⚠ Reported segment "${focalSeg.name}" (${formatUSD(focalSegmentRev)}) is smaller than the focal + siblings it supposedly contains (${formatUSD(sumChildCentralAdj)}) — likely a sub-product line, not a reportable segment. Benchmarking against ${tree.parent.company} consolidated total (${formatUSD(benchmark)}) instead.`);
+    }
 
     // Circular detection: when the benchmark is the parent's ESTIMATED central
     // (no independent filing and no segment anchor) and a counted sibling was
@@ -1198,7 +1253,7 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
       } else if (anchorTotal > 0) {
         notes.push(`Reconciliation: focal + siblings (${sumStr}) reconciles within ${Math.abs(pctDelta)}% of ${benchmarkLabel} (${benchStr}).`);
       }
-      if (focalSegmentRev > 0 && rawFocalRev > 0) {
+      if (useSegmentBenchmark && focalSegmentRev > 0 && rawFocalRev > 0) {
         const segRatio = rawFocalRev / focalSegmentRev;
         if (segRatio > 1.3 || segRatio < 0.7) {
           notes.push(`⚠ Focal estimate (${formatUSD(rawFocalRev)}) diverges from its parent 10-K segment revenue (${formatUSD(focalSegmentRev)}, ${Math.round(segRatio * 100)}%).`);
@@ -1206,6 +1261,40 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
       }
     }
   }
+  // Issue #11: capture depth must not silently vary by which brand is focal. When
+  // the parent is a large company but very few in-segment siblings were captured,
+  // the run is likely incomplete (e.g. T26 Snickers captured 0 Mars Wrigley
+  // siblings vs T21 Royal Canin's 7). Surface it so coverage reads as a floor, not
+  // proof. Uses anchor total when public, else the parent's estimated central, so
+  // it also fires for private conglomerates like Mars.
+  if (tree.parent) {
+    const anchorTot = parentAnchor && parentAnchor.is_public ? (parentAnchor.total_revenue_usd || 0) : 0;
+    const parentSize = Math.max(anchorTot, parentRev || 0);
+    const sibCount = (tree.siblings || []).length;
+    const floor = parentSize > 50e9 ? 5 : 3;
+    if (parentSize > 5e9 && sibCount < floor) {
+      notes.push(`⚠ Only ${sibCount} sibling${sibCount === 1 ? '' : 's'} captured under ${tree.parent.company} (${formatUSD(parentSize)} parent) — expected ≥${floor} for a conglomerate this size; the sibling set may be incomplete and reconciliation coverage is a floor, not a ceiling.`);
+    }
+  }
+
+  // Issue #5-bis: when no 10-K segment anchor exists, use a segment revenue figure
+  // declared in captured signals/notes (e.g. "Mars Petcare $22B") as a
+  // supplementary benchmark to flag a within-segment coverage gap.
+  if (tree.focal_segment && reconciliation && reconciliation.parent_benchmark_source !== 'segment') {
+    const blob = [tree, ...siblings]
+      .map((n) => `${n.reasoning_summary || ''} ${n.notes || ''} ${(n.signals_found || []).map((sig) => `${sig.label || ''} ${sig.value || ''}`).join(' ')}`)
+      .join(' ');
+    const declaredSeg = parseDeclaredSegmentRevenue(tree.focal_segment, blob);
+    if (declaredSeg && declaredSeg > 0) {
+      reconciliation.segment_anchor_from_signals = declaredSeg;
+      const sumCaptured = reconciliation.sum_children_central || 0;
+      const gap = declaredSeg - sumCaptured;
+      if (sumCaptured > 0 && gap > 0.2 * declaredSeg) {
+        notes.push(`Captured focal + siblings sum ${formatUSD(sumCaptured)} vs ${tree.focal_segment} segment declared ${formatUSD(declaredSeg)} in signals — ~${formatUSD(gap)} gap suggests uncaptured ${tree.focal_segment} brands.`);
+      }
+    }
+  }
+
   if (parentAnchor && parentAnchor.is_public === false) {
     notes.push(`${tree.parent?.company || 'Parent'} is not publicly traded — no 10-K anchor available; reconciliation uses estimates only.`);
   }
