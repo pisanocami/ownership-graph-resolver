@@ -2366,6 +2366,8 @@ async function generatePDF(result) {
   const positioning = result.positioning_analysis || {};
   const recon = positioning.reconciliation;
   const focal = tree.company;
+  const pa = tree.pending_acquisition;
+  const acq = tree.acquisition;
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -2618,7 +2620,6 @@ async function generatePDF(result) {
     y += 1;
   } else {
     // Fallback: show closed acquisition on focal only
-    const acq = tree.acquisition;
     if (acq && acq.acquired_by) {
       section('Closed Acquisition');
       const yearStr = acq.year ? acq.year.toString() : 'date unknown';
@@ -2639,7 +2640,6 @@ async function generatePDF(result) {
   }
 
   // ─── Pending acquisition callout ───
-  const pa = tree.pending_acquisition;
   if (pa && pa.acquirer) {
     section('Pending Acquisition');
     text(`Pending acquisition by ${pa.acquirer}`, { size: 11, style: 'bold', color: C.warning, gap: 1.5 });
