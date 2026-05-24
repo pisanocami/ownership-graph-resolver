@@ -1,0 +1,157 @@
+# Ownership Resolver — Issues pendientes
+
+Estado al cierre de testing: T04*, T13, T15, T16, T17, T18 re-run, T19, T20, T04*' (Awara).
+
+**5 issues del sprint v2 resueltos** (#3, #4, #5, #6, #7). **4 pendientes.**
+
+---
+
+## Issue #1 — Chain normalization
+
+**Detectado en:** T04* cross-provider (chain Ashley triple-layer), T17 (Activision Publishing vs Activision Blizzard), T20 Hulu (Disney Streaming vs Disney Entertainment).
+
+**Síntoma:** Entities relacionadas del mismo holding aparecen como layers separadas con revenues mis-asignados. Ejemplos:
+
+- Ashley Furniture Industries + Ashley Global Retail + Ashley Home como 3 layers con $11B asignado al sub-affiliate equivocado
+- Disney Streaming $88.9B (= total Disney) vs Disney Entertainment $40.63B (= segment correcto) como layers diferentes
+- Activision Publishing $10B > Activision Blizzard $5.72B (lógicamente imposible)
+
+**Fix propuesto:**
+
+Decisión binaria basada en revenue attribution:
+
+1. Si dos layers consecutivas comparten total revenue figure en fuentes públicas → colapsar a una sola con canonical_name
+2. Si comparten ownership pero tienen revenue lines diferentes (manufacturing vs retail vs DTC vs streaming sub-unit) → mantener separadas PERO con `role_description` específico por layer Y revenue solo del scope correspondiente
+3. **Forbidden:** revenue del conglomerate asignado a sub-affiliate operacional. Si pasa, el validation step (que ya existe para Issue #5) debería catchar.
+
+**Severidad:** Alta — bug recurrente cross-test.
+
+**Test de validación:** T04* re-run debe mostrar Ashley Furniture Industries con revenue del conglomerate, no Ashley Home.
+
+---
+
+## Issue #2 — Multi-owner schema (sub-caso histórico)
+
+**Detectado en:** T20 Hulu (JV con Comcast 2019-2023 no capturado), T16 Patagonia (multi-owner concurrente sí captura con slot `co_owners`).
+
+**Síntoma:** El slot `co_owners` funciona para configuraciones multi-owner **actuales** (steward ownership Patagonia, class A/B stock). Pero el agente NO busca multi-owner **histórico** (JV consolidadas).
+
+Hulu actual muestra Disney 100% → pierde la JV con Comcast 33% que existió 2019-2023. Acquisition year=2023 toma "final consolidation" en lugar de capturar la transición.
+
+**Fix propuesto (Opción A — mínima):**
+
+Aceptar la limitación temporal. Documentar en `notes` del nodo:
+
+> "Was joint venture with [Comcast 33% via NBCUniversal] until [2023 consolidation]. Pre-acquisition configuration: [config]."
+
+Y en `acquisition` capturar el price específico del último deal, no el agregado histórico.
+
+**Fix propuesto (Opción B — temporal):**
+
+Slot nuevo `ownership_history` con array de configuraciones previas:
+
+```json
+"ownership_history": [
+  { "period": "2007-2019", "owners": ["News Corp", "NBC", "Disney"] },
+  { "period": "2019-2023", "owners": ["Disney 67%", "Comcast 33%"] },
+  { "period": "2023-present", "owners": ["Disney 100%"] }
+]
+```
+
+**Recomendación:** Opción A. Para Growth Signal use case (competitive intelligence presente) la history detallada es overkill. Capturar en notes es suficiente.
+
+**Severidad:** Media — solo afecta casos JV histórico ya consolidados.
+
+**Test de validación:** T20 Hulu re-run debe mencionar JV con Comcast en notes; T16 Patagonia debe mostrar Holdfast como `co_owner` peer del Trust (sub-caso 1 ya valida con T13 implícitamente, slot existe).
+
+---
+
+## Issue #8 — Revenue inestable cross-runs del mismo brand
+
+**Detectado en:** T04*' Awara como focal (Nectar reportado como sibling $450M) vs T04* Nectar como focal ($275M). >60% gap silencioso entre runs.
+
+**Síntoma:** Mismo brand tiene revenue diferente según rol en la query:
+- Como focal: bottom-up con signals primarios → estimate más conservador y triangulado
+- Como sibling: top-down como % del parent → estimate dependiente del ratio asumido
+
+Ambas metodologías son legítimas pero deberían reconciliar. No hay validation que las cruce.
+
+**Fix propuesto:**
+
+Para cada sibling, ejecutar **ambas** estrategias y exponer divergencia:
+
+```json
+"revenue_estimate": {
+  "central": 350000000,
+  "method": "blended",
+  "bottom_up": { "estimate": 275000000, "signals_count": 5, "confidence": "high" },
+  "top_down": { "estimate": 450000000, "share_of_parent": 0.45, "confidence": "medium" },
+  "divergence_flag": true,
+  "divergence_pct": 63
+}
+```
+
+Si `divergence_flag = true`, exponer ambos números en UI con warning equivalente al "circular — unverified" actual.
+
+**Severidad:** Media — afecta confiabilidad de cualquier sibling con scope mismatch entre runs.
+
+**Test de validación:** T04* (Nectar focal) y T04*' (Awara focal con Nectar sibling) deben dar el mismo range para Nectar, o exponer divergencia si difieren >30%.
+
+---
+
+## Issue #9 — Porcentajes del segment panel mal calculados
+
+**Detectado en:** T13 Tiffany (LVMH panel), T18 GEICO (Berkshire panel), T20 Hulu (Disney panel). Patrón consistente cross-test.
+
+**Síntoma:** Porcentajes del segment panel usan **focal segment** como denominator, no **parent total**.
+
+Ejemplos:
+- T13: Fashion & Leather 386% ($45.61B / $11.81B W&J focal segment)
+- T18: Manufacturing 79.4% ($75.41B / $95.02B Insurance focal segment)
+- T20: Experiences 80.1% ($32.55B / $40.63B Entertainment focal segment)
+
+Suman >100% porque el denominator es el segment focal, no el total parent.
+
+**Fix propuesto:**
+
+Cambiar formula del panel. Denominator = `parent_total` (Berkshire $364B, LVMH $93B, Disney $91B). El segment focal sigue marcado con ★ y flag `contains_focal: true`, pero el % refleja "share of parent total" que es lo informativo.
+
+Opcionalmente mostrar dos columnas: % of parent total + % vs focal segment (para comparación relativa).
+
+**Severidad:** Baja (bug visual). Números absolutos correctos, solo el % es engañoso.
+
+**Test de validación:** T13 Tiffany re-run debe mostrar Fashion & Leather ~49% ($45.61B / $93.46B LVMH total), no 386%.
+
+---
+
+## Resumen
+
+**4 issues pendientes:**
+
+| # | Issue | Severidad |
+|---|---|---|
+| 1 | Chain normalization | Alta |
+| 2 | Multi-owner schema histórico | Media |
+| 8 | Revenue inestable cross-runs | Media |
+| 9 | Porcentajes segment panel | Baja |
+
+**Orden recomendado de implementación:**
+
+1. **#1 chain normalization** — recurrente, afecta legibilidad y confiabilidad cross-test
+2. **#8 revenue cross-runs** — afecta confiabilidad de siblings
+3. **#9 porcentajes** — quick fix visual
+4. **#2 multi-owner histórico** — opt-in si el use case lo requiere; baseline aceptable es solo capturar configuración actual
+
+---
+
+## Achievements ya implementados (no romper)
+
+Funcionalidades emergentes que funcionan bien y vale la pena preservar:
+
+1. **Reconciliation circular detection** ("circular — unverified" warning cuando siblings top-down se suman al parent)
+2. **Segment-aware reconciliation** (benchmark contra segment del focal, no total parent)
+3. **Divergence informational warning** (informa sin auto-correct multiplier)
+4. **UBO stake structured** (equity_pct concreto + role_description narrative)
+5. **Revenue consistency check** ("subsidiary cannot out-earn its owner" flag)
+6. **Acquisition price structured** (price + deal_type + source URL)
+7. **Sibling vs cousin filter por segment** (sección collapsible separada)

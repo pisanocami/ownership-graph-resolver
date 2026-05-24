@@ -1,0 +1,113 @@
+{
+  "ownership": {
+    "company": "Nectar Sleep",
+    "domain": "nectarsleep.com",
+    "node_type": "operating_brand",
+    "layer": "brand",
+    "in_current_sources": true,
+    "in_historical_sources": true,
+    "last_mention_date": "2025-01",
+    "category": "memory foam mattress",
+    "strategic_control": [
+      { "entity": "Ran Reske", "role_description": "co-founder", "evidence": "company about page", "source_url": "https://nectarsleep.com/about" },
+      { "entity": "Craig Schmeizer", "role_description": "co-founder", "evidence": "founding press coverage", "source_url": "https://example.com/nectar-founders" }
+    ],
+    "strategic_control_note": null,
+    "parent": {
+      "company": "Resident Home",
+      "domain": "residenthome.com",
+      "node_type": "legal_entity",
+      "layer": "aggregator",
+      "in_current_sources": true,
+      "in_historical_sources": true,
+      "last_mention_date": "2024-06",
+      "strategic_control": [
+        { "entity": "Ion Crossover Partners", "role_description": "lead investor in 2021 $130M round", "evidence": "funding press release", "source_url": "https://example.com/resident-funding" },
+        { "entity": "Nexus Capital Management", "role_description": "investor", "evidence": "funding press release", "source_url": "https://example.com/resident-funding" },
+        { "entity": "Baron Capital", "role_description": "investor", "evidence": "funding press release", "source_url": "https://example.com/resident-funding" }
+      ],
+      "strategic_control_note": null,
+      "parent": {
+        "company": "Ashley Global Retail",
+        "domain": "ashleyglobalretail.com",
+        "node_type": "legal_entity",
+        "layer": "parent",
+        "in_current_sources": true,
+        "in_historical_sources": false,
+        "strategic_control": [],
+        "strategic_control_note": "no_data_found: private holding entity, no governance disclosures located",
+        "parent": {
+          "company": "Ashley Furniture Industries",
+          "domain": "ashleyfurniture.com",
+          "node_type": "legal_entity",
+          "layer": "root",
+          "terminal_layer": "root",
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "strategic_control": [
+            { "entity": "Todd Wanek", "role_description": "CEO of Ashley Furniture Industries", "evidence": "official leadership page", "source_url": "https://example.com/ashley-leadership" }
+          ],
+          "strategic_control_note": null,
+          "parent": null
+        }
+      }
+    },
+    "siblings": [
+      { "company": "DreamCloud", "domain": "dreamcloudsleep.com", "node_type": "operating_brand", "category": "luxury hybrid mattress", "in_current_sources": true, "in_historical_sources": true, "last_mention_date": "2025-01", "source_urls": ["https://residenthome.com/brands"] },
+      { "company": "Awara", "domain": "awarasleep.com", "node_type": "operating_brand", "category": "natural latex mattress", "in_current_sources": true, "in_historical_sources": true, "last_mention_date": "2024-12", "source_urls": ["https://residenthome.com/brands"] },
+      { "company": "Siena", "domain": "sienasleep.com", "node_type": "operating_brand", "category": "value memory foam mattress", "in_current_sources": true, "in_historical_sources": false, "last_mention_date": "2024-11", "source_urls": ["https://residenthome.com/brands"] },
+      { "company": "Cloverlane", "domain": "cloverlane.com", "node_type": "operating_brand", "category": "premium bedding", "in_current_sources": true, "in_historical_sources": false, "last_mention_date": "2024-02", "source_urls": ["https://residenthome.com/press/cloverlane-launch"] },
+      { "company": "Bundle", "domain": "bundlehome.com", "node_type": "operating_brand", "category": "furniture", "in_current_sources": false, "in_historical_sources": true, "last_mention_date": "2021-03", "source_urls": ["https://en.wikipedia.org/wiki/Resident_(company)"] },
+      { "company": "Wovenly", "domain": "wovenly.com", "node_type": "operating_brand", "category": "rugs", "in_current_sources": false, "in_historical_sources": true, "last_mention_date": "2020-09", "source_urls": ["https://en.wikipedia.org/wiki/Resident_(company)"] },
+      { "company": "Level Sleep", "domain": "levelsleep.com", "node_type": "operating_brand", "category": "mattress", "in_current_sources": false, "in_historical_sources": true, "last_mention_date": "2021-07", "source_urls": ["https://en.wikipedia.org/wiki/Resident_(company)"] }
+    ],
+    "confidence": "high",
+    "sources": ["https://residenthome.com/brands"]
+  },
+  "revenueByCompany": {
+    "nectar sleep": {
+      "revenue_estimate": { "low": 140000000, "high": 210000000, "central": 170000000 },
+      "confidence": "medium",
+      "signals_attempted": 6,
+      "signals_found_count": 1,
+      "signals_found": [{ "type": "web_traffic", "label": "site visits", "value": "3M/mo", "source": "SimilarWeb", "weight": "high" }],
+      "reasoning_summary": "Nectar is Resident's flagship DTC brand; note Resident also distributes through 2,500+ retail wholesale partners, so per-brand DTC estimates understate the family's reported revenue."
+    },
+    "dreamcloud": {
+      "revenue_estimate": { "low": 90000000, "high": 150000000, "central": 120000000 },
+      "confidence": "medium",
+      "signals_attempted": 5,
+      "signals_found_count": 0,
+      "signals_found": [],
+      "reasoning_summary": "Second-largest Resident mattress brand by traffic."
+    },
+    "awara": {
+      "revenue_estimate": { "low": 40000000, "high": 80000000, "central": 60000000 },
+      "confidence": "low",
+      "signals_found": [],
+      "reasoning_summary": "Smaller latex line."
+    },
+    "siena": {
+      "revenue_estimate": { "low": 30000000, "high": 70000000, "central": 50000000 },
+      "confidence": "low",
+      "signals_found": [],
+      "reasoning_summary": "Value brand."
+    },
+    "cloverlane": {
+      "revenue_estimate": { "low": 0, "high": 0, "central": 0 },
+      "confidence": "low",
+      "signals_attempted": 5,
+      "signals_found_count": 0,
+      "signals_found": [],
+      "reasoning_summary": "",
+      "reason_for_null": "brand launched Feb 2024; insufficient traffic/funding data to estimate yet"
+    },
+    "resident home": {
+      "revenue_estimate": { "low": 700000000, "high": 1100000000, "central": 900000000 },
+      "confidence": "medium",
+      "signals_found": [],
+      "reasoning_summary": "Aggregator-level estimate spanning DTC plus wholesale and retail-partner channels."
+    }
+  },
+  "parentAnchor": null
+}

@@ -1,0 +1,833 @@
+# MSC Cruceros — Intelligence Brief V2.1
+## The Perfect Brief · Reverse-engineering reference
+
+**Date:** May 24, 2026 — 14:32 UTC-3
+**Source data:** Real run logs from T-MSC Cruceros (51 events)
+**Purpose:** Show what each section should produce when working correctly, to reverse-engineer the bugs.
+
+---
+
+# PAGE 1 — VERDICT HERO + TOP SIGNALS
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                                                                    │
+│  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ │
+│  ▓     MSC Cruceros · Intelligence Brief                       ▓ │
+│  ▓     May 24, 2026 · CONFIDENTIAL                             ▓ │
+│  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ │
+│                                                                    │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │  VERDICT                                                     │ │
+│  │                                                              │ │
+│  │  ░░░ NOT ACTIONABLE AS STANDALONE ░░░                        │ │
+│  │  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                       │ │
+│  │                                                              │ │
+│  │  Confidence: LOW                                             │ │
+│  │  Trajectory: Stable post-pandemic recovery                   │ │
+│  │  Revenue range: $4.5B – $7.0B  (central: $5.5B)              │ │
+│  │  Family-owned private · No public ticker · No M&A activity   │ │
+│  └──────────────────────────────────────────────────────────────┘ │
+│                                                                    │
+│  THESIS                                                            │
+│  ─────────────────────────────────────────────────────────────     │
+│  MSC Cruceros is the Spanish-language operating brand of MSC       │
+│  Cruises S.A., the cruise division of MSC Group (~$50–86B in       │
+│  shipping + logistics). The Aponte family holds 100% — no public   │
+│  capital path exists. Useful as a cruise-market intelligence       │
+│  signal and as a private-comparable for Carnival/Royal Caribbean   │
+│  benchmarking, but NOT a transactable target.                      │
+│                                                                    │
+│  WHAT WOULD MAKE THIS ACTIONABLE                                   │
+│  • Aponte family announces partial sale or IPO of cruise division  │
+│  • MSC Group restructuring that separates Cruises from Shipping    │
+│  • Recent acquisitions by MSC Group of competitive cruise assets   │
+│                                                                    │
+│  TOP-3 SIGNALS (full list page 2)                                  │
+│  ─────────────────────────────────────────────────────────────     │
+│  ▣ Market share 7.3% of $72.5B global cruise [HIGH · neutral]      │
+│    Read this as: top-4 player but #4 behind Carnival/RCL/NCL —     │
+│    significant but consolidator-not-leader in a 4-player oligopoly │
+│                                                                    │
+│  ▣ 4.1M passengers in 2023 across 22 ships [HIGH · positive]       │
+│    Read this as: post-pandemic recovery exceeded 2019 baseline     │
+│    (3.5M passengers); fleet utilization recovering toward capacity │
+│                                                                    │
+│  ▣ MSC Group 2022 €86.4B → 2023 estimate $50–60B [MED · negative]  │
+│    Read this as: shipping rates collapsed from peak; cruise        │
+│    division now disproportionately important to group resilience   │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+**Key differences vs current Brief V2:**
+
+1. **Verdict label = "NOT ACTIONABLE AS STANDALONE"** (not "Actionable") because family-owned 100%, no IPO/M&A path. Existing `deriveCapitalDecision()` misses this.
+
+2. **Confidence = LOW** (not MEDIUM) because:
+   - 0 siblings captured (warning fired)
+   - MSC Group $50B central vs captured signal $86B (40% gap unexplained)
+   - Revenue range 2.1× spread ($4.5B–$7B)
+   - No 10-K anchor
+
+3. **Thesis cites specific structure** instead of "stable performance" filler. Forbidden phrase filter catches:
+   - "stable performance" → drop
+   - "operational metrics" → drop
+   - "cautious yet engaged investment stance" → drop
+   - "actionable capital decision" → drop
+
+4. **"What Would Make This Actionable"** section — replaces the missing context that would justify other verdicts. Functions as `verdict_changers` displayed clearly.
+
+5. **Top-3 signals lead the brief** — each with specific "Read this as:" interpretation that points to strategic insight, not re-statement of evidence.
+
+---
+
+# PAGE 2 — ALL BEHAVIORAL SIGNALS + COUNTER-SIGNALS
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  BEHAVIORAL SIGNALS · 5 captured · 4 high-confidence gaps          │
+│                                                                    │
+│  ┌────────────────────────────────────────────────────────────┐   │
+│  │ 1. Market share signal                                     │   │
+│  │ ─────────────────────────────────────────────────────────  │   │
+│  │ Weight: HIGH    Implication: = (neutral)                   │   │
+│  │ Evidence: MSC holds est. 7.3% of $72.5B global cruise      │   │
+│  │ market = ~$5.3B revenue (AltexSoft / Cruise Market Watch)  │   │
+│  │                                                            │   │
+│  │ Read this as:                                              │   │
+│  │ Solid #4 position behind Carnival (~40%), Royal Caribbean  │   │
+│  │ (~25%), Norwegian (~10%). Far from leadership but stable   │   │
+│  │ market share creates predictable revenue corridor.         │   │
+│  └────────────────────────────────────────────────────────────┘   │
+│                                                                    │
+│  ┌────────────────────────────────────────────────────────────┐   │
+│  │ 2. Passenger volume signal                                 │   │
+│  │ ─────────────────────────────────────────────────────────  │   │
+│  │ Weight: HIGH    Implication: + (positive)                  │   │
+│  │ Evidence: 4.1M passengers in 2023, fleet of 22 ships       │   │
+│  │ (MSC Cruises 2023 Sustainability Report)                   │   │
+│  │                                                            │   │
+│  │ Read this as:                                              │   │
+│  │ 2023 passenger count exceeded 2019 pre-pandemic baseline   │   │
+│  │ (~3.5M). Fleet capacity at ~190K passenger-days/year per   │   │
+│  │ ship suggests utilization recovering well. Cruise industry │   │
+│  │ post-pandemic recovery complete for this operator.         │   │
+│  └────────────────────────────────────────────────────────────┘   │
+│                                                                    │
+│  ┌────────────────────────────────────────────────────────────┐   │
+│  │ 3. Pre-pandemic baseline                                   │   │
+│  │ ─────────────────────────────────────────────────────────  │   │
+│  │ Weight: LOW (age)    Implication: = (historical reference) │   │
+│  │ Evidence: €3.23B revenue in 2019 (~$3.5B USD)              │   │
+│  │ (MSC Cruises Annual Report via ResearchGate)               │   │
+│  │                                                            │   │
+│  │ Read this as:                                              │   │
+│  │ Provides growth anchor. 2019 → 2023 implied revenue growth │   │
+│  │ ~50% (3.5B → 5.5B) suggests fleet expansion + price        │   │
+│  │ recovery driving topline beyond passenger count growth.    │   │
+│  └────────────────────────────────────────────────────────────┘   │
+│                                                                    │
+│  ┌────────────────────────────────────────────────────────────┐   │
+│  │ 4. MSC Group conglomerate context                          │   │
+│  │ ─────────────────────────────────────────────────────────  │   │
+│  │ Weight: MEDIUM    Implication: − (negative for cruise wt)  │   │
+│  │ Evidence: MSC Group €86.4B in 2022, est. $50–60B in 2023   │   │
+│  │ (shipping rates collapse vs 2022 peak)                     │   │
+│  │                                                            │   │
+│  │ Read this as:                                              │   │
+│  │ Shipping revenue (the dominant segment) is highly cyclical.│   │
+│  │ Cruises ~$7.5B is now a larger share of group revenue than │   │
+│  │ in 2022 — strategically more important, but won't get      │   │
+│  │ separated unless shipping deteriorates further. Holding    │   │
+│  │ structure protects cruises from being spun off.            │   │
+│  └────────────────────────────────────────────────────────────┘   │
+│                                                                    │
+│  ┌────────────────────────────────────────────────────────────┐   │
+│  │ 5. Brand localization architecture                         │   │
+│  │ ─────────────────────────────────────────────────────────  │   │
+│  │ Weight: MEDIUM    Implication: = (structural)              │   │
+│  │ Evidence: "MSC Cruceros" is the Spanish-market localized   │   │
+│  │ brand of MSC Cruises; Explora Journeys is the luxury       │   │
+│  │ sub-brand (launched 2023, not captured by agent)           │   │
+│  │                                                            │   │
+│  │ Read this as:                                              │   │
+│  │ The agent's "0 siblings captured" warning is structurally  │   │
+│  │ wrong: MSC Cruises has at least 1 sister product (Explora  │   │
+│  │ Journeys, premium tier). Geographic brand variants ≠       │   │
+│  │ siblings; product-tier variants ARE siblings. Capture      │   │
+│  │ heuristic misses this distinction.                         │   │
+│  └────────────────────────────────────────────────────────────┘   │
+│                                                                    │
+│                                                                    │
+│  COUNTER-SIGNALS · 4 gaps with fill actions                        │
+│  ────────────────────────────────────────────────────────────────  │
+│                                                                    │
+│  Gap 1: FUNDING ACTIVITY                                           │
+│  → Search: "MSC Cruises debt issuance 2024 2025"                  │
+│  → Search: "MSC Group bond market funding 2024"                   │
+│  → Why this matters: Private companies don't disclose; bond        │
+│    issuances are the rare public window into capital structure.    │
+│                                                                    │
+│  Gap 2: CAPACITY EXPANSION                                         │
+│  → Search: "MSC Cruises new ship orders Fincantieri Chantiers"    │
+│  → Search: "MSC Cruises World Class delivery schedule"            │
+│  → Why this matters: Cruise capex is the highest-conviction        │
+│    revenue commitment signal. 2-4 year forward order book          │
+│    predicts growth trajectory better than any current metric.      │
+│                                                                    │
+│  Gap 3: HIRING ACCELERATION                                        │
+│  → Search: "MSC Cruises LinkedIn employee count trend"            │
+│  → Search: "MSC Cruises hiring crew shoreside 2024 2025"          │
+│  → Why this matters: Hiring trends precede revenue by 6-12 months. │
+│    Strong crew/shoreside hiring = capacity coming online.          │
+│                                                                    │
+│  Gap 4: APONTE FAMILY GOVERNANCE                                   │
+│  → Search: "Diego Aponte succession MSC Group"                    │
+│  → Search: "Aponte family succession planning MSC"                │
+│  → Why this matters: Family transition events trigger restructures.│
+│    Gianluigi 84 yrs old; succession to Diego could change          │
+│    portfolio strategy materially.                                  │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+**Key fixes:**
+
+1. **Signal #5 — the agent's own warning interpreted critically.** Brief explains WHY "0 siblings" is structurally wrong (geographic variant ≠ sibling, product-tier variant IS sibling, agent missed Explora Journeys). Self-aware about capture limits.
+
+2. **Each counter-signal has "why this matters"** in addition to the search query. Spec section 4.3 implies this but doesn't make it explicit. Reader needs to know why filling the gap changes the verdict.
+
+3. **Signal directional implications differentiated** (+, =, −) instead of all `=` neutral like current Brief V2.
+
+4. **Interpretations connect signals to verdict.** Signal #2 (passengers) doesn't just say "demonstrates substantial operational scale" — it explains how it relates to recovery trajectory and verdict.
+
+---
+
+# PAGE 3 — CORPORATE STRUCTURE + APONTE FAMILY DETAIL
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  CORPORATE STRUCTURE                                               │
+│                                                                    │
+│  Compressed chain:                                                 │
+│                                                                    │
+│    Aponte Family (100% family-held, 4 identified members)          │
+│        │                                                           │
+│        ▼                                                           │
+│    MSC Group (private, ~$50–86B revenue, shipping + logistics)     │
+│        │                                                           │
+│        ▼                                                           │
+│    MSC Cruises S.A. (private aggregator, ~$7.5B revenue)           │
+│        ├── MSC Cruceros (Spanish-language brand variant, FOCAL)    │
+│        ├── MSC Cruises (English-language brand variant)            │
+│        └── Explora Journeys (luxury sub-brand, launched 2023)      │
+│                                                                    │
+│  Ownership clarity: family_concentrated_100pct                     │
+│  Public capital path: NONE                                         │
+│  M&A history: Acquisitions of cruise lines TBD (gap to fill)       │
+│                                                                    │
+│                                                                    │
+│  APONTE FAMILY — UBO DETAIL                                        │
+│  ────────────────────────────────────────────────────────────────  │
+│                                                                    │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │ Member                  Role                  Est. stake    │ │
+│  │ ──────────────────────  ────────────────────  ────────────  │ │
+│  │ Gianluigi Aponte        Founder, Chairman     ~50% (est)    │ │
+│  │ Rafaela Aponte-Diamant  Co-owner, founder     ~50% (est)    │ │
+│  │ Diego Aponte            President MSC Group   non-equity    │ │
+│  │ Alexa Aponte-Vago       CFO MSC Group         non-equity    │ │
+│  └──────────────────────────────────────────────────────────────┘ │
+│                                                                    │
+│  Why this matters:                                                 │
+│  Two-generation family structure with founders 84+ yrs and second  │
+│  generation actively in C-suite. Succession event likely within    │
+│  5-10 years. This is the most material catalyst for any future    │
+│  transactability — not currently visible but worth monitoring.     │
+│                                                                    │
+│                                                                    │
+│  HISTORY NOTE                                                      │
+│  ────────────────────────────────────────────────────────────────  │
+│                                                                    │
+│  MSC Group founded 1970 by Gianluigi Aponte as Mediterranean       │
+│  Shipping Company (cargo, Naples). Cruise division spun internally │
+│  in 1988 when Aponte acquired Lauro Lines (Italian cruise). 2003   │
+│  rebranded to MSC Cruises. 2010-2025 fleet expansion to 22 ships;  │
+│  ordered World Class ships (largest in fleet, 6,800+ pax). 2023    │
+│  launched Explora Journeys luxury sub-brand.                       │
+│                                                                    │
+│  Family expanded to second generation in early 2000s; Diego and    │
+│  Alexa active in management since ~2014.                           │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+**Key fixes:**
+
+1. **Sister product Explora Journeys captured** — current Brief V2 missed this entirely. Sibling capture should include geographic AND product-tier variants of same parent.
+
+2. **Aponte Family DETAIL table** with 4 members + roles + estimated stakes instead of generic "100% eq" UBO node. Spec §4 mispricing implies this; Brief V2 still aplasta a single node.
+
+3. **"Why this matters" on family structure** — succession is the lurking catalyst, brief makes it explicit.
+
+4. **History note covers 50+ year arc** — current Brief V2 doesn't have history note (or it's compressed away).
+
+---
+
+# PAGE 4 — RECONCILIATION HONEST + REVENUE CASCADE
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  RECONCILIATION                                                    │
+│                                                                    │
+│  Interpretation: GAP_UNCOVERED + CAPTURE_LIMITS                    │
+│                                                                    │
+│  Reconciliation not computable: no public anchor (10-K) available  │
+│  for MSC Cruises S.A. or MSC Group.                                │
+│                                                                    │
+│  Triangulation against industry-side anchor:                       │
+│                                                                    │
+│    Industry total (Cruise Market Watch 2025): $72.5B               │
+│    MSC market share (industry analyst estimate): 7.3%              │
+│    Implied MSC Cruises S.A. revenue:           $5.3B               │
+│                                                                    │
+│    Agent estimate MSC Cruises S.A. central:    $7.5B               │
+│    Industry-implied range:                     $5.3B               │
+│    Gap:                                        +41% (agent high)   │
+│                                                                    │
+│  Triangulation against passenger volume:                           │
+│                                                                    │
+│    Passengers 2023:           4.1M                                 │
+│    Industry avg rev/pax 2023: ~$1,800 (estimated)                  │
+│    Implied total revenue:     ~$7.4B                               │
+│    Agent estimate:            $7.5B  ← matches passenger model     │
+│                                                                    │
+│  Resolution: revenue estimate is internally consistent with        │
+│  passenger volume model but exceeds industry-share model by +41%.  │
+│  Most likely cause: MSC's avg rev/pax > industry avg (higher %     │
+│  premium tier passengers post-Explora launch).                     │
+│                                                                    │
+│                                                                    │
+│  REVENUE CASCADE                                                   │
+│  ────────────────────────────────────────────────────────────────  │
+│                                                                    │
+│  MSC Group ~$50-86B                                                │
+│   ├─ MSC Shipping & Logistics (cargo): ~80-90% of group            │
+│   ├─ MSC Cruises S.A.: ~7-15% of group ($7.5B central)             │
+│   │   ├─ MSC Cruises (English-market brand)                        │
+│   │   ├─ MSC Cruceros (Spanish-market brand · FOCAL · $5.5B)       │
+│   │   └─ Explora Journeys (luxury sub-brand, $200M-500M est)       │
+│   ├─ Terminals & Ports                                             │
+│   └─ Other (logistics, freight forwarding)                         │
+│                                                                    │
+│  Cruise division share of group revenue:                           │
+│                                                                    │
+│      ███▌                                                ▓▓▓▓      │
+│      MSC Cruises                                Shipping & Other   │
+│      ~7-15%                                          ~85-93%       │
+│                                                                    │
+│  As MSC Group's shipping division contracts from 2022 peak,        │
+│  cruise division share is RISING — currently ~10% but pro-forma    │
+│  ~14-17% on 2023 figures. Cruise is becoming structurally more     │
+│  important to the family business.                                 │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+**Key fixes:**
+
+1. **Triangulation made explicit** — two independent models (market share + passenger volume) shown side by side, with the +41% gap explained, not hidden.
+
+2. **NO "117% coverage" or "68% parent coverage" misleading metric.** Instead: gap_uncovered classification + explicit triangulation.
+
+3. **Revenue cascade shows division share visually** with ASCII bar — cruise division is ~10% of MSC Group, RISING. This is mispricing-relevant context.
+
+4. **Explora Journeys captured** with revenue estimate range — sibling that current Brief V2 missed entirely.
+
+5. **Resolution narrative** — current Brief V2 says "soft mismatch" without explaining. Perfect brief explains the gap (MSC has higher % premium passengers).
+
+---
+
+# PAGE 5 — MISPRICING THESIS (or explicit absence)
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  MISPRICING & M&A                                                  │
+│                                                                    │
+│  M&A Attention: NONE                                               │
+│  has_thesis: TRUE (with caveats)                                   │
+│                                                                    │
+│  HYPOTHESIS                                                        │
+│  ────────────────────────────────────────────────────────────────  │
+│                                                                    │
+│  MSC Cruises is structurally cheaper than its public peers, but    │
+│  there's no public mechanism to monetize the discount.             │
+│                                                                    │
+│  PUBLIC PEER VALUATION                                             │
+│                                                                    │
+│  Royal Caribbean (RCL):  EV/Revenue ~3.2x · $52B EV / $16B rev    │
+│  Carnival (CCL):         EV/Revenue ~2.5x · $52B EV / $21B rev    │
+│  Norwegian (NCLH):       EV/Revenue ~3.0x · $26B EV / $9.5B rev   │
+│                                                                    │
+│  Average public peer EV/Revenue: ~2.9x                             │
+│                                                                    │
+│  Implied MSC Cruises S.A. valuation at peer multiple:              │
+│                                                                    │
+│    $7.5B revenue × 2.9x EV/Revenue = ~$21.8B implied EV            │
+│                                                                    │
+│  But MSC has NO market price discovery — Aponte family holds 100%.│
+│                                                                    │
+│                                                                    │
+│  WHY THE DISCOUNT (illiquidity vs. fundamentals)                   │
+│                                                                    │
+│  Three components:                                                 │
+│                                                                    │
+│  1. ILLIQUIDITY DISCOUNT (~25-40%): No tradable equity,           │
+│     no daily price, no exit path for minority stake               │
+│                                                                    │
+│  2. CONGLOMERATE DISCOUNT (~15-25%): Cruise embedded in shipping  │
+│     conglomerate; pure-play cruise gets higher multiple           │
+│                                                                    │
+│  3. PRIVATE-COMPANY GOVERNANCE DISCOUNT (~10-15%): Family-only    │
+│     decision-making; no public accountability                     │
+│                                                                    │
+│  Total estimated discount: 50-80% off peer multiple                │
+│                                                                    │
+│  Implied private-market value: $4.4B – $10.9B                      │
+│                                                                    │
+│                                                                    │
+│  FALSIFYING SIGNALS                                                │
+│  ────────────────────────────────────────────────────────────────  │
+│                                                                    │
+│  ✗ Aponte family announces IPO of cruise division                  │
+│      → would close illiquidity discount; reveal "true" valuation   │
+│                                                                    │
+│  ✗ Strategic acquirer (e.g. Saudi PIF, MSC Group LBO, private     │
+│    equity consortium) approaches family                            │
+│      → would close governance discount; could close conglomerate   │
+│         discount if cruise is spun off                             │
+│                                                                    │
+│  ✗ MSC Group divestment of shipping division (unlikely but)        │
+│      → would remove conglomerate discount entirely                 │
+│                                                                    │
+│  ✗ Public peer EV/Revenue multiples compress to 1.5-2.0x          │
+│      → cruise industry de-rating; reduce upside on the discount    │
+│                                                                    │
+│  ✗ Family succession event triggers restructuring                  │
+│      → most likely catalyst over 5-10 year horizon                 │
+│                                                                    │
+│                                                                    │
+│  ACTIONABLE READS                                                  │
+│  ────────────────────────────────────────────────────────────────  │
+│                                                                    │
+│  → For PE/strategic: MSC Cruises is a "would-be transaction" asset │
+│    valued ~$4-11B with no current sale signal but with succession  │
+│    risk that could unlock a deal in 5-10 years                     │
+│                                                                    │
+│  → For comparables: MSC's private multiple acts as a structural    │
+│    discount benchmark for Royal Caribbean / Carnival valuations    │
+│                                                                    │
+│  → For competitive intelligence: Track Explora Journeys             │
+│    performance — if MSC successfully scales premium tier, it puts  │
+│    pricing pressure on public peers' premium segments              │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+**Key fixes:**
+
+1. **Mispricing thesis present despite family-owned** — the trick is hypothesis = "structurally cheaper but no monetization mechanism" rather than "undervalued M&A target." Spec §4.5 said "explicit absence with reason" was OK; here we have a thesis with the caveat baked in.
+
+2. **Public peer comparable explicit** with EV/Revenue multiples shown — current Brief V2 doesn't include any comparable valuation.
+
+3. **Discount decomposition** (illiquidity / conglomerate / governance) makes the analysis specific and falsifiable.
+
+4. **Falsifying signals concrete and observable** — not vague phrases like "new information indicating" (current Brief V2 mispricing falsifying signals are too generic).
+
+5. **Actionable reads section** — translates the thesis into reader-specific takeaways. Not in current Brief V2.
+
+---
+
+# PAGE 6 — COMPETITIVE CONTEXT (actually populated this time)
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  COMPETITIVE CONTEXT                                               │
+│                                                                    │
+│  Identifiable peer set: YES (cruise industry has clear oligopoly)  │
+│                                                                    │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │ Competitor       Parent       FY rev   EV/Rev  Distance     │ │
+│  │ ─────────────── ──────────── ──────── ───────  ───────────  │ │
+│  │ Carnival         CCL (NYSE)   $21.6B    2.5x   direct       │ │
+│  │ Royal Caribbean  RCL (NYSE)   $16.0B    3.2x   direct       │ │
+│  │ Norwegian        NCLH (NYSE)  $9.5B     3.0x   direct       │ │
+│  │ Disney Cruise    DIS (NYSE)   ~$1.9B    n/a    adjacent     │ │
+│  │ Viking Cruises   private      ~$5.3B    n/a    adjacent     │ │
+│  │ Hurtigruten      private      ~$1.0B    n/a    tangential   │ │
+│  └──────────────────────────────────────────────────────────────┘ │
+│                                                                    │
+│  Cruise industry structure (2023 revenue, $B):                     │
+│                                                                    │
+│   $25 ┤                                                            │
+│   $20 ┤     ████ Carnival                                          │
+│   $15 ┤     ████  ████ RCL                                         │
+│   $10 ┤     ████  ████                                             │
+│    $7 ┤     ████  ████  ████ MSC Cruises  ████ NCL                 │
+│    $5 ┤     ████  ████  ████              ████  ████ Viking        │
+│    $2 ┤     ████  ████  ████              ████  ████  ████ Disney  │
+│    $0 ┼─────────────────────────────────────────────────────────   │
+│         CCL    RCL    MSC    NCL    Viking  Disney                 │
+│                                                                    │
+│  Where MSC sits:                                                   │
+│  • Top-4 globally by revenue                                       │
+│  • Only top-4 player that is PRIVATE                               │
+│  • Higher fleet count than NCL despite lower revenue per ship      │
+│  • Distinct positioning vs. Disney (family/IP) and Viking (luxury  │
+│    river/expedition) — adjacencies, not direct competitors         │
+│                                                                    │
+│  STRATEGIC POSITIONING                                             │
+│  ─────────────────────────────────────────────────────────────     │
+│                                                                    │
+│  MSC's strategic position:                                         │
+│  → Mass-market focus (European core market, Mediterranean)         │
+│  → European brand strength (vs. Carnival/RCL US-centric)           │
+│  → Aggressive fleet expansion (22 ships, growing)                  │
+│  → Explora Journeys is the move UP into premium (vs. Viking land)  │
+│                                                                    │
+│  Where the pressure comes from:                                    │
+│  → Carnival pricing wars on US-market routes                       │
+│  → Royal Caribbean fleet quality (Icon class)                      │
+│  → Premium tier disruption from Viking (rev/pax ~3-4x mass)        │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+**Key fixes:**
+
+1. **Competitive context POPULATED** — current Brief V2 said "No identifiable peer set (B2B-niche)" which is incorrect for cruise. Perfect brief has 6 competitors with metrics.
+
+2. **Industry structure chart** — visual ranking shows MSC's position. Current Brief V2 has no charts in this section.
+
+3. **"Where MSC sits" + "Strategic positioning" + "Where the pressure comes from"** — three layers of competitive intelligence beyond just listing peers.
+
+4. **Adjacent vs. direct distinction explicit** — Disney/Viking are adjacencies, not direct competitors. Distance ranking matters.
+
+---
+
+# PAGE 7 — CONFIDENCE & GAPS + VERDICT CHANGERS
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  CONFIDENCE & GAPS                                                 │
+│                                                                    │
+│                                                                    │
+│  HIGH CONFIDENCE                                                   │
+│  ────────────────────────────────────────────────────────────      │
+│  • Aponte family owns 100% (multiple sources)                      │
+│  • MSC Cruises is private, no 10-K                                 │
+│  • 2023 passenger count: 4.1M (sustainability report, primary)    │
+│  • Fleet size: 22 ships (operational data)                         │
+│  • 2019 pre-pandemic baseline: €3.23B (audited filing era)         │
+│                                                                    │
+│                                                                    │
+│  MEDIUM CONFIDENCE                                                 │
+│  ────────────────────────────────────────────────────────────      │
+│  • Revenue $5.5B central (range $4.5-7B): triangulated from        │
+│    market share + passenger volume, two independent models         │
+│  • MSC Group 2022 €86.4B, 2023 contraction estimated               │
+│  • Market share ~7.3% (industry analyst estimate)                  │
+│  • Aponte family composition (4 members, roles approximate)        │
+│                                                                    │
+│                                                                    │
+│  LOW CONFIDENCE                                                    │
+│  ────────────────────────────────────────────────────────────      │
+│  • Explora Journeys revenue estimate ($200M-500M, single-source)   │
+│  • Exact equity split between Gianluigi and Rafaela                │
+│  • Diego/Alexa equity stakes (none captured)                       │
+│  • MSC Group 2023 actual revenue (post-shipping rate collapse)     │
+│  • Cruise division share of MSC Group revenue                      │
+│                                                                    │
+│                                                                    │
+│  KNOWN GAPS (high-leverage)                                        │
+│  ────────────────────────────────────────────────────────────      │
+│                                                                    │
+│  ★ FAMILY SUCCESSION TRAJECTORY (5-10 year horizon)               │
+│    Most material gap. Public statements from Gianluigi (84) and    │
+│    second-generation transitions would change verdict materially.  │
+│                                                                    │
+│  ★ FORWARD ORDER BOOK (ship deliveries 2026-2030)                 │
+│    Cruise capex commits 3-5 years forward. Order book reveals      │
+│    growth conviction better than current revenue.                  │
+│                                                                    │
+│  ★ EXPLORA JOURNEYS TRACTION (key strategic move)                 │
+│    Premium tier launch is the most important strategic signal.     │
+│    Success/failure changes long-term valuation thesis.             │
+│                                                                    │
+│  ★ APONTE FAMILY PUBLIC STATEMENTS                                 │
+│    Any IPO/sale signaling, even oblique, would shift verdict.      │
+│                                                                    │
+│                                                                    │
+│  VERDICT CHANGERS                                                  │
+│  ────────────────────────────────────────────────────────────      │
+│                                                                    │
+│  Conditions that would change verdict from "NOT ACTIONABLE":       │
+│                                                                    │
+│  → IPO announcement (any timeline) → WATCH                         │
+│  → Strategic acquirer approach → WATCH                             │
+│  → MSC Group restructuring separating cruise → ACQUIRE TARGET      │
+│  → Family succession event (death, incapacitation) → WATCH         │
+│  → Cruise industry consolidation wave starts → WATCH               │
+│                                                                    │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+**Key fixes:**
+
+1. **3-bucket confidence classification with reasoning per claim** — current Brief V2 just lists "6 verified signals" without distinguishing.
+
+2. **Known gaps with star ratings** — not all gaps are equal. Family succession is the highest-leverage gap; equity exact splits is lower-leverage.
+
+3. **Verdict changers SPECIFIC** — current Brief V2 says "Reconciliation delta ±30%+ suggests missing siblings" which is generic. Perfect brief lists the actual conditions that would flip the verdict to WATCH or ACQUIRE TARGET.
+
+---
+
+# PAGE 8 — STRATEGIC NOTES BY AUDIENCE
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  STRATEGIC NOTES BY AUDIENCE                                       │
+│                                                                    │
+│                                                                    │
+│  FOR INVESTORS (public market participants)                        │
+│  ────────────────────────────────────────────────────────────      │
+│                                                                    │
+│  Not actionable as a position. Use MSC as a private-market         │
+│  reference for public peer valuations (Carnival, RCL, NCL). When  │
+│  public peers trade above 3.5x EV/Rev, the implied "MSC discount"  │
+│  widens; when below 2.5x, peers may be approaching MSC's private   │
+│  multiple, suggesting industry de-rating.                          │
+│                                                                    │
+│  Monitor: Aponte family communications, Italian financial press,   │
+│  shipping industry M&A activity (parent group catalyst).           │
+│                                                                    │
+│                                                                    │
+│  FOR M&A ADVISORS                                                  │
+│  ────────────────────────────────────────────────────────────      │
+│                                                                    │
+│  MSC Cruises is a "would-be transaction" asset: clearly valuable   │
+│  ($4-22B range depending on multiple), no current sale signal, but │
+│  with succession catalyst in 5-10 year window. The most realistic  │
+│  transaction path is: family succession event → restructuring →    │
+│  spin-off or partial sale of cruise division.                      │
+│                                                                    │
+│  Strategic acquirer candidates (if asset becomes available):       │
+│  → Saudi PIF (already invests in cruise via Cruise Saudi)          │
+│  → Carnival or Royal Caribbean (consolidator play, antitrust risk) │
+│  → Apollo Global / Brookfield (PE consortium play)                 │
+│                                                                    │
+│  Build relationship with Diego Aponte and Alexa Aponte-Vago now.   │
+│                                                                    │
+│                                                                    │
+│  FOR COMPETITORS (Carnival, RCL, NCL strategic teams)              │
+│  ────────────────────────────────────────────────────────────      │
+│                                                                    │
+│  MSC is the only top-4 cruise operator that can move strategically │
+│  without public market constraints. They have:                     │
+│  • Longer time horizons (no quarterly pressure)                    │
+│  • Cross-subsidy from shipping division during downturns           │
+│  • Aggressive fleet expansion without dilution risk                │
+│                                                                    │
+│  Strategic implications:                                           │
+│  → Don't expect MSC to retreat in price wars; they have staying    │
+│    power that public peers lack                                    │
+│  → Watch Explora Journeys closely; premium tier disruption from a  │
+│    private competitor with patience is a real threat               │
+│  → MSC won't be a consolidation target unless family circumstances │
+│    change                                                          │
+│                                                                    │
+│                                                                    │
+│  FOR GROWTH SIGNAL USERS                                           │
+│  ────────────────────────────────────────────────────────────      │
+│                                                                    │
+│  MSC Cruceros is a HIGH-VALUE INTELLIGENCE TARGET despite being    │
+│  NOT TRANSACTABLE. Use this brief to:                              │
+│                                                                    │
+│  1. Anchor cruise industry analysis — MSC provides the 4th data    │
+│     point in an otherwise public-only industry view                │
+│                                                                    │
+│  2. Calibrate private-vs-public multiple discounts in CPG/         │
+│     consumer-brand analysis (cruise discount is more extreme       │
+│     because no exit path; less extreme in growth-stage SaaS where  │
+│     IPO is expected)                                               │
+│                                                                    │
+│  3. Track for succession catalyst — set alerts on Aponte family    │
+│     news, Italian shipping press, MSC Group restructuring          │
+│                                                                    │
+│  4. Use Explora Journeys as a premium-tier launch case study —     │
+│     family-funded patient capital launching luxury sub-brand vs.   │
+│     public competitors' approaches                                 │
+│                                                                    │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+**Key fixes:**
+
+1. **Each audience gets SPECIFIC, ACTIONABLE notes** — not generic "uncertainty regarding capital allocation" filler that current Brief V2 produces.
+
+2. **For Growth Signal Users section is substantial** — 4 specific use cases. Current Brief V2 has 1-2 sentences of filler.
+
+3. **Concrete names mentioned** (Saudi PIF, Apollo, Brookfield, Diego Aponte, Alexa Aponte-Vago) — research-grade specificity instead of "potential strategic acquirers."
+
+4. **Each note answers "so what do I do with this?"** — that's what audience-segmented notes should achieve.
+
+---
+
+# PAGE 9 — DATA TRACE + METHODOLOGY
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  DATA TRACE                                                        │
+│                                                                    │
+│                                                                    │
+│  PRIMARY SOURCES (used in brief)                                   │
+│  ────────────────────────────────────────────────────────────      │
+│                                                                    │
+│  • MSC Cruises 2023 Sustainability Report (passenger count)        │
+│  • Cruise Market Watch 2025 (industry sizing, market share)        │
+│  • AltexSoft cruise market analysis                                │
+│  • ResearchGate / MSC Cruises Annual Report 2019                   │
+│  • CTech / Ynet News (parent revenue commentary)                   │
+│  • Bitget news (corporate ownership confirmation)                  │
+│  • Growjo estimates (cross-reference)                              │
+│                                                                    │
+│  Sources NOT used (excluded for quality):                          │
+│  • SimilarWeb traffic estimates — low signal for cruise (booking   │
+│    through travel agents, not direct DTC)                          │
+│  • Crunchbase (no current data on private cruise operator)         │
+│  • PitchBook (subscription-only, not used here)                    │
+│                                                                    │
+│                                                                    │
+│  METHODOLOGY                                                       │
+│  ────────────────────────────────────────────────────────────      │
+│                                                                    │
+│  Deterministic synthesis: verdict label, reconciliation            │
+│  classification, signal weights, ownership clarity, and verdict    │
+│  changers are derived from structured rules on the ownership +     │
+│  revenue agent's output. No LLM hallucination risk on these        │
+│  fields.                                                           │
+│                                                                    │
+│  LLM enrichment: signal interpretations ("Read this as:"),         │
+│  mispricing hypothesis, falsifying signals, competitive context,   │
+│  audience-specific notes. LLM-generated content is validated       │
+│  against forbidden-phrase filters and required evidence references.│
+│                                                                    │
+│  Limitations of this brief:                                        │
+│  • Private company — no 10-K anchor, all revenue is estimate       │
+│  • No SimilarWeb-style behavioral signals (booking ≠ web direct)   │
+│  • Aponte family details from press, not corporate disclosure      │
+│  • Forward order book (key gap) not captured                       │
+│                                                                    │
+│                                                                    │
+│  CONFIDENCE INDEX                                                  │
+│  ────────────────────────────────────────────────────────────      │
+│                                                                    │
+│  Ownership structure:    ★★★★★ (high — multi-source confirmed)    │
+│  Family composition:     ★★★☆☆ (medium — public press only)       │
+│  Revenue central:        ★★★☆☆ (medium — triangulated)            │
+│  Sibling capture:        ★★☆☆☆ (incomplete — missed Explora)      │
+│  Competitive context:    ★★★★★ (high — public peers documented)   │
+│  Mispricing thesis:      ★★★☆☆ (medium — depends on assumptions)  │
+│  Forward catalysts:      ★★☆☆☆ (low — succession timing unknown)  │
+│                                                                    │
+│  Overall confidence: LOW (forced by sibling capture incomplete +   │
+│  no public anchor + forward catalyst opacity)                      │
+│                                                                    │
+│                                                                    │
+│  END OF BRIEF                                                      │
+│  Generated by Growth Signal Intelligence Brief V2.1                │
+│  Confidential · For deal materials use only                        │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+**Key fixes:**
+
+1. **Sources actually used vs. excluded** — current Brief V2 just lists sources without indicating which were weighted in.
+
+2. **Methodology explicit** about deterministic-vs-LLM split — this is the F11 principle made visible to the reader.
+
+3. **Confidence index per section** — granular confidence instead of single "MEDIUM" badge. Reader can see which parts of the brief to trust most.
+
+4. **Overall confidence FORCED to LOW** explicitly because of:
+   - Sibling capture incomplete (Explora missed)
+   - No public anchor (private)
+   - Forward catalyst opacity (succession timing unknown)
+
+   Current Brief V2 stays at MEDIUM despite all three of these conditions. Risk escalation rule needs to fire.
+
+---
+
+# DELTA ANALYSIS — Current Brief V2 vs Perfect Brief
+
+| Section | Current Brief V2 | Perfect Brief | Bug type |
+|---|---|---|---|
+| Verdict label | HOLD (filler) | NOT ACTIONABLE AS STANDALONE | `deriveCapitalDecision()` doesn't detect family-owned 100% |
+| Confidence | MEDIUM | LOW | Risk escalation rule doesn't fire on N warnings |
+| Thesis | "stable performance, operational metrics, cautious yet engaged" | Cites structural family-ownership + no public path | Forbidden phrase filter incomplete |
+| Behavioral signals | 4 signals, all neutral (=) | 5 signals with differentiated +/=/− directional implication | Signal interpreter defaults too neutral |
+| Counter-signals | 4 categories (funding/hiring/capacity/pricing) WITHOUT "why this matters" | Same 4 categories WITH explanation | Counter-signal generator needs `why_matters` field |
+| Corporate structure | Compressed tree | Tree + Aponte family detail table (4 members) | UBO Family aplastado as single node, not co_owners array |
+| Reconciliation | "soft mismatch" without explanation | Two triangulation models + gap explained | Reconciliation interpreter doesn't surface alt models |
+| Sibling capture | 0 captured (warning fired) | Explora Journeys + MSC Cruises (English) captured | Geographic-variant ≠ sibling, product-tier IS sibling — heuristic missing |
+| Mispricing thesis | Either absent or generic | Full thesis: public peer multiples + discount decomposition + falsifying signals | Mispricing generator doesn't reference public peer multiples |
+| Competitive context | "No identifiable peer set (B2B-niche)" | 6 competitors with metrics + industry chart | B2B-niche detector wrongly fires for cruise |
+| Confidence & gaps | "Revenue estimate (source), 6 verified signals" | Granular 3-bucket + star ratings per section | Single MEDIUM aggregated, not section-specific |
+| Audience notes | 3 short paragraphs of filler | 4 specific actionable notes with named entities | Audience note generator too generic |
+| Data trace | Source list | Sources used + excluded + confidence index | Trace doesn't distinguish used vs. excluded |
+
+---
+
+# IMPLEMENTATION PRIORITIES (reverse-engineering plan)
+
+Based on the bugs identified, fix in this order:
+
+**Sprint v2.1 PRIORITY 1 (deterministic logic — no LLM dependency):**
+
+1. `deriveCapitalDecision()` — add family-owned-100% + no-public-path → "Not actionable as standalone"
+2. Confidence escalation — N warnings ≥ 2 forces confidence to LOW
+3. B2B-niche detector — whitelist cruise/CPG/consumer categories as ALWAYS having peer set
+4. UBO Family node — populate co_owners array with member breakdown when family has identifiable members
+5. Sibling capture heuristic — distinguish geographic-variant (alias) vs. product-tier-variant (sibling)
+
+**Sprint v2.1 PRIORITY 2 (LLM enrichment quality):**
+
+6. Forbidden phrase filter — add "stable performance, operational metrics, cautious yet engaged, modest capital allocation"
+7. Signal interpretation directional implication — require non-neutral on at least 1 of 5 signals
+8. Mispricing for private companies — populate public peer multiples table even when target is private
+9. Audience notes specificity — require named entities (companies, individuals) in each audience block
+
+**Sprint v2.1 PRIORITY 3 (rendering quality):**
+
+10. Counter-signals: add "why this matters" field per gap
+11. Reconciliation: show triangulation alternatives explicitly when no 10-K
+12. Confidence index per section (not just overall) — star rating display
+
+---
+
+# WIREFRAME CONVENTIONS USED IN THIS DOC
+
+- `▓▓▓` = brand-color header band (teal #40BECC)
+- `░░░` = verdict label badge (large type)
+- `███` = chart bars (data visualization)
+- `★★★★★` = confidence star rating
+- `→` = action/causal arrow
+- `▣` = signal bullet (high-priority)
+- `•` = standard bullet
+- `✗` = falsifying signal marker
+- `┌─┐ │ └─┘` = section boxes
+
+Replace with actual styled components when implementing in `pdf_v2/components/`.

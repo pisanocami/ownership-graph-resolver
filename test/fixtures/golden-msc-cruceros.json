@@ -1,0 +1,93 @@
+{
+  "ownership": {
+    "company": "MSC Cruceros",
+    "domain": "msccruceros.es",
+    "node_type": "operating_brand",
+    "layer": "brand",
+    "focal_segment": "cruise line",
+    "category": "ocean cruise line",
+    "in_current_sources": true,
+    "in_historical_sources": true,
+    "last_mention_date": "2025-09",
+    "strategic_control": [
+      { "entity": "Pierfrancesco Vago", "role_description": "Executive Chairman, MSC Cruises Division", "evidence": "MSC Group leadership page", "source_url": "https://www.msccruises.com/en-gl/About-MSC/Management.aspx" }
+    ],
+    "strategic_control_note": null,
+    "parent": {
+      "company": "MSC Cruises S.A.",
+      "domain": "msccruises.com",
+      "node_type": "legal_entity",
+      "layer": "aggregator",
+      "in_current_sources": true,
+      "in_historical_sources": true,
+      "strategic_control": [],
+      "strategic_control_note": null,
+      "parent": {
+        "company": "MSC Group",
+        "domain": "msc.com",
+        "node_type": "legal_entity",
+        "layer": "parent",
+        "in_current_sources": true,
+        "in_historical_sources": true,
+        "strategic_control": [],
+        "strategic_control_note": "Privately held by the Aponte family; no public filings.",
+        "parent": {
+          "company": "Gianluigi Aponte",
+          "node_type": "individual",
+          "layer": "root",
+          "terminal_layer": "ubo",
+          "ownership_pct": 100,
+          "in_current_sources": true,
+          "in_historical_sources": true,
+          "strategic_control": [
+            { "entity": "Gianluigi Aponte", "role_description": "Founder & Chairman, MSC Group", "evidence": "Forbes profile + MSC corporate site", "source_url": "https://www.forbes.com/profile/gianluigi-aponte/" }
+          ],
+          "strategic_control_note": null,
+          "parent": null
+        }
+      }
+    },
+    "siblings": [
+      { "company": "MSC Cruises (Italia)", "domain": "msccrociere.it", "node_type": "operating_brand", "category": "ocean cruise line", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.msccrociere.it/"] },
+      { "company": "MSC Cruises (USA)", "domain": "msccruisesusa.com", "node_type": "operating_brand", "category": "ocean cruise line", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.msccruisesusa.com/"] },
+      { "company": "Explora Journeys", "domain": "explorajourneys.com", "node_type": "operating_brand", "category": "luxury ocean cruise line", "in_current_sources": true, "in_historical_sources": false, "last_mention_date": "2025-06", "source_urls": ["https://www.explorajourneys.com/"] }
+    ],
+    "confidence": "high",
+    "sources": ["https://www.msccruises.com/", "https://www.forbes.com/profile/gianluigi-aponte/"]
+  },
+  "revenueByCompany": {
+    "msc cruceros": {
+      "revenue_estimate": { "low": 800000000, "high": 1100000000, "central": 950000000 },
+      "confidence": "medium",
+      "signals_attempted": 6,
+      "signals_found_count": 2,
+      "signals_found": [
+        { "type": "fleet_capacity", "label": "MSC Cruceros ships homeported in Spain", "value": "4 ships, ~14k lower-berth capacity", "source": "company fleet page", "weight": "medium" },
+        { "type": "market_share", "label": "Spanish cruise market", "value": "~28%", "source": "CLIA Europe 2024", "weight": "medium" }
+      ],
+      "reasoning_summary": "MSC Cruceros is the Spanish-market arm of MSC Cruises; revenue triangulated from fleet capacity, average per-diem, and Spain market share."
+    },
+    "msc cruises s.a.": {
+      "revenue_estimate": { "low": 5500000000, "high": 6500000000, "central": 6000000000 },
+      "confidence": "medium",
+      "signals_attempted": 5,
+      "signals_found_count": 2,
+      "signals_found": [
+        { "type": "passenger_volume", "label": "MSC Cruises global passengers", "value": "~3.6M 2024", "source": "MSC press release", "weight": "high" },
+        { "type": "fleet_capacity", "label": "global lower-berth capacity", "value": "~95k", "source": "company fleet page", "weight": "high" }
+      ],
+      "reasoning_summary": "Triangulated from passenger volume × average per-diem × average voyage length."
+    },
+    "explora journeys": {
+      "revenue_estimate": { "low": 150000000, "high": 250000000, "central": 200000000 },
+      "confidence": "low",
+      "signals_attempted": 4,
+      "signals_found_count": 1,
+      "signals_found": [
+        { "type": "fleet_capacity", "label": "EXPLORA I+II in service", "value": "~922 berths each", "source": "company press kit", "weight": "medium" }
+      ],
+      "reasoning_summary": "Newly launched luxury brand; revenue scale modeled from fleet × luxury per-diem assumptions."
+    }
+  },
+  "parentAnchor": null
+}

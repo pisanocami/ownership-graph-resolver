@@ -1,0 +1,60 @@
+{
+  "focal_company": {
+    "name": "Patagonia",
+    "category": "Apparel",
+    "brand_status": "Brand",
+    "type": "Brand",
+    "ownership_structure": "B Corp / Trust"
+  },
+  "ownership_tree": {
+    "company": "Patagonia",
+    "type": "Brand",
+    "parent": null,
+    "revenue_estimate": {
+      "central": 800,
+      "low": 700,
+      "high": 900,
+      "source": "estimate",
+      "confidence": "medium"
+    },
+    "co_owners": [
+      {
+        "company": "Patagonia Purpose Trust",
+        "stake_pct": 100,
+        "voting_pct": 100,
+        "ownership_role": "voting_majority"
+      },
+      {
+        "company": "Holdfast Collective",
+        "stake_pct": 100,
+        "voting_pct": 0,
+        "ownership_role": "economic_majority"
+      }
+    ],
+    "siblings": [],
+    "signals_found": [
+      {
+        "type": "sustainability",
+        "label": "1% for the Planet",
+        "value": "Commitment to environmental giving",
+        "source": "public_statements",
+        "weight": "high"
+      }
+    ],
+    "strategic_control": [
+      { "company": "Patagonia Purpose Trust", "role_description": "voting_majority" },
+      { "company": "Holdfast Collective", "role_description": "economic_majority" }
+    ],
+    "terminal_layer": "private",
+    "acquisition": null,
+    "pending_acquisition": null
+  },
+  "positioning_analysis": {
+    "focal_vs_parent_ratio": "N/A (standalone)",
+    "focal_vs_siblings": "No siblings",
+    "growth_signals": "Sustainability commitment (public_statements)",
+    "strategic_notes": "Co-owned structure with voting/economic split; not actionable as standalone",
+    "reconciliation": null,
+    "parent_anchor": null
+  }
+}

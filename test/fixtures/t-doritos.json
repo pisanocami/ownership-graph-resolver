@@ -1,0 +1,93 @@
+{
+  "ownership": {
+    "company": "Doritos",
+    "domain": "doritos.com",
+    "node_type": "operating_brand",
+    "layer": "brand",
+    "in_current_sources": true,
+    "in_historical_sources": true,
+    "category": "Flavored Tortilla Chips",
+    "strategic_control": [],
+    "strategic_control_note": "Doritos is a brand, not a legal entity with its own executive leadership. Strategic control is exercised at the Frito-Lay and PepsiCo levels.",
+    "parent": {
+      "company": "Frito-Lay North America",
+      "domain": "fritolay.com",
+      "node_type": "legal_entity",
+      "layer": "aggregator",
+      "in_current_sources": true,
+      "in_historical_sources": true,
+      "category": "Snack Foods",
+      "focal_segment": "Frito-Lay North America",
+      "parent": {
+        "company": "PepsiCo, Inc.",
+        "domain": "pepsico.com",
+        "node_type": "legal_entity",
+        "layer": "parent",
+        "in_current_sources": true,
+        "in_historical_sources": true,
+        "category": "Food and Beverage",
+        "parent": null,
+        "siblings": [],
+        "children": [],
+        "strategic_control": [
+          { "entity": "Ramon Laguarta", "role_description": "Chairman and CEO of PepsiCo", "evidence": "Ramon Laguarta is the CEO of PepsiCo.", "source_url": "https://www.pepsico.com/who-we-are/leadership" }
+        ],
+        "strategic_control_note": null
+      },
+      "siblings": [],
+      "children": [],
+      "strategic_control": [
+        { "entity": "Steven Williams", "role_description": "CEO of Frito-Lay North America", "evidence": "Steven Williams leads Frito-Lay North America.", "source_url": "https://www.fritolay.com/" }
+      ],
+      "strategic_control_note": null
+    },
+    "siblings": [
+      { "company": "Lay's", "domain": "lays.com", "node_type": "operating_brand", "category": "Potato Chips", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.fritolay.com/"] },
+      { "company": "Cheetos", "domain": "cheetos.com", "node_type": "operating_brand", "category": "Cheese-flavored Snacks", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.fritolay.com/"] },
+      { "company": "Tostitos", "domain": "tostitos.com", "node_type": "operating_brand", "category": "Tortilla Chips and Dips", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.fritolay.com/"] },
+      { "company": "Fritos", "domain": "fritos.com", "node_type": "operating_brand", "category": "Corn Chips", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.fritolay.com/"] },
+      { "company": "Ruffles", "domain": "ruffles.com", "node_type": "operating_brand", "category": "Potato Chips", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.fritolay.com/"] },
+      { "company": "SunChips", "domain": "sunchips.com", "node_type": "operating_brand", "category": "Multigrain Snacks", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.fritolay.com/"] },
+      { "company": "Smartfood", "domain": "smartfood.com", "node_type": "operating_brand", "category": "Popcorn", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.fritolay.com/"] },
+      { "company": "Rold Gold", "domain": "roldgold.com", "node_type": "operating_brand", "category": "Pretzels", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://www.fritolay.com/"] }
+    ],
+    "children": [],
+    "acquisition": null,
+    "confidence": "high",
+    "sources": ["https://www.doritos.com/"]
+  },
+  "revenueByCompany": {
+    "doritos": { "revenue_estimate": { "low": 2500000000, "high": 3500000000, "central": 3000000000 }, "confidence": "high", "signals_attempted": 3, "signals_found_count": 3, "signals_found": [
+      { "type": "press", "label": "PepsiCo 2024 Tortilla Chip Revenue", "value": "A market research report estimates PepsiCo's 2024 revenue from its tortilla chip brands (primarily Doritos and Tostitos) was $3.4 billion, representing a 42% market share.", "source": "Report Prime", "weight": "high" },
+      { "type": "press", "label": "Doritos Nacho Cheese Flavor Revenue", "value": "The Nacho Cheese variant of Doritos alone generates an estimated $1.73 billion in annual revenue as of May 2026.", "source": "Accio Work", "weight": "medium" },
+      { "type": "press", "label": "Global Market Share", "value": "An older report cited Doritos as having a 39% market share of the global tortilla/corn-chip market, which was valued at $8.1 billion in 2024.", "source": "Bartleby.com / Euromonitor International", "weight": "medium" }
+    ], "reasoning_summary": "Triangulated from tortilla-chip division revenue, Nacho Cheese flavor revenue, and global market share." },
+    "frito-lay north america": { "revenue_estimate": { "low": 24700000000, "high": 25000000000, "central": 24850000000 }, "confidence": "high", "signals_attempted": 3, "signals_found_count": 3, "signals_found": [{ "type": "press", "label": "2023 & 2024 Annual Revenue", "value": "Frito-Lay North America revenue ~$24.85B", "source": "PepsiCo 10-K", "weight": "high" }], "reasoning_summary": "FLNA division revenue ~$24.85B." },
+    "pepsico, inc.": { "revenue_estimate": { "low": 91000000000, "high": 94000000000, "central": 92000000000 }, "confidence": "high", "signals_attempted": 2, "signals_found_count": 2, "signals_found": [{ "type": "press", "label": "2023 Full-Year Net Revenue", "value": "PepsiCo's annual revenue was $91.47B in 2023.", "source": "PepsiCo 10-K", "weight": "high" }], "reasoning_summary": "PepsiCo FY2023 net revenue $91.47B." },
+    "lay's": { "revenue_estimate": { "low": 4000000000, "high": 4500000000, "central": 4400000000 }, "confidence": "high", "signals_attempted": 4, "signals_found_count": 4, "signals_found": [{ "type": "press", "label": "Lay's Brand Annual Sales", "value": "Lay's ~$4.4B", "source": "Circana", "weight": "high" }], "reasoning_summary": "Lay's ~$4.4B." },
+    "cheetos": { "revenue_estimate": { "low": 3000000000, "high": 5500000000, "central": 4500000000 }, "confidence": "medium", "signals_attempted": 2, "signals_found_count": 3, "signals_found": [{ "type": "press", "label": "US Sales (IRI Data)", "value": "Cheetos led the cheese snack category ~$4.5B", "source": "IRI", "weight": "medium" }], "reasoning_summary": "Cheetos ~$4.5B." },
+    "tostitos": { "revenue_estimate": { "low": 1500000000, "high": 1700000000, "central": 1600000000 }, "confidence": "high", "signals_attempted": 2, "signals_found_count": 2, "signals_found": [{ "type": "press", "label": "Annual Sales (52 weeks ending April 2024)", "value": "Tostitos ~$1.6B", "source": "Circana", "weight": "high" }], "reasoning_summary": "Tostitos ~$1.6B." },
+    "fritos": { "revenue_estimate": { "low": 1500000000, "high": 2500000000, "central": 2000000000 }, "confidence": "medium", "signals_attempted": 4, "signals_found_count": 4, "signals_found": [{ "type": "press", "label": "Parent Co. Divisional Revenue (FLNA)", "value": "Fritos ~$2.0B", "source": "estimate", "weight": "medium" }], "reasoning_summary": "Fritos ~$2.0B." },
+    "ruffles": { "revenue_estimate": { "low": 1700000000, "high": 2100000000, "central": 1900000000 }, "confidence": "high", "signals_attempted": 4, "signals_found_count": 4, "signals_found": [{ "type": "press", "label": "U.S. Annual Sales (2024 Report)", "value": "Ruffles ~$1.9B", "source": "Circana", "weight": "high" }], "reasoning_summary": "Ruffles ~$1.9B." },
+    "sunchips": { "revenue_estimate": { "low": 400000000, "high": 550000000, "central": 475000000 }, "confidence": "high", "signals_attempted": 4, "signals_found_count": 3, "signals_found": [{ "type": "press", "label": "Annual Sales (IRI Data)", "value": "SunChips ~$475M", "source": "IRI", "weight": "high" }], "reasoning_summary": "SunChips ~$475M." },
+    "smartfood": { "revenue_estimate": { "low": 550000000, "high": 650000000, "central": 575000000 }, "confidence": "high", "signals_attempted": 2, "signals_found_count": 3, "signals_found": [{ "type": "press", "label": "Retail Sales Data (Circana)", "value": "Smartfood ~$575M", "source": "Circana", "weight": "high" }], "reasoning_summary": "Smartfood ~$575M." },
+    "rold gold": { "revenue_estimate": { "low": 120000000, "high": 140000000, "central": 130000000 }, "confidence": "high", "signals_attempted": 3, "signals_found_count": 3, "signals_found": [{ "type": "press", "label": "2024 Annual Sales (Circana)", "value": "Rold Gold ~$130M", "source": "Circana", "weight": "high" }], "reasoning_summary": "Rold Gold ~$130M." }
+  },
+  "parentAnchor": {
+    "is_public": true,
+    "ticker": "PEP",
+    "fiscal_year": 2023,
+    "total_revenue_usd": 91471000000,
+    "segments": [
+      { "name": "Frito-Lay North America", "revenue_usd": 25287000000, "contains_focal": true },
+      { "name": "Quaker Foods North America", "revenue_usd": 3121000000, "contains_focal": false },
+      { "name": "PepsiCo Beverages North America", "revenue_usd": 27240000000, "contains_focal": false },
+      { "name": "Latin America", "revenue_usd": 12220000000, "contains_focal": false },
+      { "name": "Europe", "revenue_usd": 13140000000, "contains_focal": false },
+      { "name": "Africa, Middle East and South Asia", "revenue_usd": 5110000000, "contains_focal": false },
+      { "name": "Asia Pacific, Australia and New Zealand and China Region", "revenue_usd": 5350000000, "contains_focal": false }
+    ],
+    "source_url": "https://www.pepsico.com/investors",
+    "notes": "PepsiCo, Inc. FY2023 10-K segment revenue."
+  }
+}

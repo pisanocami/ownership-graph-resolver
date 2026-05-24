@@ -1,0 +1,80 @@
+{
+  "focal_company": {
+    "name": "Toblerone",
+    "category": "Food",
+    "brand_status": "Brand",
+    "type": "Brand"
+  },
+  "ownership_tree": {
+    "company": "Toblerone",
+    "type": "Brand",
+    "parent": {
+      "name": "Mondelez International",
+      "type": "Conglomerate",
+      "company": "Mondelez International"
+    },
+    "revenue_estimate": {
+      "central": 1200,
+      "low": 1000,
+      "high": 1400,
+      "source": "estimate",
+      "confidence": "medium"
+    },
+    "siblings": [
+      {
+        "company": "Cadbury",
+        "revenue_estimate": { "central": 1300 },
+        "status": "active"
+      },
+      {
+        "company": "Milka",
+        "revenue_estimate": { "central": 900 },
+        "status": "active"
+      },
+      {
+        "company": "Oreo",
+        "revenue_estimate": { "central": 2100 },
+        "status": "active"
+      }
+    ],
+    "signals_found": [
+      {
+        "type": "capacity_investment",
+        "label": "Factory modernization",
+        "value": "New Swiss facility investment",
+        "source": "news",
+        "weight": "high"
+      },
+      {
+        "type": "pricing",
+        "label": "Premium positioning",
+        "value": "Price increase in EU markets",
+        "source": "market_data",
+        "weight": "medium"
+      }
+    ],
+    "co_owners": [],
+    "strategic_control": [
+      { "company": "Mondelez International", "role_description": "parent" }
+    ],
+    "terminal_layer": "public",
+    "acquisition": null,
+    "pending_acquisition": null
+  },
+  "positioning_analysis": {
+    "focal_vs_parent_ratio": "~3% of Mondelez revenue",
+    "focal_vs_siblings": "Ranked 3 of 4 in family — ★ Oreo 2100 · Cadbury 1300 · Toblerone 1200 · Milka 900",
+    "growth_signals": "Factory modernization (news); Premium positioning (market_data)",
+    "strategic_notes": "Stable, under-leveraged",
+    "reconciliation": {
+      "sum_children_central": 5500,
+      "parent_benchmark": 4500,
+      "parent_benchmark_source": "estimated",
+      "ratio": 1.22,
+      "pct_delta": 22,
+      "circular": false,
+      "children_counted": 4
+    },
+    "parent_anchor": null
+  }
+}

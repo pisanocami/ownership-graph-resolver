@@ -1,0 +1,131 @@
+# Ownership Resolver — Issues pendientes
+
+Estado al cierre de testing T04*, T13, T15, T16, T17, T18, T19, T04*' (Awara).
+
+**Sprint v1: 5/5 implementados.** **Sprint v2: 5/7 implementados** (Issues #2, #3, #4, #5, #6 ✅ validados en T13).
+
+---
+
+## Issues abiertos
+
+### Issue #1 — Chain normalization
+
+**Detectado en:** T04* cross-provider (Claude + Gemini).
+
+**Síntoma:** Ashley Furniture Industries + Ashley Global Retail + Ashley Home aparecen como 3 layers separadas cuando son entities relacionadas de un mismo holding Wanek. Revenue mis-asignado: $11B (conglomerate total) se asigna a "Ashley Home" sub-affiliate en vez de al top of pyramid.
+
+**Fix propuesto:**
+
+Reformular como decisión binaria basada en revenue attribution:
+
+1. Si dos layers consecutivas comparten total revenue figure en fuentes públicas → colapsar a una sola con canonical_name
+2. Si comparten ownership pero tienen revenue lines diferentes (manufacturing vs retail vs DTC) → mantener separadas PERO con `role_description` específico por layer y revenue solo del scope correspondiente
+3. **Forbidden:** revenue del conglomerate ($11B Ashley total) asignado a sub-affiliate. Si pasa, alertar como inconsistency.
+
+**Test de validación:** T04* re-run debe mostrar Ashley Furniture Industries con revenue $11B (top), Ashley Global Retail y Ashley Home con revenue derivada o null.
+
+---
+
+### Issue #7 — Auto-correct mechanism produce falsa precisión
+
+**Detectado en:** T18 GEICO (multiplier 3.466× aplicado a todos los siblings + focal). **No activado en T13** — comportamiento ahí fue correcto (informar divergencia sin multiplier).
+
+**Severidad: CRÍTICA — viola F11 directamente.**
+
+**Síntoma:** En T18 GEICO el sistema infló GEICO de $42B (raw correcto) a $44B (adjusted) y National Indemnity a $50B (imposible — el segment Reinsurance ENTERO es $27B). Convierte gap honesto en confianza ficticia.
+
+**Estado:** El mechanism existe pero no se activa siempre. T13 NO lo activó (informó divergencia 41% sin multiplier). T18 SÍ lo activó. Heurística unclear.
+
+**Fix propuesto:** **Desactivar auto-correct completamente** (Opción A del sprint v2).
+
+Reconciliation engine ya tiene:
+- Bundle B (likely_causes con evidence)
+- Circular detection (T04*' Awara mostró "circular — unverified")
+- Segment-aware reconciliation (T13 contra W&J segment, no total LVMH)
+- Divergence informational warning (T13 "focal estimate diverges 41%")
+
+Con eso es suficiente. El multiplier estorba más que ayuda.
+
+**Test de validación:** T18 GEICO re-run debe mostrar GEICO $42B raw (no $44B adjusted), siblings con sus valores raw, gap honesto 29% coverage.
+
+---
+
+### Issue #8 — Revenue inestable cross-runs del mismo brand
+
+**Detectado en:** T04*' Awara (Nectar como sibling $450M) vs T04* (Nectar como focal $275M).
+
+**Síntoma:** El mismo brand tiene revenue diferente según si es focal o sibling de la query. Cuando es focal: bottom-up con signals primarios. Cuando es sibling: top-down como % del parent. Las dos metodologías llegan a números diferentes sin reconciliar.
+
+**Fix propuesto:**
+
+Para cada sibling, ejecutar **ambas** estrategias y exponer divergencia:
+
+```json
+"revenue_estimate": {
+  "central": 350000000,
+  "method": "blended",
+  "bottom_up": { "estimate": 275000000, "signals_count": 5, "confidence": "high" },
+  "top_down": { "estimate": 450000000, "share_of_parent": 0.45, "confidence": "medium" },
+  "divergence_flag": true,
+  "divergence_pct": 63
+}
+```
+
+Si divergence_flag = true, exponer ambos números en UI.
+
+**Test de validación:** T04* y T04*' con focales distintos deben dar el mismo range para los mismos brands, o exponer divergencia si difieren >30%.
+
+---
+
+### Issue #9 — Porcentajes del segment panel mal calculados (bug visual)
+
+**Detectado en:** T13 panel "LVMH Moët Hennessy Louis Vuitton SE reported segments · FY2023".
+
+**Síntoma:** Porcentajes muestran 386% Fashion & Leather, 147% Selective Retailing, 100% W&J (focal), 69.7% Perfumes, 60.6% Wines. Suman >700%, son ratios contra el segment focal en vez de contra el total del parent.
+
+**Datos correctos detrás:** Fashion $45.61B / Total $93.46B = 49%. W&J $11.81B / Total = 13%.
+
+**Fix propuesto:** corregir formula del panel. Denominator = total parent revenue, no segment focal. El segment focal sigue marcado con ★ y flag `contains_focal`.
+
+**Severidad:** Baja (bug visual, números absolutos correctos). Pero confunde al lector.
+
+---
+
+## Achievements no documentados (worth tracking)
+
+Funcionalidades emergentes del sprint v1 que funcionan bien:
+
+1. **Reconciliation circular detection** (T04*' Awara): "circular — unverified" warning cuando siblings estimados top-down se suman al parent que les dio el ratio. F11 puro.
+
+2. **Segment-aware reconciliation** (T13): benchmark contra segment del focal (W&J $11.81B), no contra total parent ($93.46B). Reconciliation 69% relevante vs 9% irrelevante.
+
+3. **Divergence informational warning** (T13): "focal estimate diverges from parent 10-K segment revenue (41%)" — informa sin corregir. Opuesto al auto-correct mechanism.
+
+4. **UBO stake structured** (T13): "Bernard Arnault & Family · 50.01% eq" con stake.equity_pct concreto + 5 herederos con role_description narrative específica.
+
+---
+
+## Tests de regresión pendientes
+
+| Test | Para validar |
+|------|--------------|
+| T18 GEICO re-run | Issue #7 (auto-correct desactivado) |
+| T04* re-run post-fix #1 | Issue #1 (chain Ashley normalization) |
+| T04* + T04*' cruzados | Issue #8 (revenue cross-run consistency) |
+| T20 Hulu | Issue #2 multi-owner JV pre-2023 (no testeado a fondo aún) |
+| T16 Patagonia re-run | Issue #2 steward ownership (Holdfast como co_owner real) |
+
+---
+
+## Resumen
+
+**4 issues abiertos:**
+
+1. **#1 Chain normalization** — Alta (legacy v1 persistente)
+2. **#7 Auto-correct mechanism** — **Crítica** (viola F11)
+3. **#8 Revenue inestable cross-runs** — Media (nueva)
+4. **#9 Porcentajes del segment panel** — Baja (visual)
+
+**Orden de implementación recomendado:** #7 → #8 → #1 → #9.
+
+#7 es crítico filosóficamente. #8 es nuevo pero importante para confiabilidad. #1 sigue persistente. #9 es cosmético.

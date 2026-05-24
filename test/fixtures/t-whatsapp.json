@@ -1,0 +1,87 @@
+{
+  "ownership": {
+    "company": "WhatsApp",
+    "domain": "whatsapp.com",
+    "node_type": "operating_brand",
+    "layer": "brand",
+    "in_current_sources": true,
+    "in_historical_sources": true,
+    "category": "Instant messaging and VoIP service",
+    "strategic_control": [
+      { "entity": "Jan Koum", "role_description": "Co-founder", "evidence": "WhatsApp was founded by Brian Acton and Jan Koum, both former employees of Yahoo!, in 2009.", "source_url": "https://www.quora.com/Who-is-the-founder-of-WhatsApp" },
+      { "entity": "Brian Acton", "role_description": "Co-founder", "evidence": "WhatsApp was founded by Brian Acton and Jan Koum, both former employees of Yahoo!, in 2009.", "source_url": "https://www.quora.com/Who-is-the-founder-of-WhatsApp" },
+      { "entity": "Sequoia Capital", "role_description": "Lead pre-acquisition investor", "evidence": "In 2011, they accepted $8 million in funding from Sequoia Capital, a major venture capital firm.", "source_url": "https://zoko.io/blog/the-history-of-whatsapp" }
+    ],
+    "strategic_control_note": null,
+    "parent": {
+      "company": "Meta Platforms, Inc.",
+      "domain": "meta.com",
+      "node_type": "legal_entity",
+      "layer": "parent",
+      "in_current_sources": true,
+      "in_historical_sources": true,
+      "category": "Social media and technology conglomerate",
+      "focal_segment": "Family of Apps",
+      "parent": {
+        "company": "Mark Zuckerberg",
+        "domain": null,
+        "node_type": "individual",
+        "ubo_type": "individual",
+        "layer": "ubo",
+        "in_current_sources": true,
+        "in_historical_sources": true,
+        "category": "Ultimate Beneficial Owner",
+        "ownership_pct": 100,
+        "parent": null,
+        "siblings": [],
+        "children": [],
+        "strategic_control": [],
+        "strategic_control_note": null
+      },
+      "siblings": [],
+      "children": [],
+      "strategic_control": [
+        { "entity": "Mark Zuckerberg", "role_description": "Co-founder, Chairman and CEO of Meta Platforms", "evidence": "Mark Zuckerberg (chairman and CEO)", "source_url": "https://about.meta.com/" },
+        { "entity": "The Vanguard Group", "role_description": "Major institutional shareholder (~8.5%)", "evidence": "Meta's top institutional shareholders include Vanguard Group (~8.5%), BlackRock (~7.5%), and Fidelity Investments (~5.5%).", "source_url": "https://example.com/holders" },
+        { "entity": "BlackRock", "role_description": "Major institutional shareholder (~7.5%)", "evidence": "Meta's top institutional shareholders include Vanguard Group (~8.5%), BlackRock (~7.5%), and Fidelity Investments (~5.5%).", "source_url": "https://example.com/holders" },
+        { "entity": "Fidelity Investments", "role_description": "Major institutional shareholder (~5.5%)", "evidence": "Meta's top institutional shareholders include Vanguard Group (~8.5%), BlackRock (~7.5%), and Fidelity Investments (~5.5%).", "source_url": "https://example.com/holders" }
+      ],
+      "strategic_control_note": null
+    },
+    "siblings": [
+      { "company": "Facebook", "domain": "facebook.com", "node_type": "operating_brand", "category": "Social networking service", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://about.meta.com/"] },
+      { "company": "Instagram", "domain": "instagram.com", "node_type": "operating_brand", "category": "Photo and video sharing social networking service", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://about.meta.com/"] },
+      { "company": "Messenger", "domain": "messenger.com", "node_type": "operating_brand", "category": "Instant messaging app and platform", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://about.meta.com/"] },
+      { "company": "Threads", "domain": "threads.net", "node_type": "operating_brand", "category": "Text-based social networking service", "in_current_sources": true, "in_historical_sources": true, "source_urls": ["https://about.meta.com/"] }
+    ],
+    "children": [],
+    "acquisition": { "acquired_by": "Meta Platforms, Inc.", "year": 2014, "value": "$19 billion", "type": "mixed", "source_url": "https://about.meta.com/" },
+    "confidence": "medium",
+    "sources": ["https://whatsapp.com/"]
+  },
+  "revenueByCompany": {
+    "whatsapp": { "revenue_estimate": { "low": 1500000000, "high": 9000000000, "central": 2500000000 }, "confidence": "medium", "signals_attempted": 4, "signals_found_count": 4, "signals_found": [
+      { "type": "press", "label": "2024 Revenue Estimate", "value": "Multiple sources estimate WhatsApp's 2024 revenue to be around $1.7 billion to $1.8 billion.", "source": "Business of Apps", "weight": "high" },
+      { "type": "press", "label": "2025 Revenue Estimate", "value": "Sources estimate WhatsApp's 2025 revenue at approximately $2.44 billion to $2.5 billion.", "source": "Resourcera", "weight": "medium" },
+      { "type": "press", "label": "Analyst Revenue Run-Rate Estimate (May 2026)", "value": "Analysts estimate WhatsApp is operating at a $9 billion annual run rate, with projections to reach $36-40 billion by 2029-2030. This is largely driven by business messaging.", "source": "Investing.com", "weight": "medium" },
+      { "type": "customers", "label": "Global User Base", "value": "WhatsApp has over 2.9 to 3.3 billion monthly active users globally as of early 2026.", "source": "Business of Apps", "weight": "high" }
+    ], "reasoning_summary": "Estimate based on multiple press and analyst reports; primary revenue source is the WhatsApp Business platform." },
+    "meta platforms, inc.": { "revenue_estimate": { "low": 134000000000, "high": 146000000000, "central": 134902000000 }, "confidence": "high", "signals_attempted": 4, "signals_found_count": 4, "signals_found": [{ "type": "press", "label": "Full Year 2023 Revenue", "value": "Meta's annual revenue was $134.9 billion in 2023.", "source": "Meta 10-K", "weight": "high" }], "reasoning_summary": "Meta Platforms reported $134.9B revenue for FY2023." },
+    "facebook": { "revenue_estimate": { "low": 100000000000, "high": 120000000000, "central": 110000000000 }, "confidence": "high", "signals_attempted": 4, "signals_found_count": 3, "signals_found": [{ "type": "press", "label": "Family of Apps Segment Revenue (FY2025)", "value": "Facebook ad revenue estimated ~$110B", "source": "Meta 10-K", "weight": "high" }], "reasoning_summary": "Facebook contributes ~$110B." },
+    "instagram": { "revenue_estimate": { "low": 66000000000, "high": 71000000000, "central": 68500000000 }, "confidence": "high", "signals_attempted": 3, "signals_found_count": 4, "signals_found": [{ "type": "press", "label": "2024 Ad Revenue Forecast (WARC Media)", "value": "Instagram revenue estimated ~$68.5B", "source": "WARC", "weight": "high" }], "reasoning_summary": "Instagram contributes ~$68.5B." },
+    "messenger": { "revenue_estimate": { "low": 2000000000, "high": 8000000000, "central": 5000000000 }, "confidence": "medium", "signals_attempted": 4, "signals_found_count": 3, "signals_found": [{ "type": "press", "label": "Business Messaging Ad Revenue (with WhatsApp)", "value": "Messenger revenue estimated ~$5B", "source": "press", "weight": "medium" }], "reasoning_summary": "Messenger contributes ~$5B." },
+    "threads": { "revenue_estimate": { "low": 2000000000, "high": 8000000000, "central": 5000000000 }, "confidence": "medium", "signals_attempted": 4, "signals_found_count": 4, "signals_found": [{ "type": "press", "label": "Analyst Revenue Projection (2026)", "value": "Threads revenue estimated ~$5B", "source": "press", "weight": "medium" }], "reasoning_summary": "Threads contributes ~$5B." }
+  },
+  "parentAnchor": {
+    "is_public": true,
+    "ticker": "META",
+    "fiscal_year": 2023,
+    "total_revenue_usd": 134902000000,
+    "segments": [
+      { "name": "Family of Apps", "revenue_usd": 133010000000, "contains_focal": true },
+      { "name": "Reality Labs", "revenue_usd": 1896000000, "contains_focal": false }
+    ],
+    "source_url": "https://investor.fb.com/",
+    "notes": "Meta Platforms, Inc. FY2023 10-K segment revenue."
+  }
+}
