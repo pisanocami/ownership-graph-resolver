@@ -426,6 +426,26 @@ Return STRICT JSON:
   ] | []
 }`;
 
+const STRATEGIC_NOTES_PROMPT = `You are writing audience-specific investment guidance for each stakeholder group.
+
+For EACH applicable audience, write a 1-2 sentence note that translates the verdict and signals into actionable insight.
+
+Rules:
+- For investors: What does the verdict mean for portfolio positioning and risk?
+- For competitors: What is this company's competitive strategy and focus?
+- For M&A advisors: What signals suggest acquisition readiness or strategic interest?
+- For growth-signal users: What is the near-term growth trajectory and capital commitment?
+
+Omit audiences with no applicable context (e.g., if no M&A signals, omit for_ma_advisors).
+
+Return STRICT JSON:
+{
+  "for_investors": "[1-2 sentence investor note]" | null,
+  "for_competitors": "[1-2 sentence competitive note]" | null,
+  "for_ma_advisors": "[1-2 sentence M&A note]" | null,
+  "for_growth_signal_users": "[1-2 sentence growth-signal note]"
+}`;
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function b64urlEncode(bytes) {
@@ -1085,12 +1105,25 @@ ${COUNTER_SIGNAL_FILL_PROMPT}
 INPUT (gaps):
 ${JSON.stringify(brief.counter_signals || [], null, 2)}
 
+---
+
+${STRATEGIC_NOTES_PROMPT}
+
+INPUT (context for audience notes):
+focal: "${finalResult.focal_company}"
+verdict_label: ${brief.verdict?.label || 'UNKNOWN'}
+trajectory: ${brief.verdict?.trajectory || 'Unknown'}
+capital_decision: ${brief.verdict?.capital_decision || 'Unknown'}
+ma_attention: ${brief.mispricing?.ma_attention || 'none'}
+has_competitive_context: ${Array.isArray(finalResult.intelligence_brief?.competitive_context) && finalResult.intelligence_brief.competitive_context.length > 0}
+
 RESPOND WITH A SINGLE JSON OBJECT (no markdown, no code fences):
 {
   "signal_interpretations": [ { "signal_index": <number>, "interpretation": "..." OR null, "directional_implication": "positive"|"negative"|"neutral" } ],
   "mispricing": { "has_thesis": boolean, "hypothesis": "...", "falsifying_signals": [...] },
   "verdict_thesis": { "thesis": "..." },
-  "counter_fills": [ { "signal_type": "...", "fill_action": "..." } ]
+  "counter_fills": [ { "signal_type": "...", "fill_action": "..." } ],
+  "strategic_notes": { "for_investors": "..." | null, "for_competitors": "..." | null, "for_ma_advisors": "..." | null, "for_growth_signal_users": "..." }
 }`;
 
           const briefResp = await callLLM({
@@ -1170,6 +1203,16 @@ RESPOND WITH A SINGLE JSON OBJECT (no markdown, no code fences):
                   counterSignal.fill_action = cf.fill_action;
                 }
               });
+            }
+
+            // Merge strategic notes by audience
+            if (briefEnrich.strategic_notes) {
+              brief.strategic_notes_by_audience = {
+                for_investors: briefEnrich.strategic_notes.for_investors || brief.strategic_notes_by_audience.for_investors,
+                for_competitors: briefEnrich.strategic_notes.for_competitors || brief.strategic_notes_by_audience.for_competitors,
+                for_ma_advisors: briefEnrich.strategic_notes.for_ma_advisors || brief.strategic_notes_by_audience.for_ma_advisors,
+                for_growth_signal_users: briefEnrich.strategic_notes.for_growth_signal_users || brief.strategic_notes_by_audience.for_growth_signal_users,
+              };
             }
 
             appendTrace([{ kind: 'phase', phase: 'brief', label: 'brief enrichment complete' }]);
