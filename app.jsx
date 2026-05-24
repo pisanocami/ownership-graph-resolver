@@ -1275,8 +1275,8 @@ function ReconciliationBanner({ recon, parent, anchor, focal }) {
             </div>
           )}
           {recon.consolidated_siblings && recon.consolidated_siblings.length > 0 && (
-            <div style={{ fontSize: 12, marginTop: 4, opacity: 0.85 }}>
-              {recon.consolidated_siblings.join(', ')} excluded from the sum (consolidated within the focal's reported segment).
+            <div style={{ fontSize: 12, marginTop: recon.circular ? 4 : 6, opacity: 0.85, fontStyle: 'italic' }}>
+              {recon.consolidated_siblings.join(', ')} consolidated within the focal's reported segment — excluded from the sum to avoid double-counting.
             </div>
           )}
         </div>
