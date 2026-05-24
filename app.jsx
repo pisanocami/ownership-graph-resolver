@@ -2466,8 +2466,11 @@ async function generatePDF(result) {
   // ─── Executive Summary ───
   section('Executive Summary');
   const revEst = tree.revenue_estimate || {};
+  const parentClause = tree.parent
+    ? ` under ${tree.parent.company}${tree.focal_segment ? ` (${tree.focal_segment} division)` : ''}`
+    : ' (standalone)';
   text(
-    `${focal} is a ${tree.layer || 'brand'}${tree.parent ? ` under ${tree.parent.company}` : ' (standalone)'} with an estimated annual revenue of ${formatUSD(revEst.low)}–${formatUSD(revEst.high)} (central ${formatUSD(revEst.central)}).`,
+    `${focal} is a ${tree.layer || 'brand'}${parentClause} with an estimated annual revenue of ${formatUSD(revEst.low)}–${formatUSD(revEst.high)} (central ${formatUSD(revEst.central)}).`,
     { size: 10.5, color: C.muted, gap: 3 }
   );
   {
@@ -2479,7 +2482,100 @@ async function generatePDF(result) {
     px += pill(st, px, py, sbg, sfg) + 2;
     if (tree.category) px += pill(tree.category, px, py, C.accentSoft, C.accentHover) + 2;
     if (tree.terminal_layer === 'private_equity') px += pill('PE-owned', px, py, C.warnBg, C.warning) + 2;
+    const uboMeta = uboTypeMeta(tree.ubo_type);
+    if (uboMeta) px += pill(uboMeta.label, px, py, C.accentSoft, C.accentHover) + 2;
+    if (tree.context_unverified_all) px += pill('context unverified', px, py, C.warnBg, C.warning) + 2;
+    else if (tree.context_unverified_some) px += pill('context partial', px, py, C.warnBg, C.warning) + 2;
     y = py + 8;
+  }
+
+  // UBO stake sub-block (mirrors the detail panel's "Ownership stake" card).
+  if (tree.stake && (tree.stake.equity_pct != null || tree.stake.voting_pct != null || tree.stake.evidence)) {
+    ensure(14);
+    const top = y;
+    pdf.setFillColor(...C.accentSoft);
+    pdf.setDrawColor(...C.accent); pdf.setLineWidth(0.2);
+    const bits = [];
+    if (tree.stake.equity_pct != null) bits.push(`${tree.stake.equity_pct}% equity`);
+    if (tree.stake.voting_pct != null) bits.push(`${tree.stake.voting_pct}% voting`);
+    const ev = tree.stake.evidence ? sanitize(tree.stake.evidence) : '';
+    const evLines = ev ? pdf.splitTextToSize(ev, contentW - 8) : [];
+    const url = tree.stake.source_url && isSafeUrl(tree.stake.source_url) ? tree.stake.source_url : null;
+    const blockH = 7 + (bits.length ? 4 : 0) + evLines.length * 3.8 + (url ? 4 : 0) + 3;
+    pdf.roundedRect(margin, top, contentW, blockH, 1.6, 1.6, 'FD');
+    let yy = top + 4;
+    font(9, 'bold'); pdf.setTextColor(...C.ink);
+    pdf.text('Ownership stake', margin + 4, yy, { baseline: 'top' }); yy += 4.5;
+    if (bits.length) {
+      font(9, 'normal'); pdf.setTextColor(...C.text);
+      pdf.text(bits.join(' · '), margin + 4, yy, { baseline: 'top' }); yy += 4;
+    }
+    if (evLines.length) {
+      font(8.5, 'normal'); pdf.setTextColor(...C.muted);
+      evLines.forEach((ln) => { pdf.text(ln, margin + 4, yy, { baseline: 'top' }); yy += 3.8; });
+    }
+    if (url) {
+      font(7.5, 'normal'); pdf.setTextColor(...C.accentHover);
+      pdf.text(truncateToWidth(url, contentW - 8), margin + 4, yy, { baseline: 'top' });
+    }
+    y = top + blockH + 3;
+  }
+
+  // ─── Pending acquisition callout ───
+  const pa = tree.pending_acquisition;
+  if (pa && pa.acquirer) {
+    section('Pending Acquisition');
+    text(`Pending acquisition by ${pa.acquirer}`, { size: 11, style: 'bold', color: C.warning, gap: 1.5 });
+    const meta = [];
+    if (pa.announced_date) meta.push(`announced ${pa.announced_date}`);
+    if (pa.expected_close_date) meta.push(`expected close ${pa.expected_close_date}`);
+    if (pa.regulatory_status) meta.push(pa.regulatory_status);
+    if (meta.length) text(meta.join(' · '), { size: 9, color: C.muted, gap: 1.5 });
+    text('Parent & siblings shown reflect the current legal owner — not the post-close acquirer.',
+      { size: 8.5, style: 'italic', color: C.muted, gap: 1.5 });
+    const pcp = tree.post_close_consolidated_parent;
+    if (pcp && pcp.company) {
+      text(`Post-close consolidated parent: ${pcp.company}`, { size: 9, color: C.text, gap: 1 });
+    }
+    const fcp = Array.isArray(tree.future_cousins_post_close) ? tree.future_cousins_post_close : [];
+    if (fcp.length) {
+      const names = fcp.map((c) => c.company).filter(Boolean).join(', ');
+      text(`Future cousins post-close: ${names}`, { size: 9, color: C.text, gap: 1 });
+    }
+    if (pa.source_url && isSafeUrl(pa.source_url)) {
+      text(pa.source_url, { size: 8, color: C.accentHover, gap: 1 });
+    }
+  }
+
+  // ─── Co-owners ───
+  const coOwners = Array.isArray(tree.co_owners) ? tree.co_owners : [];
+  if (coOwners.length > 0) {
+    section('Co-owners');
+    text('Additional formal owners beyond the consolidating parent (economic / voting stakes).',
+      { size: 8.5, style: 'italic', color: C.muted, gap: 2 });
+    if (tree.parent?.company) {
+      const roleText = tree.ownership_role ? ` — ${tree.ownership_role.replace(/_/g, ' ')}` : '';
+      text(`Parent: ${tree.parent.company}${roleText} (consolidates)`,
+        { size: 9.5, style: 'bold', color: C.text, gap: 1.5 });
+    }
+    const coRows = coOwners.map((co) => {
+      const bits = [];
+      if (co.stake_pct != null) bits.push(`${co.stake_pct}% econ`);
+      if (co.voting_pct != null) bits.push(`${co.voting_pct}% vote`);
+      return [
+        { text: co.company || '—', bold: true },
+        co.ownership_role ? co.ownership_role.replace(/_/g, ' ') : '—',
+        co.entity_type ? co.entity_type.replace(/_/g, ' ') : '—',
+        bits.length ? bits.join(' · ') : '—',
+      ];
+    });
+    table(['Co-owner', 'Role', 'Type', 'Stake'], coRows, [54, 52, 32, 40]);
+    coOwners.forEach((co) => {
+      if (!co.evidence) return;
+      text(`${co.company}: ${co.evidence}`, { size: 8.5, color: C.muted, x: margin + 3, maxW: contentW - 6, gap: 1 });
+      const srcs = Array.isArray(co.source_urls) ? co.source_urls.filter(isSafeUrl).slice(0, 2) : [];
+      srcs.forEach((u) => text(u, { size: 7.5, color: C.accentHover, x: margin + 3, maxW: contentW - 6, gap: 0.5 }));
+    });
   }
 
   // ─── Ownership Map (native vector diagram) ───
@@ -2579,6 +2675,37 @@ async function generatePDF(result) {
     table(['Company', 'Category', 'Revenue', 'Conf.', 'Status'], breakdownRows, [46, 48, 30, 22, 32]);
   }
 
+  // ─── Cousins (same parent, other divisions) ───
+  const cousins = Array.isArray(tree.intra_parent_cousins) ? tree.intra_parent_cousins : [];
+  if (cousins.length > 0) {
+    section('Cousins (same parent, other divisions)');
+    const parentLabel = tree.parent?.company ? ` of ${tree.parent.company}` : '';
+    text(`${cousins.length} brand${cousins.length === 1 ? '' : 's'}${parentLabel} sitting in a different division than ${focal}.`,
+      { size: 8.5, style: 'italic', color: C.muted, gap: 2 });
+    const cousinGroups = new Map();
+    cousins.forEach((c) => {
+      const k = c.via_division || 'Other division';
+      if (!cousinGroups.has(k)) cousinGroups.set(k, []);
+      cousinGroups.get(k).push(c);
+    });
+    for (const [division, items] of cousinGroups) {
+      text(`via division: ${division}`, { size: 9, style: 'bold', color: C.text, gap: 1.2 });
+      const rows = items.map((c) => {
+        const st = deriveStatus(c).label;
+        const [, fg] = statusColors(st);
+        const rev = c.revenue_estimate;
+        return [
+          c.company || '—',
+          c.category || '—',
+          (rev && rev.central > 0) ? formatUSD(rev.central) : '—',
+          (rev && rev.confidence) || '—',
+          { text: st, color: fg, bold: true },
+        ];
+      });
+      table(['Cousin', 'Category', 'Revenue', 'Conf.', 'Status'], rows, [46, 48, 30, 22, 32]);
+    }
+  }
+
   // ─── Positioning Analysis ───
   if (positioning.focal_vs_parent_ratio || siblings.length > 0 || positioning.growth_signals) {
     section('Positioning Analysis');
@@ -2661,6 +2788,42 @@ async function generatePDF(result) {
         });
       }
       y += 1.5;
+    });
+  }
+
+  // ─── Signals Evidence (per-entity revenue signals) ───
+  const signalEntries = [
+    { node: tree, role: 'focal' },
+    ...siblings.map((s) => ({ node: s, role: 'sibling' })),
+    ...cousins.map((c) => ({ node: c, role: 'cousin' })),
+  ].filter(({ node }) => Array.isArray(node.signals_found) && node.signals_found.length > 0);
+  if (signalEntries.length > 0) {
+    section('Signals Evidence');
+    text('Per-entity signals used to triangulate the revenue estimate. "unverified" = signal source did not mention the parent / sibling brands / focal sector, so it cannot be proven to belong to this entity (homonym risk).',
+      { size: 8.5, style: 'italic', color: C.muted, gap: 2.5 });
+    signalEntries.forEach(({ node, role }) => {
+      ensure(14);
+      font(10, 'bold'); pdf.setTextColor(...C.ink);
+      pdf.text(truncateToWidth(node.company, contentW - 60), margin, y + 0.3, { baseline: 'top' });
+      let lx = margin + pdf.getTextWidth(sanitize(node.company)) + 3;
+      lx += pill(role, lx, y - 0.2, role === 'focal' ? C.accentSoft : C.surface, role === 'focal' ? C.accentHover : C.muted) + 2;
+      const fc = node.signals_found_count, fa = node.signals_attempted;
+      if (fc != null || fa != null) {
+        pill(`${fc ?? '?'}/${fa ?? '?'} signals`, lx, y - 0.2, C.surface, C.muted);
+      }
+      y += 6;
+      const rows = node.signals_found.slice(0, 12).map((s) => {
+        const unverified = !!s.context_unverified;
+        const weight = (s.weight || '—') + (unverified ? ' · unverified' : '');
+        return [
+          s.type || '—',
+          s.label || '—',
+          s.value || '—',
+          s.source || '—',
+          { text: weight, color: unverified ? C.warning : C.text, bold: unverified },
+        ];
+      });
+      table(['Type', 'Label', 'Value', 'Source', 'Weight'], rows, [22, 40, 50, 38, 28]);
     });
   }
 
