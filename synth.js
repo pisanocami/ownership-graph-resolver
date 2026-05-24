@@ -3,6 +3,16 @@
 // and UI. No JSX, no browser globals.
 
 import { buildIntelligenceBrief } from './brief.js';
+import {
+  normalizeNodeType,
+  shouldKeepTicker,
+  isPrivateEquityFirm,
+  enforceSchema,
+} from './schemas/entity.js';
+
+// Re-export the model-boundary schema guard so the app/pipeline can apply it to
+// raw ownership-model JSON without reaching into schemas/ directly (A6/NEW.35).
+export { enforceSchema } from './schemas/entity.js';
 
 // ─── Pure helpers ──────────────────────────────────────────────────────────
 
@@ -946,8 +956,71 @@ export function detectDivisionalSegments(parentEntity, siblings = [], cousins = 
 }
 
 // Generate divisional_aggregator nodes and reassign children (Step 2, Ticket #57)
+// A4 — when the parent is public and its 10-K reports ≥2 segments, build the
+// aggregators directly from those authoritative segments rather than guessing
+// via category clustering. Each segment becomes a division; siblings/cousins are
+// assigned to the segment whose name best matches their via_division / category
+// / name. Segments are authoritative, so a single-brand division is allowed
+// (e.g. RBI → Tim Hortons / Burger King / Popeyes / Firehouse).
+export function generateAggregatorsFromSegments(tree, segments) {
+  const pool = [...(tree.siblings || []), ...(tree.intra_parent_cousins || []), tree];
+  const segName = (s) => (s.name || '').toLowerCase().trim();
+  const matchScore = (entity, seg) => {
+    const sn = segName(seg);
+    if (!sn) return 0;
+    const fields = [entity.via_division, entity.company, entity.category].map((f) => (f || '').toLowerCase());
+    if (fields.some((f) => f && (f.includes(sn) || sn.includes(f)))) return 2;
+    if (categoriesAreSimilar(seg.name, entity.category)) return 1;
+    return 0;
+  };
+  const buckets = new Map(segments.map((s) => [segName(s), []]));
+  for (const entity of pool) {
+    let best = null;
+    let bestScore = 0;
+    if (entity === tree) {
+      const focalSeg = segments.find((s) => s.contains_focal);
+      if (focalSeg) { best = focalSeg; bestScore = 2; }
+    }
+    if (!best) {
+      for (const seg of segments) {
+        const sc = matchScore(entity, seg);
+        if (sc > bestScore) { bestScore = sc; best = seg; }
+      }
+    }
+    if (best && bestScore > 0) buckets.get(segName(best)).push(entity);
+  }
+  const aggregators = [];
+  segments.forEach((seg, idx) => {
+    const children = buckets.get(segName(seg)) || [];
+    if (children.length === 0) return;
+    aggregators.push({
+      company: `${seg.name} Division`,
+      node_type: 'divisional_aggregator',
+      layer: 'aggregator',
+      parent: tree.parent,
+      primary_parent_id: tree.parent.company,
+      secondary_relationships: [],
+      children,
+      revenue_estimate: seg.revenue_usd > 0
+        ? { central: seg.revenue_usd, low: seg.revenue_usd, high: seg.revenue_usd, confidence: 'high', source: '10-K segment' }
+        : { central: children.reduce((a, e) => a + (e.revenue_estimate?.central || 0), 0), low: 0, high: 0, confidence: 'medium' },
+      division_index: idx,
+      _generated: true,
+      _from_segment: true,
+    });
+  });
+  if (aggregators.length >= 2) return { ...tree, _divisional_aggregators: aggregators };
+  return null;
+}
+
 export function generateDivisionalAggregators(tree, parentAnchor = null) {
   if (!tree || !tree.parent) return tree;
+
+  // A4 — prefer authoritative 10-K segments when the parent is public.
+  if (parentAnchor && parentAnchor.is_public && Array.isArray(parentAnchor.segments) && parentAnchor.segments.length >= 2) {
+    const fromSegments = generateAggregatorsFromSegments(tree, parentAnchor.segments);
+    if (fromSegments) return fromSegments;
+  }
 
   // Check if parent has sufficient children for aggregation
   const allChildren = [...(tree.siblings || []), ...(tree.intra_parent_cousins || [])];
@@ -1010,6 +1083,168 @@ export function generateDivisionalAggregators(tree, parentAnchor = null) {
   return tree;
 }
 
+// A2 (NEW.33/NEW.34) — house-of-brands aggregator detection + promotion.
+export const HOLDING_KEYWORDS = [
+  'house of', 'portfolio', 'brands', 'collection', 'holding',
+  'group of', 'family of brands', 'house of direct-to-consumer',
+];
+
+function siblingEvidenceText(sib) {
+  return [
+    ...(Array.isArray(sib.signals_found) ? sib.signals_found.map((s) => `${s.value || ''} ${s.label || ''}`) : []),
+    sib.reasoning_summary || '',
+    sib.notes || '',
+  ].join(' ').toLowerCase();
+}
+
+function referencesAsParent(sib, holdingName) {
+  const name = (holdingName || '').toLowerCase().trim();
+  if (!name) return false;
+  if ((sib.primary_parent_id || '').toLowerCase().trim() === name) return true;
+  if ((sib.parent?.company || '').toLowerCase().trim() === name) return true;
+  if ((sib.acquisition?.acquired_by || '').toLowerCase().trim() === name) return true;
+  const ev = siblingEvidenceText(sib);
+  return [`owned by ${name}`, `part of ${name}`, `${name}'s brand`, `within ${name}`, `${name} portfolio`]
+    .some((p) => ev.includes(p));
+}
+
+// True when `entity` looks like a holding company / house of brands. Threshold
+// is "either suffices" (open-question #1): a holding keyword in the category OR
+// ≥2 siblings that reference the entity as their parent.
+export function detectHoldingPattern(entity) {
+  if (!entity) return false;
+  const cat = (entity.category || '').toLowerCase();
+  const keywordMatch = HOLDING_KEYWORDS.some((kw) => cat.includes(kw));
+  const parentRefs = (entity.siblings || []).filter((s) => referencesAsParent(s, entity.company)).length;
+  return keywordMatch || parentRefs >= 2;
+}
+
+function siblingIsActuallyChild(sibling, holding) {
+  return referencesAsParent(sibling, holding.company);
+}
+
+// Promote a focal that is really a holding company: its sub-brands were emitted
+// as siblings but belong in children. Siblings that are NOT owned by it (true
+// peers / cousins) stay as siblings for downstream relative classification.
+export function promoteToAggregator(entity) {
+  if (!entity) return entity;
+  entity.layer = 'aggregator';
+  entity.node_type = 'house_of_brands_aggregator';
+  entity.children = entity.children || [];
+  const remaining = [];
+  for (const sib of entity.siblings || []) {
+    if (siblingIsActuallyChild(sib, entity)) {
+      sib.primary_parent_id = entity.company;
+      entity.children.push(sib);
+    } else {
+      remaining.push(sib);
+    }
+  }
+  entity.siblings = remaining;
+  return entity;
+}
+
+// A7 (NEW.34) — sibling installation guarantee. Every sibling that completed
+// revenue estimation MUST end up in focal.siblings or focal.children; the bug
+// was siblings processed in logs (DreamCloud, Awara) yet missing from the final
+// tree. Pass the captured-sibling list (from the revenue phase) and this
+// reconciles any that fell out.
+export function installSiblings(focal, capturedSiblings = []) {
+  if (!focal) return focal;
+  focal.siblings = focal.siblings || [];
+  focal.children = focal.children || [];
+  const present = new Set([
+    ...focal.siblings.map((s) => keyOf(s)),
+    ...focal.children.map((c) => keyOf(c)),
+  ]);
+  const completed = (s) => s && s.company
+    && (s.revenue_estimate_completed === true || s.revenue_estimate != null);
+  const expected = new Set(capturedSiblings.filter(completed).map((s) => keyOf(s)));
+  for (const sib of capturedSiblings) {
+    if (!completed(sib)) continue;
+    const k = keyOf(sib);
+    if (present.has(k)) continue;
+    if (siblingIsActuallyChild(sib, focal)) {
+      sib.primary_parent_id = focal.company;
+      focal.children.push(sib);
+    } else {
+      focal.siblings.push(sib);
+    }
+    present.add(k);
+  }
+  const missing = [...expected].filter((k) => !present.has(k));
+  if (missing.length) console.error(`[siblings] processed but not installed: ${missing.join(', ')}`);
+  return focal;
+}
+
+// A3 (NEW.9/NEW.29) — token-overlap category similarity. Missing categories are
+// treated as similar so we never force a cousin split on absent data.
+export function categoriesAreSimilar(catA, catB) {
+  if (!catA || !catB) return true;
+  const norm = (c) => new Set(c.toLowerCase().split(/[\s\-&/,.]+/).filter((t) => t.length >= 3));
+  const ta = norm(catA);
+  const tb = norm(catB);
+  if (ta.size === 0 || tb.size === 0) return true;
+  let overlap = 0;
+  for (const t of ta) if (tb.has(t)) overlap++;
+  return overlap / Math.min(ta.size, tb.size) > 0.3;
+}
+
+// Classify a relative of the focal: SIBLING (same parent, similar category),
+// COUSIN (same parent, different category), or OTHER (different parent).
+export function classifyRelative(entity, focal) {
+  if (!entity || !focal) return 'OTHER';
+  const ep = (entity.primary_parent_id || entity.parent?.company || '').toLowerCase().trim();
+  const fp = (focal.primary_parent_id || focal.parent?.company || '').toLowerCase().trim();
+  if (!ep || !fp || ep !== fp) return 'OTHER';
+  return categoriesAreSimilar(entity.category, focal.category) ? 'SIBLING' : 'COUSIN';
+}
+
+// A5 (NEW.28 + NEW.13) — choose the reconciliation benchmark.
+//   - PE-firm parent → skip (management-fee revenue is not ownership-chain revenue).
+//   - house-of-brands focal under a multi-category parent → anchor on the focal's
+//     own revenue (focal_self_anchor) rather than the parent total.
+//   - public parent with a focal segment → parent 10-K segment.
+//   - otherwise → parent estimated total (flagged as broad).
+export function selectReconciliationBenchmark(focal, parentAnchor = null) {
+  const parent = focal?.parent;
+  if (!parent) return null;
+  if (isPrivateEquityFirm(parent)) {
+    return {
+      skip: true,
+      benchmark_source: 'pe_firm_skip',
+      notes: `Parent ${parent.company} is a private-equity firm; its management-fee revenue is not ownership-chain revenue of ${focal.company} — reconciliation skipped (NEW.13).`,
+    };
+  }
+  const parentChildren = [...(parent.children || []), ...(focal.siblings || []), ...(focal.intra_parent_cousins || [])];
+  const cats = parentChildren.map((c) => (c.category || '').toLowerCase()).filter(Boolean);
+  const diverseParent = new Set(cats).size >= 2;
+  if (focal.node_type === 'house_of_brands_aggregator' && diverseParent && focal.revenue_estimate?.central > 0) {
+    return {
+      benchmark_entity: focal.company,
+      benchmark_value: focal.revenue_estimate.central,
+      benchmark_source: 'focal_self_anchor',
+      notes: `Parent ${parent.company} is multi-category; using ${focal.company}'s own revenue as the reconciliation benchmark (NEW.28).`,
+    };
+  }
+  if (parentAnchor && parentAnchor.is_public && Array.isArray(parentAnchor.segments)) {
+    const seg = parentAnchor.segments.find((s) => s.contains_focal);
+    if (seg && seg.revenue_usd > 0) {
+      return {
+        benchmark_entity: parent.company,
+        benchmark_value: seg.revenue_usd,
+        benchmark_source: 'parent_10k_segment',
+      };
+    }
+  }
+  return {
+    benchmark_entity: parent.company,
+    benchmark_value: parent.revenue_estimate?.central || 0,
+    benchmark_source: 'parent_estimated_total',
+    warning: 'broad benchmark — may have category mismatch',
+  };
+}
+
 export function detectRelationshipType(entity, focal, parentContext = {}) {
   if (!entity || !focal) return { primary_parent_id: null, type: 'REVIEW_NEEDED' };
 
@@ -1038,10 +1273,14 @@ export function detectRelationshipType(entity, focal, parentContext = {}) {
       });
     }
 
+    // A3 (NEW.9/NEW.29): same parent but dissimilar category → COUSIN, not SIBLING
+    // (e.g. Ashley Manufacturing vs the Resident Home bedding brands). Similar
+    // category keeps SIBLING (e.g. Explora Journeys vs MSC Cruceros, both cruise).
+    const sameCategory = categoriesAreSimilar(entity.category, focal.category);
     return {
       primary_parent_id: focalParent,
-      type: 'SIBLING',
-      same_segment: true,
+      type: sameCategory ? 'SIBLING' : 'COUSIN',
+      same_segment: sameCategory,
       secondary_relationships: secondaryRelationships,
     };
   }
@@ -1096,6 +1335,71 @@ export function detectRelationshipType(entity, focal, parentContext = {}) {
     reason: 'Cannot determine primary parent confidently',
     secondary_relationships: secondaryRelationships,
   };
+}
+
+// NEW.17 — a PE firm's founders/managing partners are formal owners of the
+// firm, but the model usually files them under strategic_control. Promote them
+// into co_owners so the UBO layer shows the people behind the fund (e.g. 3G
+// Capital → Lemann, Sicupira, Telles, Behring, Schwartz). Cap 5 (the
+// co_owners cap used elsewhere).
+export function populatePeCoOwners(node) {
+  if (!node) return node;
+  const sc = Array.isArray(node.strategic_control) ? node.strategic_control : [];
+  const founders = sc.filter((c) =>
+    /founder|co-?founder|managing partner|managing director/i.test(c.role_description || c.relationship || ''),
+  );
+  if (founders.length === 0) return node;
+  const existing = Array.isArray(node.co_owners) ? node.co_owners : [];
+  const keys = new Set(existing.map((c) => (c.company || '').toLowerCase().trim()));
+  const additions = [];
+  for (const f of founders) {
+    const name = f.entity || f.name;
+    if (!name) continue;
+    const key = name.toLowerCase().trim();
+    if (keys.has(key)) continue;
+    keys.add(key);
+    additions.push({
+      company: name,
+      ownership_role: 'pe_founder',
+      stake_pct: null,
+      voting_pct: null,
+      evidence: f.evidence || f.role_description || 'PE firm founder / managing partner',
+      entity_type: 'individual',
+      source_urls: f.source_url ? [f.source_url] : [],
+      _derived_from: 'strategic_control',
+    });
+  }
+  node.co_owners = [...existing, ...additions].slice(0, 5);
+  return node;
+}
+
+// A1 — late canonical-type pass. Rewrites every node's node_type onto the
+// 8-value enum (schemas/entity.js), strips tickers that leaked onto non-public
+// layers (NEW.14), and populates PE-firm founder co_owners (NEW.17). Runs at the
+// END of synthesize so the earlier chain-collapse / mergePair logic (which keys
+// off the legacy "legal_entity") is untouched.
+export function applyCanonicalNodeTypes(tree) {
+  if (!tree) return tree;
+  const seen = new WeakSet();
+  const visit = (node) => {
+    if (!node || typeof node !== 'object' || seen.has(node)) return;
+    seen.add(node);
+    node.node_type = normalizeNodeType(node);
+    if (node.ticker != null && !shouldKeepTicker(node)) node.ticker = null;
+    if (node.node_type === 'private_equity_firm') populatePeCoOwners(node);
+    if (node.parent) visit(node.parent);
+    (node.siblings || []).forEach(visit);
+    (node.children || []).forEach(visit);
+    (node.intra_parent_cousins || []).forEach(visit);
+    (node.cousins || []).forEach(visit);
+    (node.co_owners || []).forEach(visit);
+    (node._divisional_aggregators || []).forEach((agg) => {
+      agg.node_type = normalizeNodeType(agg);
+      (agg.children || []).forEach(visit);
+    });
+  };
+  visit(tree);
+  return tree;
 }
 
 export function collectEntities(ownership) {
@@ -1557,9 +1861,22 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
   const { tree: normalized, collapses, holdingFlags } = normalizeChain(ownership, revenueByCompany);
   // NEW (Ticket #57 Step 1): Initialize primary_parent_id + secondary_relationships on all tree nodes
   const initialized = initializeRelationshipFields(normalized);
+  // A2 (NEW.33/NEW.34): when the focal is itself a house of brands, its
+  // sub-brands were emitted as siblings — promote it to an aggregator and move
+  // the owned brands into children.
+  if (detectHoldingPattern(initialized)) promoteToAggregator(initialized);
   // NEW (Ticket #57 Step 2): Detect and generate divisional aggregators for multi-segment parents
   const withAggregators = generateDivisionalAggregators(initialized, parentAnchor);
   const tree = attachRevenue(withAggregators, revenueByCompany, entitiesByCompany);
+  // A7 (NEW.34): guarantee every revenue-completed sibling is installed in the
+  // tree (the orchestration layer passes the captured-sibling list it processed).
+  if (Array.isArray(options.capturedSiblings) && options.capturedSiblings.length) {
+    installSiblings(tree, options.capturedSiblings);
+  }
+  // A1 — canonicalize node_type onto the 8-value enum, strip leaked tickers
+  // (NEW.14), and promote PE-firm founders into co_owners (NEW.17). Late pass so
+  // the chain-collapse logic above still sees the legacy "legal_entity".
+  applyCanonicalNodeTypes(tree);
   if (parentAnchor) tree.parent_anchor = parentAnchor;
   const notes = [];
   collapses.forEach((c) => {
@@ -1722,8 +2039,13 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
   const sibCentrals = siblings.map((s) => s.revenue_estimate_raw?.central ?? s.revenue_estimate?.central ?? 0);
   const knownSibCount = sibCentrals.filter((x) => x > 0).length + (rawFocalRev > 0 ? 1 : 0);
 
+  // A5 (NEW.28 + NEW.13): pick the benchmark policy. PE-firm parents skip
+  // reconciliation entirely; a house-of-brands focal anchors on its own revenue.
+  const a5Benchmark = selectReconciliationBenchmark(tree, parentAnchor);
+  if (a5Benchmark && a5Benchmark.skip) notes.push(a5Benchmark.notes);
+
   let reconciliation = null;
-  if (tree.parent && knownSibCount >= 2) {
+  if (tree.parent && knownSibCount >= 2 && !(a5Benchmark && a5Benchmark.skip)) {
     const anchorTotal = parentAnchor && parentAnchor.is_public ? (parentAnchor.total_revenue_usd || 0) : 0;
     const focalSeg = parentAnchor && Array.isArray(parentAnchor.segments)
       ? parentAnchor.segments.find((s) => s.contains_focal) : null;
@@ -1767,18 +2089,28 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
     // total is larger — fall back to the parent total.
     const segmentLooksLikeSubLine =
       focalSegmentRev > 0 && sumChildCentralAdj > 2 * focalSegmentRev && anchorTotal > focalSegmentRev;
-    const useSegmentBenchmark = focalSegmentRev > 0 && !segmentLooksLikeSubLine;
-    const benchmark = useSegmentBenchmark
-      ? focalSegmentRev
-      : anchorTotal > 0 ? anchorTotal : parentRev;
-    const benchmarkSource = useSegmentBenchmark
-      ? 'segment'
-      : anchorTotal > 0 ? '10-K' : 'estimated';
-    const benchmarkLabel = useSegmentBenchmark
-      ? `${tree.parent.company} "${focalSeg.name}" segment (${parentAnchor.fiscal_year || 'latest'} 10-K)`
-      : anchorTotal > 0
-        ? `${tree.parent.company} ${parentAnchor.fiscal_year || 'latest'} 10-K reported revenue`
-        : `${tree.parent.company} estimated central revenue`;
+    // A5 focal_self_anchor: a house-of-brands focal under a multi-category parent
+    // benchmarks against its OWN revenue, not the parent total (NEW.28).
+    const useSelfAnchor = a5Benchmark && a5Benchmark.benchmark_source === 'focal_self_anchor' && a5Benchmark.benchmark_value > 0;
+    const useSegmentBenchmark = !useSelfAnchor && focalSegmentRev > 0 && !segmentLooksLikeSubLine;
+    const benchmark = useSelfAnchor
+      ? a5Benchmark.benchmark_value
+      : useSegmentBenchmark
+        ? focalSegmentRev
+        : anchorTotal > 0 ? anchorTotal : parentRev;
+    const benchmarkSource = useSelfAnchor
+      ? 'focal_self_anchor'
+      : useSegmentBenchmark
+        ? 'segment'
+        : anchorTotal > 0 ? '10-K' : 'estimated';
+    const benchmarkLabel = useSelfAnchor
+      ? `${tree.company}'s own revenue (focal self-anchor — multi-category parent)`
+      : useSegmentBenchmark
+        ? `${tree.parent.company} "${focalSeg.name}" segment (${parentAnchor.fiscal_year || 'latest'} 10-K)`
+        : anchorTotal > 0
+          ? `${tree.parent.company} ${parentAnchor.fiscal_year || 'latest'} 10-K reported revenue`
+          : `${tree.parent.company} estimated central revenue`;
+    if (useSelfAnchor) notes.push(a5Benchmark.notes);
     if (segmentLooksLikeSubLine) {
       notes.push(`⚠ Reported segment "${focalSeg.name}" (${formatUSD(focalSegmentRev)}) is smaller than the focal + siblings it supposedly contains (${formatUSD(sumChildCentralAdj)}) — likely a sub-product line, not a reportable segment. Benchmarking against ${tree.parent.company} consolidated total (${formatUSD(benchmark)}) instead.`);
     }
