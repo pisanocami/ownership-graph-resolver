@@ -87,6 +87,31 @@ if (!API_KEY) {
   process.exit(1);
 }
 
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+
+app.post('/api/gemini', async (req, res) => {
+  if (!GEMINI_API_KEY) {
+    return res.status(500).json({ error: 'GEMINI_API_KEY not configured on server' });
+  }
+  try {
+    const { model, ...body } = req.body || {};
+    if (!model) return res.status(400).json({ error: 'model required' });
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return res.status(response.status).json(data);
+    }
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/anthropic', async (req, res) => {
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
