@@ -15,15 +15,31 @@ const fixtures = readdirSync(fixturesDir).filter((f) => f.endsWith('.json'));
 
 const load = (f) => JSON.parse(readFileSync(join(fixturesDir, f), 'utf8'));
 
-function isOwnershipFixture(obj) {
-  return obj && typeof obj === 'object' && typeof obj.company === 'string';
+// Fixtures come in two shapes:
+//   (A) raw ownership tree at root: { company, parent, siblings, ... }
+//   (B) wrapper:                    { ownership, revenueByCompany, parentAnchor }
+// Normalize both shapes so the compliance suite runs across every fixture.
+function unwrap(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  if (typeof raw.company === 'string') {
+    return { ownership: raw, revenueByCompany: {}, parentAnchor: null };
+  }
+  if (raw.ownership && typeof raw.ownership === 'object' && typeof raw.ownership.company === 'string') {
+    return {
+      ownership: raw.ownership,
+      revenueByCompany: raw.revenueByCompany || {},
+      parentAnchor: raw.parentAnchor || null,
+    };
+  }
+  return null;
 }
 
 fixtures.forEach((file) => {
   const raw = load(file);
-  if (!isOwnershipFixture(raw)) return;
+  const unwrapped = unwrap(raw);
+  if (!unwrapped) return;
   test(`V2.1 compliance · ${file}`, () => {
-    const out = synthesize(raw, {}, null, {});
+    const out = synthesize(unwrapped.ownership, unwrapped.revenueByCompany, unwrapped.parentAnchor, {});
     const b = out.intelligence_brief;
 
     // P1.04 — capital_path_summary must be a non-empty string.

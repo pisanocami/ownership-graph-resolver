@@ -17,8 +17,22 @@ import {
   needsSiblingBackfill,
   mergeSiblings,
   mergeCousins,
+  createRevenueCache,
 } from './synth.js';
 import { isConsumerSector, sanitizeForPdf } from './brief.js';
+
+// X.03 deterministic synthesis seed (Task #58): a stable seed derived from
+// (focal, parent, calendar day) lets repeated runs within the same UTC day
+// return identical revenue and a single intra-session cache key. The cache
+// itself is module-scoped so back-to-back runs on the same focal reuse the
+// prior revenue rather than re-rolling it.
+function buildSynthesisSeed(focalName, parentName) {
+  const day = new Date().toISOString().slice(0, 10);
+  const focal = String(focalName || '').toLowerCase().trim();
+  const parent = String(parentName || '').toLowerCase().trim();
+  return `${focal}|${parent}|${day}`;
+}
+const __revenueCache = createRevenueCache();
 
 const PROVIDERS = {
   anthropic: {
@@ -1131,7 +1145,19 @@ export default function App() {
       revenueResults.forEach((r) => { byCompany[r.company.toLowerCase().trim()] = r; });
       const entitiesByCompany = {};
       entities.forEach((e) => { entitiesByCompany[(e.company || '').toLowerCase().trim()] = e; });
-      const synthesized = synthesize(ownership, byCompany, parentAnchor, entitiesByCompany);
+      // X.03: stable per-(focal, parent, day) seed + intra-session revenue
+      // cache. Cache lookup keys on company name; on miss we cache the
+      // freshly-estimated revenue so subsequent retries on the same focal
+      // return identical numbers within the session.
+      const synthSeed = buildSynthesisSeed(ownership?.company, ownership?.parent?.company);
+      Object.keys(byCompany).forEach((k) => {
+        if (__revenueCache.has(k)) {
+          byCompany[k] = __revenueCache.get(k);
+        } else {
+          __revenueCache.set(k, byCompany[k]);
+        }
+      });
+      const synthesized = synthesize(ownership, byCompany, parentAnchor, entitiesByCompany, { seed: synthSeed });
       const finalResult = { ...synthesized, _entities: entities, _revenueResults: revenueResults, _parentAnchor: parentAnchor };
 
       // ── Narrative phase: turn the structured result into an investor-grade
