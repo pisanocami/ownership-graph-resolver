@@ -1390,10 +1390,18 @@ function ReconciliationBanner({ recon, parent, anchor, focal }) {
             )}
           </div>
           <div style={{ border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden', background: 'var(--bg)' }}>
-            {segments.map((seg, i) => {
+            {(() => {
+              // Task #41: denominator is the parent's consolidated total so rows
+              // sum to ≈100% (Fashion & Leather ≈ 49% of LVMH, etc.), not a share
+              // of the focal segment which produced misleading numbers > 100%.
+              const parentTotal = anchor?.total_revenue_usd
+                || recon?.parent_total_revenue
+                || 0;
+              return segments.map((seg, i) => {
               const isFocalSeg = !!seg.contains_focal;
               const segRev = seg.revenue_usd || 0;
-              const pct = benchmark > 0 ? (segRev / benchmark) * 100 : 0;
+              const hasPct = parentTotal > 0 && segRev > 0;
+              const pct = hasPct ? (segRev / parentTotal) * 100 : 0;
               return (
                 <div
                   key={i}
@@ -1426,15 +1434,20 @@ function ReconciliationBanner({ recon, parent, anchor, focal }) {
                       </span>
                     )}
                   </span>
-                  <span className="mono" style={{ color: 'var(--text-subtle)', fontSize: 11, minWidth: 48, textAlign: 'right' }}>
-                    {pct.toFixed(1)}%
+                  <span
+                    className="mono"
+                    style={{ color: 'var(--text-subtle)', fontSize: 11, minWidth: 48, textAlign: 'right' }}
+                    title={hasPct ? `${formatUSD(segRev)} / ${formatUSD(parentTotal)} parent total` : 'parent total revenue unknown'}
+                  >
+                    {hasPct ? `${pct.toFixed(1)}%` : '—'}
                   </span>
                   <span className="mono" style={{ color: isFocalSeg ? 'var(--text)' : 'var(--text-muted)', minWidth: 96, textAlign: 'right' }}>
                     {formatUSD(segRev)}
                   </span>
                 </div>
               );
-            })}
+            });
+            })()}
           </div>
         </div>
       )}
@@ -2912,11 +2925,17 @@ async function generatePDF(result) {
     const parentName = tree.parent?.company || 'Parent';
     text(`${parentName}'s segments. Focal is${tree.focal_segment ? ` in "${tree.focal_segment}"` : ' not assigned to a specific segment'}.`,
       { size: 8.5, style: 'italic', color: C.muted, gap: 2 });
-    // Calculate total segment revenue to show %
-    const totalSegRev = parentSegments.reduce((sum, s) => sum + (s.revenue_usd || 0), 0);
+    // Task #41: denominator is the parent's consolidated total revenue, not
+    // the sum of named segments (which excludes "other / eliminations" and
+    // double-counts when segments overlap). Falls back to suppressing the
+    // percent when the parent total is unknown.
+    const parentAnchorForPdf = tree.parent?.parent_anchor || tree.parent_anchor || {};
+    const parentTotal = parentAnchorForPdf.total_revenue_usd || 0;
     const segRows = parentSegments.map((seg) => {
       const rev = seg.revenue_usd && seg.revenue_usd > 0 ? formatUSD(seg.revenue_usd) : '—';
-      const pctStr = totalSegRev > 0 && seg.revenue_usd ? `${((seg.revenue_usd / totalSegRev) * 100).toFixed(0)}%` : '—';
+      const pctStr = parentTotal > 0 && seg.revenue_usd
+        ? `${((seg.revenue_usd / parentTotal) * 100).toFixed(0)}%`
+        : '—';
       const badge = seg.contains_focal ? { text: 'contains focal', color: C.activeFg, bold: true } : '—';
       return [
         seg.name || '—',
@@ -2926,7 +2945,7 @@ async function generatePDF(result) {
       ];
     });
     if (segRows.length > 0) {
-      table(['Segment', 'Revenue', '% of Total', 'Contains Focal'], segRows, [50, 40, 28, 40]);
+      table(['Segment', 'Revenue', '% of Parent', 'Contains Focal'], segRows, [50, 40, 28, 40]);
     }
   }
 

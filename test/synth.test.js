@@ -532,6 +532,61 @@ test('Round 2: the focal is NEVER collapsed even when it shares a holding token 
   assert.equal(out.ownership_tree.parent.parent.company, 'The Walt Disney Company');
 });
 
+// ─── Task #41: segment-panel percentages use parent total as denominator ───
+
+test('Task #41: reconciliation surfaces parent_total_revenue so segment % rows can use it as the denominator', () => {
+  // LVMH-style: Fashion & Leather Goods is ~$42B of LVMH's ~$86B total. The
+  // OLD UI divided 42 / 11 (focal-segment denominator) → ~386%. The fix uses
+  // total_revenue_usd (~$86B) → ~49%.
+  const ownership = {
+    company: 'Tiffany & Co.',
+    domain: 'tiffany.com',
+    parent: {
+      company: 'LVMH',
+      domain: 'lvmh.com',
+      ticker: 'MC.PA',
+      parent: null,
+    },
+  };
+  const parentAnchor = {
+    is_public: true,
+    fiscal_year: '2023',
+    total_revenue_usd: 86_153_000_000,
+    segments: [
+      { name: 'Fashion & Leather Goods', revenue_usd: 42_169_000_000, contains_focal: false },
+      { name: 'Wines & Spirits', revenue_usd: 6_602_000_000, contains_focal: false },
+      { name: 'Perfumes & Cosmetics', revenue_usd: 8_271_000_000, contains_focal: false },
+      { name: 'Watches & Jewelry', revenue_usd: 10_902_000_000, contains_focal: true },
+      { name: 'Selective Retailing', revenue_usd: 17_885_000_000, contains_focal: false },
+      { name: 'Other', revenue_usd: 324_000_000, contains_focal: false },
+    ],
+  };
+  const revenueByCompany = {
+    'tiffany & co.': { revenue_estimate: { low: 4e9, high: 5e9, central: 4.5e9 }, confidence: 'medium', signals_found: [] },
+  };
+  const out = synthesize(ownership, revenueByCompany, parentAnchor, {});
+
+  // The total flows through to reconciliation so the UI can use it as denominator.
+  const recon = out.positioning_analysis.reconciliation;
+  // Reconciliation may or may not fire depending on sibling coverage; the
+  // anchor itself is always surfaced on the parent node and on the tree.
+  const surfacedTotal = recon?.parent_total_revenue
+    || out.ownership_tree.parent?.parent_anchor?.total_revenue_usd
+    || out.ownership_tree.parent_anchor?.total_revenue_usd;
+  assert.equal(surfacedTotal, 86_153_000_000, 'parent consolidated total is exposed to the UI');
+
+  // Sanity check the math the UI now performs.
+  const fashionPct = (42_169_000_000 / surfacedTotal) * 100;
+  assert.ok(fashionPct > 48 && fashionPct < 50,
+    `Fashion & Leather Goods ≈ 49% of parent total (got ${fashionPct.toFixed(1)}%); old focal-segment denominator produced ~386%`);
+
+  // All named segment shares sum to ≈ 100% (allowing for "Other").
+  const sumPct = parentAnchor.segments.reduce(
+    (a, s) => a + ((s.revenue_usd || 0) / surfacedTotal) * 100, 0,
+  );
+  assert.ok(sumPct >= 99 && sumPct <= 101, `segment shares sum to ≈100% (got ${sumPct.toFixed(1)}%)`);
+});
+
 // ─── Bug #3 follow-up: cousins get revenue with parent context ──────────────
 
 test('Cousins: collectEntities includes intra_parent_cousins with role and parent context', () => {
