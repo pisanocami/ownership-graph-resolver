@@ -3456,20 +3456,24 @@ async function generateBriefPDF(result, svgImage = null) {
     changers.slice(0, 4).forEach((c) => text(`  - ${c}`, { size: 9, color: [60, 60, 60] }));
   }
   // V2.1 P7.03 — explicit condition → new-label map.
+  // V2.1 R.01 — never silent skip: render header + fallback when empty.
   const vMap = brief.verdict?.verdict_changer_map || [];
+  y += 1;
+  text('Verdict-changer map (condition -> new label):', { size: 9.5, style: 'bold', color: [60, 60, 80] });
   if (vMap.length > 0) {
-    y += 1;
-    text('Verdict-changer map (condition -> new label):', { size: 9.5, style: 'bold', color: [60, 60, 80] });
     vMap.slice(0, 5).forEach((m) => text(`  - IF ${m.condition} -> ${m.new_label}`, { size: 8.5, color: [70, 70, 90] }));
+  } else {
+    text('  No data captured for verdict-changer map.', { size: 8.5, color: [120, 120, 130], style: 'italic' });
   }
 
   // ─── Top-3 signals (lead the brief with "Read this as:") ─────────────
+  // V2.1 R.01 — never silent skip: always render header + fallback when empty.
   const top3 = Array.isArray(brief.top_signals) && brief.top_signals.length > 0
     ? brief.top_signals
     : (brief.behavioral_signals || []).slice(0, 3);
+  y += 3;
+  section('TOP-3 SIGNALS');
   if (top3.length > 0) {
-    y += 3;
-    section('TOP-3 SIGNALS');
     const dirArrow = (d) => (d === 'positive' ? '+' : d === 'negative' ? '−' : '=');
     top3.forEach((sig) => {
       const dir = sig.directional_implication ? ` · ${dirArrow(sig.directional_implication)}` : '';
@@ -3477,6 +3481,8 @@ async function generateBriefPDF(result, svgImage = null) {
       if (sig.evidence) text(`   ${sig.evidence}`, { size: 9 });
       if (sig.interpretation) text(`   ${sig.interpretation}`, { size: 9, color: [60, 80, 130] });
     });
+  } else {
+    text('No data captured for top-3 signals.', { size: 10, color: [120, 120, 130], style: 'italic' });
   }
 
   // ─── All behavioral signals ──────────────────────────────────────────
@@ -3742,9 +3748,10 @@ async function generateBriefPDF(result, svgImage = null) {
     ['For M&A advisors', notes.for_ma_advisors],
     ['For growth-signal users', notes.for_growth_signal_users],
   ].filter(([, v]) => v && v !== 'Pending LLM enrichment');
+  // V2.1 R.01 — never silent skip.
+  y += 4;
+  section('STRATEGIC NOTES');
   if (audienceRows.length > 0) {
-    y += 4;
-    section('STRATEGIC NOTES');
     audienceRows.forEach(([label, note]) => {
       text(`${label}:`, { size: 10, style: 'bold' });
       // for_growth_signal_users can be array of ≥4 use cases (V2.1 P3.04)
@@ -3754,13 +3761,17 @@ async function generateBriefPDF(result, svgImage = null) {
         text(`   ${note}`, { size: 9 });
       }
     });
+  } else {
+    text('No data captured for strategic notes.', { size: 10, color: [120, 120, 130], style: 'italic' });
   }
 
   // V2.1 P7.01 + P9.03 + P9.04 — confidence buckets, limitations, section confidence
+  // V2.1 R.01 — never silent skip: always render the header + fallback.
   const buckets = brief.confidence_buckets;
-  if (buckets && ((buckets.high?.length || 0) + (buckets.medium?.length || 0) + (buckets.low?.length || 0) > 0)) {
-    y += 4;
-    section('CONFIDENCE BREAKDOWN');
+  const bucketTotal = (buckets?.high?.length || 0) + (buckets?.medium?.length || 0) + (buckets?.low?.length || 0);
+  y += 4;
+  section('CONFIDENCE BREAKDOWN');
+  if (buckets && bucketTotal > 0) {
     const bands = [
       ['HIGH', buckets.high, [76, 175, 80]],
       ['MEDIUM', buckets.medium, [255, 152, 0]],
@@ -3776,6 +3787,8 @@ async function generateBriefPDF(result, svgImage = null) {
       items.forEach((it) => text(`  - ${it.claim} - ${it.reason}`, { size: 8.5, color: [50, 50, 60] }));
       y += 0.5;
     });
+  } else {
+    text('No data captured for confidence breakdown.', { size: 10, color: [120, 120, 130], style: 'italic' });
   }
 
   const sc = brief.section_confidence;

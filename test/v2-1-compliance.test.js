@@ -19,6 +19,12 @@ const load = (f) => JSON.parse(readFileSync(join(fixturesDir, f), 'utf8'));
 //   (A) raw ownership tree at root: { company, parent, siblings, ... }
 //   (B) wrapper:                    { ownership, revenueByCompany, parentAnchor }
 // Normalize both shapes so the compliance suite runs across every fixture.
+// Fixtures come in THREE shapes:
+//   (A) raw ownership tree at root:           { company, parent, siblings, ... }
+//   (B) input wrapper:                        { ownership, revenueByCompany, parentAnchor }
+//   (C) pre-synthesized output:               { focal_company, ownership_tree, positioning_analysis }
+// Shape (C) is re-synthesized through its ownership_tree (which carries
+// revenue_estimate inline) so the V2.1 brief invariants are re-derived.
 function unwrap(raw) {
   if (!raw || typeof raw !== 'object') return null;
   if (typeof raw.company === 'string') {
@@ -31,13 +37,26 @@ function unwrap(raw) {
       parentAnchor: raw.parentAnchor || null,
     };
   }
+  if (raw.ownership_tree && typeof raw.ownership_tree === 'object' && typeof raw.ownership_tree.company === 'string') {
+    return {
+      ownership: raw.ownership_tree,
+      revenueByCompany: {},
+      parentAnchor: raw.positioning_analysis?.parent_anchor || null,
+    };
+  }
   return null;
 }
 
 fixtures.forEach((file) => {
   const raw = load(file);
   const unwrapped = unwrap(raw);
-  if (!unwrapped) return;
+  // Fail loudly on unknown fixture shapes so new ones get explicit handling.
+  if (!unwrapped) {
+    test(`V2.1 compliance · ${file} (UNKNOWN SHAPE)`, () => {
+      assert.fail(`Unknown fixture shape for ${file}; extend unwrap() in test/v2-1-compliance.test.js`);
+    });
+    return;
+  }
   test(`V2.1 compliance · ${file}`, () => {
     const out = synthesize(unwrapped.ownership, unwrapped.revenueByCompany, unwrapped.parentAnchor, {});
     const b = out.intelligence_brief;
