@@ -1235,19 +1235,20 @@ function ResultView({ result, showRaw, setShowRaw, selectedKey, setSelectedKey, 
     ? positioning.strategic_notes
     : [positioning.strategic_notes].filter(Boolean);
 
-  const handleGeneratePDF = async () => {
+  const handleGeneratePDF = async (mode = 'brief') => {
     let svgImage = null;
     if (graphViewRef.current && viewMode === 'graph') {
       svgImage = await graphViewRef.current.exportSVG();
     }
-    await generatePDF(result, svgImage);
+    await generatePDF(result, svgImage, mode);
   };
 
   return (
     <>
       {/* Export actions */}
       <div className="no-print" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
-        <button className="btn btn-sm" onClick={handleGeneratePDF}>↓ PDF</button>
+        <button className="btn btn-sm" onClick={() => handleGeneratePDF('brief')}>↓ Brief (V2)</button>
+        <button className="btn btn-sm" onClick={() => handleGeneratePDF('legacy')}>↓ Legacy</button>
         <button
           className={`btn btn-sm ${shareState === 'copied' ? 'btn-primary' : ''}`}
           onClick={handleShare}
@@ -2570,7 +2571,119 @@ function flattenTree(tree) {
 // embedded high-res snapshot of the on-screen ownership map, page numbers, and the
 // full F11 dataset (derived status + category, reconciliation explanation, per-layer
 // strategic control). Forces a direct download via a Blob + anchor.
-async function generatePDF(result, svgImage = null) {
+async function generateBriefPDF(result, svgImage = null) {
+  if (!result || !result.intelligence_brief) return;
+
+  const brief = result.intelligence_brief;
+  const focal = result.focal_company?.name || 'Unknown';
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const margin = 16;
+  const contentW = pageW - 2 * margin;
+  const bottomLimit = pageH - 16;
+  let y = margin;
+
+  const font = (size, style = 'normal') => { pdf.setFontSize(size); pdf.setFont('helvetica', style); };
+  const addPage = () => { pdf.addPage(); y = margin; };
+  const ensure = (h) => { if (y + h > bottomLimit) addPage(); };
+
+  const text = (str, opts = {}) => {
+    const { size = 10, style = 'normal', color = [24, 24, 27], x = margin, maxW = contentW, gap = 1.8 } = opts;
+    font(size, style); pdf.setTextColor(...color);
+    const lines = pdf.splitTextToSize(String(str ?? ''), maxW);
+    const lineH = size * 0.42;
+    lines.forEach((ln) => {
+      ensure(lineH);
+      pdf.text(ln, x, y, { baseline: 'top' });
+      y += lineH;
+    });
+    y += gap;
+  };
+
+  const section = (title) => {
+    ensure(24);
+    y += 3;
+    pdf.setFillColor(8, 145, 178);
+    pdf.rect(margin, y, 2.2, 5.4, 'F');
+    font(12, 'bold'); pdf.setTextColor(17, 17, 20);
+    pdf.text(String(title).toUpperCase(), margin + 5, y + 0.3, { baseline: 'top' });
+    y += 7.5;
+    pdf.setDrawColor(229, 231, 235); pdf.setLineWidth(0.3);
+    pdf.line(margin, y, margin + contentW, y);
+    y += 4;
+  };
+
+  // Page 1: Verdict Hero
+  section('VERDICT');
+  const verdictLabel = brief.verdict?.label || 'N/A';
+  font(24, 'bold'); pdf.setTextColor(8, 145, 178);
+  text(verdictLabel, { size: 24, style: 'bold', color: [8, 145, 178] });
+
+  text(`Trajectory: ${brief.verdict?.trajectory || 'N/A'}`, { size: 11 });
+  text(`Capital Decision: ${brief.verdict?.capital_decision || 'N/A'}`, { size: 11 });
+  if (brief.verdict?.thesis) text(`Thesis: ${brief.verdict.thesis}`, { size: 10 });
+
+  y += 4;
+  section('BEHAVIORAL SIGNALS');
+  if (brief.behavioral_signals && brief.behavioral_signals.length > 0) {
+    brief.behavioral_signals.slice(0, 5).forEach((sig, i) => {
+      text(`${i + 1}. ${sig.signal_type || 'Unknown'} [${sig.weight || 'medium'}]`, { size: 10, style: 'bold' });
+      if (sig.evidence) text(`   Evidence: ${sig.evidence}`, { size: 9 });
+      if (sig.interpretation) text(`   Interpretation: ${sig.interpretation}`, { size: 9 });
+    });
+  } else {
+    text('No signals captured', { size: 10 });
+  }
+
+  y += 4;
+  section('CORPORATE STRUCTURE');
+  if (brief.corporate_structure?.ascii_tree) {
+    text(brief.corporate_structure.ascii_tree, { size: 8 });
+  } else {
+    text('Unknown structure', { size: 10 });
+  }
+  text(`Ownership Clarity: ${brief.corporate_structure?.ownership_clarity || 'N/A'}`, { size: 10 });
+
+  y += 4;
+  section('RECONCILIATION');
+  if (brief.reconciliation_honest) {
+    text(`Interpretation: ${brief.reconciliation_honest.interpretation}`, { size: 10, style: 'bold' });
+    text(`Direction: ${brief.reconciliation_honest.raw_numbers?.delta_pct > 0 ? '+' : ''}${brief.reconciliation_honest.raw_numbers?.delta_pct || 0}%`, { size: 10 });
+    if (brief.reconciliation_honest.honest_explanation) {
+      text(brief.reconciliation_honest.honest_explanation, { size: 9 });
+    }
+  } else {
+    text('No reconciliation data (standalone)', { size: 10 });
+  }
+
+  y += 4;
+  section('MISPRICING & M&A');
+  text(`M&A Attention: ${brief.mispricing?.ma_attention || 'None'}`, { size: 10 });
+  if (brief.mispricing?.hypothesis) text(`Hypothesis: ${brief.mispricing.hypothesis}`, { size: 10 });
+
+  y += 4;
+  section('METADATA');
+  text(`Report Date: ${dateStr}`, { size: 9 });
+  if (brief.data_trace?.primary_sources && brief.data_trace.primary_sources.length > 0) {
+    text(`Sources: ${brief.data_trace.primary_sources.join(', ')}`, { size: 9 });
+  }
+
+  const filename = `${focal}-intelligence-brief-${dateStr.replace(/\s+/g, '-')}.pdf`;
+  pdf.save(filename);
+}
+
+async function generatePDF(result, svgImage = null, mode = 'brief') {
+  if (mode === 'brief') {
+    return generateBriefPDF(result, svgImage);
+  }
+  return generateLegacyPDF(result, svgImage);
+}
+
+async function generateLegacyPDF(result, svgImage = null) {
   if (!result || !result.ownership_tree) return;
 
   const tree = result.ownership_tree;
