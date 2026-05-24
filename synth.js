@@ -416,6 +416,16 @@ export function collectEntities(ownership) {
     p = p.parent;
     depth++;
   }
+  // Issue #3: the ROOT always deserves an independent estimate. Public mega-caps
+  // (Microsoft, Berkshire, Apple, Alphabet) must never surface null revenue just
+  // because they sit beyond the depth-2 ancestor walk above a chain like
+  // Call of Duty → Activision Publishing → Activision Blizzard → Microsoft.
+  // Walk to the top; dedup skips it when it was already captured as parent/grandparent.
+  let root = ownership.parent;
+  while (root && root.parent) root = root.parent;
+  if (root && root.node_type !== 'individual') {
+    push(root, 'root', null);
+  }
   // Prioritize current/active brands before slicing so a recently launched brand
   // (e.g. Cloverlane) is never the one dropped by the cap.
   const orderedSiblings = [...(ownership.siblings || [])].sort(
@@ -538,53 +548,13 @@ export function attachRevenue(ownership, revenueByCompany, entitiesByCompany = {
   return clone;
 }
 
-// Rescale focal + sibling central estimates so they sum to the parent's
-// reported 10-K total. Each adjustment is clamped to the entity's own
-// [low, high] band, the raw estimate is preserved on `revenue_estimate_raw`,
-// and `anchor_adjusted: true` is flagged so the UI and reconciliation can
-// distinguish corrected values from raw model output.
-export function applyAnchorAdjustment(tree, parentAnchor) {
-  if (!tree || !parentAnchor || !parentAnchor.is_public) return null;
-  const anchorTotal = parentAnchor.total_revenue_usd || 0;
-  if (anchorTotal <= 0) return null;
-
-  const targets = [tree, ...(tree.siblings || [])].filter(
-    (n) => n && n.revenue_estimate && (n.revenue_estimate.central || 0) > 0
-  );
-  if (targets.length < 2) return null;
-
-  const sumRaw = targets.reduce((a, n) => a + (n.revenue_estimate.central || 0), 0);
-  if (sumRaw <= 0) return null;
-  const scale = anchorTotal / sumRaw;
-  // Skip if already within 5% — no meaningful correction to make.
-  if (Math.abs(scale - 1) < 0.05) return null;
-
-  let adjustedSum = 0;
-  targets.forEach((n) => {
-    const rev = n.revenue_estimate;
-    const rawCentral = rev.central || 0;
-    const scaled = rawCentral * scale;
-    const clamped = Math.max(rev.low || 0, Math.min(rev.high || Infinity, scaled));
-    n.revenue_estimate_raw = { low: rev.low, high: rev.high, central: rawCentral, confidence: rev.confidence };
-    n.revenue_estimate = {
-      ...rev,
-      central: Math.round(clamped),
-      anchor_adjusted: true,
-      anchor_scale: Number(scale.toFixed(3)),
-      anchor_clamped: clamped !== scaled,
-    };
-    adjustedSum += clamped;
-  });
-
-  return {
-    scale: Number(scale.toFixed(3)),
-    anchor_total: anchorTotal,
-    sum_raw: Math.round(sumRaw),
-    sum_adjusted: Math.round(adjustedSum),
-    adjusted_count: targets.length,
-    residual_pct: Math.round(((adjustedSum - anchorTotal) / anchorTotal) * 100),
-  };
-}
+// Issue #7 (F11): the per-sibling anchor auto-correct was removed. Scaling raw
+// estimates by `anchorTotal / sumRaw` to force them to sum to the parent's 10-K
+// total converted an honest coverage gap into fictional precision (e.g. T18
+// GEICO: $42B raw → $44B "adjusted", National Indemnity inflated past its whole
+// reinsurance segment). F11 = capture what you find; classify only after capture.
+// We now preserve raw central estimates and surface the gap via the deterministic
+// reconciliation explanation (`buildReconciliationExplanation`) instead.
 
 // Build the focal → root layer chain (root first), used for per-layer passes.
 function layerChain(tree) {
@@ -592,6 +562,35 @@ function layerChain(tree) {
   let p = tree.parent;
   while (p) { chain.unshift(p); p = p.parent; }
   return [...chain, tree];
+}
+
+// Issue #5: a child can never out-earn the parent that owns it. When a captured
+// central exceeds its parent's (e.g. Activision Publishing $10B > Activision
+// Blizzard $5.72B), the figures are from different fiscal eras or scopes
+// (pre/post-acquisition). Flag the outlier with requires_review instead of
+// silently presenting the impossible child>parent — never auto-fix the number.
+// Returns the list of "child > parent" pairs found (for the synthesis note).
+function flagRevenueConsistency(tree) {
+  const central = (n) => n?.revenue_estimate?.central || 0;
+  const flagged = [];
+  const check = (child, parent) => {
+    if (!child || !parent) return;
+    const c = central(child);
+    const p = central(parent);
+    if (c > 0 && p > 0 && c > p) {
+      child.requires_review = true;
+      child.revenue_review_reason =
+        `Estimate ${formatUSD(c)} exceeds owner ${parent.company} (${formatUSD(p)}) — impossible for a subsidiary; likely a different fiscal era or scope (pre/post-acquisition).`;
+      flagged.push(`${child.company} (${formatUSD(c)}) > ${parent.company} (${formatUSD(p)})`);
+    }
+  };
+  // Every node in the focal→root chain vs the node directly above it.
+  let n = tree;
+  while (n && n.parent) { check(n, n.parent); n = n.parent; }
+  // Focal's direct children vs the focal; siblings vs the shared parent.
+  (tree.children || []).forEach((c) => check(c, tree));
+  (tree.siblings || []).forEach((s) => check(s, tree.parent));
+  return flagged;
 }
 
 // Deterministic explanation for a reconciliation gap > 20% (Bundle B). Built
@@ -669,7 +668,6 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
   // displayed (Bug #5).
   const { tree: normalized, collapses, holdingFlags } = normalizeChain(ownership);
   const tree = attachRevenue(normalized, revenueByCompany, entitiesByCompany);
-  const anchorAdjustment = applyAnchorAdjustment(tree, parentAnchor);
   if (parentAnchor) tree.parent_anchor = parentAnchor;
   const notes = [];
   collapses.forEach((c) => {
@@ -714,6 +712,13 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
       };
       notes.push(`${tree.parent.company} revenue shown from its ${parentAnchor.fiscal_year || 'latest'} filing (${formatUSD(anchorUsd)}); model's raw parent estimate preserved.`);
     }
+  }
+
+  // Issue #5: flag any child whose central exceeds its parent's (run after the
+  // parent's revenue is finalized above, including the 10-K anchor override).
+  const consistencyFlags = flagRevenueConsistency(tree);
+  if (consistencyFlags.length > 0) {
+    notes.push(`⚠ Revenue consistency: ${consistencyFlags.join('; ')} — a subsidiary cannot out-earn its owner; flagged for review (likely mismatched fiscal eras or scope, not a real figure to trust).`);
   }
 
   const focalRev = tree.revenue_estimate?.central || 0;
@@ -794,9 +799,8 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
 
   // ── Reconciliation: sum(focal + siblings) vs parent reported total ─────────
   // Prefer the 10-K anchor when available; otherwise fall back to the parent's
-  // estimated central. Large gaps surface as an explicit warning. When an
-  // anchor adjustment was applied, diagnose against the raw (pre-adjustment)
-  // values so the warning reflects the original model gap, not the corrected one.
+  // estimated central. Large gaps surface as an explicit warning + a
+  // deterministic explanation — never by scaling the raw estimates (Issue #7).
   const rawFocalRev = tree.revenue_estimate_raw?.central ?? focalRev;
   const sibCentrals = siblings.map((s) => s.revenue_estimate_raw?.central ?? s.revenue_estimate?.central ?? 0);
   const knownSibCount = sibCentrals.filter((x) => x > 0).length + (rawFocalRev > 0 ? 1 : 0);
@@ -885,7 +889,6 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
         consolidated_siblings: consolidated_siblings.length ? consolidated_siblings : undefined,
         circular: circular || undefined,
         circular_siblings: circular ? circular_siblings : undefined,
-        anchor_adjustment: anchorAdjustment,
       };
       if (consolidated_siblings.length) {
         const verb = consolidated_siblings.length > 1 ? 'are' : 'is';
@@ -914,13 +917,6 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
         if (segRatio > 1.3 || segRatio < 0.7) {
           notes.push(`⚠ Focal estimate (${formatUSD(rawFocalRev)}) diverges from its parent 10-K segment revenue (${formatUSD(focalSegmentRev)}, ${Math.round(segRatio * 100)}%).`);
         }
-      }
-      if (anchorAdjustment) {
-        const direction = anchorAdjustment.scale > 1 ? 'scaled up' : 'scaled down';
-        const residualClause = Math.abs(anchorAdjustment.residual_pct) >= 5
-          ? ` Residual gap after band-clamping: ${anchorAdjustment.residual_pct > 0 ? '+' : ''}${anchorAdjustment.residual_pct}%.`
-          : '';
-        notes.push(`Auto-corrected: ${anchorAdjustment.adjusted_count} central estimates ${direction} by ${anchorAdjustment.scale}× to reconcile with ${benchmarkLabel} (${formatUSD(anchorAdjustment.anchor_total)}); raw values preserved.${residualClause}`);
       }
     }
   }

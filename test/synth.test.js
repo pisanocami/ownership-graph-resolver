@@ -502,3 +502,108 @@ test('Bug #2: ownership without co_owners is unchanged (backward compatible)', (
   // Legacy ratio format ("X% of <parent> revenue") preserved when no co_owners.
   assert.match(out.positioning_analysis.focal_vs_parent_ratio, /of .+ revenue|standalone|unknown/);
 });
+
+// ─── Issue #7: auto-correct removed — raw estimates preserved, honest gap ─────
+
+test('Issue #7: a >5% anchor gap no longer rescales estimates (raw preserved)', () => {
+  // GEICO-style: sum of focal + sibling ($67B) is far below the public parent's
+  // 10-K total ($364.67B). The old auto-correct scaled them up 5.4× (inflating
+  // National Indemnity past its whole segment). Now the raw values must survive.
+  const ownership = {
+    company: 'GEICO', domain: 'geico.com', node_type: 'operating_brand', siblings: [
+      { company: 'National Indemnity Company', domain: 'nationalindemnity.com', in_current_sources: true },
+    ],
+    parent: { company: 'Berkshire Hathaway', domain: 'berkshirehathaway.com', node_type: 'legal_entity', parent: null },
+  };
+  const revenueByCompany = {
+    'geico': { revenue_estimate: { low: 40e9, high: 44e9, central: 42e9 }, confidence: 'high', signals_found: [], reasoning_summary: 'Triangulated from $42.9B premiums written.' },
+    'national indemnity company': { revenue_estimate: { low: 20e9, high: 30e9, central: 25e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+  };
+  const parentAnchor = { is_public: true, total_revenue_usd: 364_670_000_000, fiscal_year: 2023, segments: [] };
+  const out = synthesize(ownership, revenueByCompany, parentAnchor, {});
+  const focal = out.ownership_tree;
+  const sib = focal.siblings.find((s) => s.company === 'National Indemnity Company');
+
+  assert.equal(focal.revenue_estimate.central, 42e9, 'focal central stays RAW (not scaled up)');
+  assert.equal(sib.revenue_estimate.central, 25e9, 'sibling central stays RAW (not inflated)');
+  assert.equal(focal.revenue_estimate.anchor_adjusted, undefined, 'no anchor_adjusted flag');
+  assert.equal(focal.revenue_estimate_raw, undefined, 'no scaling shadow value created');
+
+  const notes = out.positioning_analysis.strategic_notes.join(' | ');
+  assert.doesNotMatch(notes, /auto-?corrected/i, 'no "Auto-corrected … scaled by ×" note');
+
+  // The honest coverage gap is still surfaced with a deterministic explanation.
+  const recon = out.positioning_analysis.reconciliation;
+  assert.ok(recon, 'reconciliation still fires');
+  assert.equal(recon.anchor_adjustment, undefined, 'reconciliation carries no anchor_adjustment block');
+  assert.ok(recon.ratio < 0.5, `honest coverage ratio preserved (got ${recon.ratio})`);
+  assert.ok(recon.explanation && recon.explanation.likely_causes.length >= 1, 'gap explanation attached');
+});
+
+// ─── Issue #5: a child cannot out-earn its parent → requires_review ──────────
+
+test('Issue #5: child revenue exceeding parent is flagged, not silently shown', () => {
+  // Activision Publishing ($10B, post-acquisition scope) > Activision Blizzard
+  // ($5.72B, last standalone FY) — logically impossible for a subsidiary.
+  const ownership = {
+    company: 'Call of Duty', domain: 'callofduty.com', node_type: 'operating_brand',
+    parent: {
+      company: 'Activision Publishing', domain: 'activision.com', node_type: 'legal_entity',
+      parent: {
+        company: 'Activision Blizzard', domain: 'activisionblizzard.com', node_type: 'legal_entity',
+        parent: { company: 'Microsoft', domain: 'microsoft.com', node_type: 'legal_entity', parent: null },
+      },
+    },
+  };
+  const revenueByCompany = {
+    'call of duty': { revenue_estimate: { low: 5e9, high: 6e9, central: 5.5e9 }, confidence: 'high', signals_found: [], reasoning_summary: '' },
+    'activision publishing': { revenue_estimate: { low: 9e9, high: 11e9, central: 10e9 }, confidence: 'medium', signals_found: [], reasoning_summary: '' },
+    'activision blizzard': { revenue_estimate: { low: 5e9, high: 6e9, central: 5.72e9 }, confidence: 'high', signals_found: [], reasoning_summary: '' },
+    'microsoft': { revenue_estimate: { low: 240e9, high: 250e9, central: 245e9 }, confidence: 'high', signals_found: [], reasoning_summary: '' },
+  };
+  const out = synthesize(ownership, revenueByCompany, null, {});
+  const publishing = out.ownership_tree.parent;
+  assert.equal(publishing.company, 'Activision Publishing');
+  assert.equal(publishing.requires_review, true, 'outlier flagged for review');
+  assert.match(publishing.revenue_review_reason, /exceeds owner Activision Blizzard/);
+  assert.notEqual(out.ownership_tree.requires_review, true, 'a normal child (CoD < Publishing) is not flagged');
+  const notes = out.positioning_analysis.strategic_notes.join(' | ');
+  assert.match(notes, /Revenue consistency/);
+  assert.match(notes, /Activision Publishing/);
+});
+
+// ─── Issue #3: the root is always collected for an independent estimate ──────
+
+test('Issue #3: a deep root (Microsoft) is collected and gets a revenue estimate', () => {
+  const ownership = {
+    company: 'Call of Duty', domain: 'callofduty.com',
+    parent: {
+      company: 'Activision Publishing', domain: 'activision.com',
+      parent: {
+        company: 'Activision Blizzard', domain: 'activisionblizzard.com',
+        parent: { company: 'Microsoft', domain: 'microsoft.com', node_type: 'legal_entity', parent: null },
+      },
+    },
+  };
+  const ents = collectEntities(ownership);
+  const ms = ents.find((e) => e.company === 'Microsoft');
+  assert.ok(ms, 'root (beyond the depth-2 walk) is still collected');
+  assert.equal(ms.role, 'root');
+
+  const revenueByCompany = {
+    'microsoft': { revenue_estimate: { low: 240e9, high: 250e9, central: 245e9 }, confidence: 'high', signals_found: [], reasoning_summary: '' },
+  };
+  const out = synthesize(ownership, revenueByCompany, null, {});
+  const root = out.ownership_tree.parent.parent.parent;
+  assert.equal(root.company, 'Microsoft');
+  assert.equal(root.revenue_estimate.central, 245e9, 'root revenue is attached (not null)');
+});
+
+test('Issue #3: an individual/UBO root is NOT sent for a revenue lookup', () => {
+  const ownership = {
+    company: 'Ashley Furniture', domain: 'ashleyfurniture.com',
+    parent: { company: 'Wanek Family', node_type: 'individual', parent: null },
+  };
+  const ents = collectEntities(ownership);
+  assert.equal(ents.find((e) => e.company === 'Wanek Family'), undefined, 'natural-person/family root is skipped');
+});

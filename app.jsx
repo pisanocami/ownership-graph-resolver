@@ -58,16 +58,16 @@ Rules:
 
 Step 4 — Recurse to root. Stop conditions: ultimate parent identifiable, PE firm (mark terminal_layer:"private_equity" and stop), or no evidence. Recurse through current_legal_parent only, never through the pending acquirer.
 
-Step 5 — Siblings (SEGMENT-FILTERED — read carefully). Siblings are brands at the SAME layer of the CURRENT LEGAL PARENT **and inside the same business segment / division as the focal**. They are NOT "every brand the parent owns".
+Step 5 — Siblings (SEGMENT-FILTERED — read carefully). Siblings are brands at the SAME layer of the CURRENT LEGAL PARENT **and inside the same business segment / division / operating label as the focal**. They are NOT "every brand the parent owns".
 
 SEGMENT-FILTER RULE (Bug #3 regression — applies to ALL multi-division aggregators, e.g. LVMH, P&G, Unilever, Inditex, Kering, Estée Lauder, Richemont, AB InBev, Kellanova, Diageo, Nestlé):
-  a) First, identify the focal's segment/division within the parent's own reporting structure. Sources: the parent's IR / "our brands" page (which usually groups by division), the parent's latest 10-K / 20-F segment breakdown (use parent_anchor.segments[].contains_focal when it exists downstream), or a reputable financial summary. E.g. Tiffany & Co. → LVMH "Watches & Jewelry"; Tide → P&G "Fabric & Home Care" (laundry sub-segment); Zara → Inditex (single-segment, so all brands are siblings).
+  a) First, identify the focal's segment/division/label within the parent's structure. "Segment" here means ANY internal grouping — a 10-K reporting segment, a corporate division, OR an OPERATING LABEL / business unit that the parent uses even when it is NOT a separate legal entity and does NOT appear in the 10-K. Sources, in order: the parent's IR / "our brands" / "our studios" / "our labels" page (which usually groups by division/label), the parent's latest 10-K / 20-F segment breakdown (use parent_anchor.segments[].contains_focal when it exists downstream), the Wikipedia "Subsidiaries" / "Brands" / "Divisions" section, or a reputable financial summary. E.g. Tiffany & Co. → LVMH "Watches & Jewelry"; Tide → P&G "Fabric & Home Care" (laundry sub-segment); Call of Duty → Activision Blizzard label "Activision" (the three operating labels Activision / Blizzard / King are NOT in the 10-K but ARE the right division cut — siblings = other Activision-label franchises like Crash Bandicoot, Spyro, Tony Hawk's; World of Warcraft/Overwatch/Diablo are Blizzard-label cousins, Candy Crush is a King-label cousin); Zara → Inditex (single-segment, so all brands are siblings).
   b) Populate "siblings" with ONLY brands that share that segment (Tiffany siblings = Bulgari, Chaumet, Fred, Repossi, TAG Heuer, Hublot — NOT Louis Vuitton, Dior, Givenchy, Fendi). For Tide: siblings = Ariel, Gain — NOT Downy/Dawn/Febreze/Mr. Clean.
   c) Brands of OTHER segments of the same parent are NOT siblings. Place them in the NEW field "intra_parent_cousins" with their own segment in "via_division" (e.g. {"company":"Louis Vuitton","via_division":"Fashion & Leather Goods", ...}). These are real cousins inside the same family but a different business line.
   d) Capture the focal's own division in "focal_segment" (top-level field) so the UI/reconciliation can label it.
   e) If the parent has NO declared segments (private with no disclosure, or genuinely single-segment), keep ALL portfolio brands as siblings and set "focal_segment": null. Note this in "notes".
 
-MEGA-AGGREGATOR HEURISTIC: If your initial brand-list for siblings would exceed 10 entries, that is a strong signal you are missing a segment cut. STOP, run an extra search for the parent's segment / division structure ("[parent] business segments", "[parent] divisions"), apply the filter, and report in "notes" that you segmented (e.g. "Segmented LVMH portfolio by division; siblings restricted to Watches & Jewelry.").
+MEGA-AGGREGATOR HEURISTIC: If your initial brand-list for siblings would exceed 10 entries, that is a strong signal you are missing a segment cut. STOP, run an extra search for the parent's segment / division / label structure ("[parent] business segments", "[parent] divisions", "[parent] operating labels", "[parent] studios"), apply the filter, and report in "notes" that you segmented (e.g. "Segmented LVMH portfolio by division; siblings restricted to Watches & Jewelry." or "Split Activision Blizzard by operating label; siblings restricted to the Activision label, Blizzard/King brands placed as cousins.").
 
 The "siblings" field is ALWAYS current_siblings_under_current_parent_AND_same_segment — never the acquirer's portfolio while a deal is pending (those go in "future_cousins_post_close" as before).
 
@@ -168,9 +168,9 @@ STRICT JSON OUTPUT, NO PROSE, NO MARKDOWN FENCES:
     "entity_type": "trust"|"nonprofit"|"corporation"|"individual"|"government"|"family_group",
     "source_urls": [url]
   }],
-  "focal_segment": str | null,              // The parent's segment/division that contains the focal (e.g. "Watches & Jewelry", "Fabric & Home Care"). null when parent has no segment disclosure or is single-segment.
+  "focal_segment": str | null,              // The parent's segment/division/operating-label that contains the focal (e.g. "Watches & Jewelry", "Fabric & Home Care", or the publishing label "Activision"). null only when parent is genuinely single-segment with no internal grouping.
   "siblings": [{"company": str, "domain": str, "node_type": str, "category": str, "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}],   // current_siblings_under_current_parent AND inside focal_segment ONLY.
-  "intra_parent_cousins": [{"company": str, "domain": str, "node_type": str, "category": str, "via_division": str, "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}] | null,   // Brands of the SAME parent but in a DIFFERENT segment/division than the focal. via_division names that other segment. null when parent has no segments declared.
+  "intra_parent_cousins": [{"company": str, "domain": str, "node_type": str, "category": str, "via_division": str, "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}] | null,   // Brands of the SAME parent but in a DIFFERENT segment/division/operating-label than the focal. via_division names that other segment OR label (e.g. "Blizzard", "King"). null only when parent is genuinely single-segment.
   "future_cousins_post_close": [{"company": str, "domain": str, "category": str, "source_urls": [url]}] | null,   // ONLY when pending_acquisition is non-null. Brands of the announced acquirer that would become cousins post-close. Empty/null otherwise.
   "pending_acquisition": {                  // null if no announced-but-unclosed deal
     "acquirer": str,
@@ -181,7 +181,7 @@ STRICT JSON OUTPUT, NO PROSE, NO MARKDOWN FENCES:
   } | null,
   "post_close_consolidated_parent": {"company": str, "source_url": str} | null,   // entity that WILL own focal once pending_acquisition closes
   "children": [{recursive}],
-  "acquisition": {"acquired_by": str, "year": int, "source_url": str} | null,   // CLOSED acquisitions only (historical). Pending deals go in pending_acquisition.
+  "acquisition": {"acquired_by": str, "year": int, "month": int|null, "day": int|null, "price_usd": int|null, "price_display": str|null, "price_source_url": str|null, "price_confidence": "high"|"medium"|"low"|null, "deal_type": "all_cash"|"stock_swap"|"mixed"|null, "source_url": str} | null,   // CLOSED acquisitions only (historical). Pending deals go in pending_acquisition. ALWAYS capture price_usd + price_display + deal_type when the deal value was publicly disclosed (e.g. Microsoft–Activision $68.7B all_cash, LVMH–Tiffany $15.8B). price_usd is the integer USD value (68700000000). Leave price fields null for undisclosed private deals.
   "strategic_control": [{"entity": str, "role_description": str, "evidence": str, "source_url": str}],
   "strategic_control_note": str|null,  // when strategic_control is []: "no_data_found: <reason>"
   "confidence": "high"|"medium"|"low",
@@ -1826,19 +1826,10 @@ function FlowNode({ data }) {
           <>
             <span className={`confidence-dot confidence-${rev.confidence || 'unknown'}`} />
             <span className="flow-node-rev">{formatUSD(rev.central)}</span>
-            {rev.anchor_adjusted && (
-              <span
-                className="chip"
-                title={
-                  node.revenue_estimate_raw
-                    ? `Anchor-adjusted from raw ${formatUSD(node.revenue_estimate_raw.central)}${rev.anchor_clamped ? ' (clamped to band)' : ''}`
-                    : 'Anchor-adjusted to parent 10-K total'
-                }
-              >
-                {rev.anchor_clamped ? 'adj·clamp' : 'adj'}
-              </span>
-            )}
           </>
+        )}
+        {node.requires_review && (
+          <span className="chip" title={node.revenue_review_reason || 'Flagged for review'}>review</span>
         )}
       </div>
       <Handle type="source" position={Position.Bottom} style={handleStyle} className="flow-handle" />
@@ -2115,9 +2106,16 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
         <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)' }}>
           Acquired by <strong style={{ color: 'var(--text)' }}>{node.acquisition.acquired_by}</strong>
           {node.acquisition.year ? ` · ${node.acquisition.year}` : ''}
-          {node.acquisition.source_url && isSafeUrl(node.acquisition.source_url) && (
-            <> · <a href={node.acquisition.source_url} target="_blank" rel="noopener noreferrer">source</a></>
+          {(node.acquisition.price_display || node.acquisition.price_usd) && (
+            <> · <strong style={{ color: 'var(--text)' }}>{node.acquisition.price_display || formatUSD(node.acquisition.price_usd)}</strong></>
           )}
+          {node.acquisition.deal_type && <> · {node.acquisition.deal_type.replace(/_/g, ' ')}</>}
+          {(() => {
+            const priceLink = node.acquisition.price_source_url || node.acquisition.source_url;
+            return priceLink && isSafeUrl(priceLink) ? (
+              <> · <a href={priceLink} target="_blank" rel="noopener noreferrer">source</a></>
+            ) : null;
+          })()}
         </div>
       )}
 
@@ -2170,16 +2168,13 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
               <span className={`confidence-dot confidence-${rev.confidence || 'unknown'}`} />
               <span>{rev.confidence || 'unknown'} confidence</span>
             </span>
-            {rev.anchor_adjusted && (
-              <span className="chip" style={{ marginLeft: 8 }}>
-                anchor-adjusted{rev.anchor_clamped ? ' · clamped' : ''}
-                {rev.anchor_scale ? ` · ${rev.anchor_scale}×` : ''}
-              </span>
+            {node.requires_review && (
+              <span className="chip" style={{ marginLeft: 8 }} title={node.revenue_review_reason || ''}>requires review</span>
             )}
           </div>
-          {rev.anchor_adjusted && node.revenue_estimate_raw && (
-            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-              Raw model estimate: {formatUSD(node.revenue_estimate_raw.central)} (range {formatUSD(node.revenue_estimate_raw.low)} — {formatUSD(node.revenue_estimate_raw.high)})
+          {node.requires_review && node.revenue_review_reason && (
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+              {node.revenue_review_reason}
             </div>
           )}
         </div>
