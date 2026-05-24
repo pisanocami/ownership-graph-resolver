@@ -525,6 +525,102 @@ export function buildVerdictChangers(tree, capitalDecision, publicAncestor = nul
 export function buildAsciiTree(tree) {
   if (!tree) return '';
 
+  // Check if tree uses new data model (primary_parent_id, secondary_relationships, _divisional_aggregators)
+  const usesNewModel = tree.primary_parent_id !== undefined || tree._divisional_aggregators || tree.secondary_relationships;
+
+  if (usesNewModel) {
+    // New hierarchical tree format (Ticket #57)
+    const lines = [];
+
+    // Collect parent chain (walking up parent references)
+    const chain = [];
+    let current = tree;
+    while (current) {
+      chain.unshift(current);
+      current = current.parent;
+    }
+
+    // Walk chain and build ASCII tree with proper indentation
+    function renderNode(node, depth = 0, isLast = true) {
+      const indent = '  '.repeat(depth);
+      const prefix = depth === 0 ? '' : isLast ? '└── ' : '├── ';
+
+      let label = `${node.company}`;
+      // Add type/layer in parentheses
+      if (node._generated) {
+        label += ' (Aggregator)';
+      } else if (node.type) {
+        label += ` (${node.type})`;
+      } else if (node.layer) {
+        label += ` (${node.layer})`;
+      }
+
+      // Add revenue if available
+      if (node.revenue_estimate?.central > 0) {
+        const revLabel = (node.revenue_estimate.central / 1e9).toFixed(1);
+        label += ` · $${revLabel}B`;
+      }
+
+      // Add secondary relationships inline
+      if (node.secondary_relationships && node.secondary_relationships.length > 0) {
+        const relTypes = node.secondary_relationships.map(r => r.relationship_type).join(', ');
+        label += ` [${relTypes}]`;
+      }
+
+      lines.push(`${indent}${prefix}${label}`.trimStart());
+    }
+
+    // Build tree from root down
+    chain.forEach((node, idx) => {
+      renderNode(node, idx);
+    });
+
+    // Render divisional aggregators and their children under focal
+    if (tree._divisional_aggregators && tree._divisional_aggregators.length > 0) {
+      tree._divisional_aggregators.forEach((agg, aggIdx) => {
+        const isLastAgg = aggIdx === tree._divisional_aggregators.length - 1;
+        renderNode(agg, chain.length, isLastAgg);
+
+        // Render children of aggregator
+        (agg.children || []).forEach((child, childIdx) => {
+          const isLastChild = childIdx === (agg.children.length - 1);
+          const childIndent = '  '.repeat(chain.length + 1);
+          const childPrefix = isLastChild ? '└── ' : '├── ';
+
+          let childLabel = child.company;
+          if (child.node_type === 'operating_brand') childLabel += ' (Operating brand)';
+          if (child.revenue_estimate?.central > 0) {
+            const revLabel = (child.revenue_estimate.central / 1e9).toFixed(1);
+            childLabel += ` · $${revLabel}B`;
+          }
+          lines.push(`${childIndent}${childPrefix}${childLabel}`);
+        });
+      });
+    }
+
+    // Render flat siblings/cousins if no aggregators
+    if (!tree._divisional_aggregators || tree._divisional_aggregators.length === 0) {
+      const siblings = tree.siblings || [];
+      const cousins = tree.intra_parent_cousins || [];
+      const allRelatives = [...siblings, ...cousins];
+
+      allRelatives.slice(0, 6).forEach((node, idx) => {
+        const isLast = idx === Math.min(5, allRelatives.length - 1);
+        renderNode(node, chain.length, isLast);
+      });
+    }
+
+    // Render focal's children
+    const children = tree.children || [];
+    children.slice(0, 4).forEach((node, idx) => {
+      const isLast = idx === Math.min(3, children.length - 1);
+      renderNode(node, chain.length + 1, isLast);
+    });
+
+    return lines.join('\n');
+  }
+
+  // Old summary format (backward compatibility)
   const lines = [];
   lines.push(`${tree.company} (${tree.type || tree.layer || 'Brand'})`);
 
