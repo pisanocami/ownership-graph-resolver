@@ -2187,6 +2187,137 @@ function extractAllSignals(tree) {
   return signals;
 }
 
+// ─── Brief Mode: Verdict Tab ─────────────────────────────────────────────────
+
+const confidenceColor = (conf) => {
+  if (conf === 'high') return 'var(--success)';
+  if (conf === 'medium') return 'var(--warning)';
+  return 'var(--danger)';
+};
+
+const confidenceBgColor = (conf) => {
+  if (conf === 'high') return 'rgba(34, 197, 94, 0.1)';
+  if (conf === 'medium') return 'rgba(251, 146, 60, 0.1)';
+  return 'rgba(239, 68, 68, 0.1)';
+};
+
+function generateDefaultVerdict(tree, positioning) {
+  const parent = tree.parent?.company;
+  const confidence = tree.confidence;
+  const nodeType = tree.node_type === 'legal_entity' ? 'legal entity' : 'operating brand';
+
+  if (!parent) {
+    return `${tree.company} is an independent ${nodeType} with no identified parent company.`;
+  }
+
+  if (confidence === 'high') {
+    return `${tree.company} is a ${tree.layer || 'subsidiary'} of ${parent}, with high-confidence ownership verified through multiple sources.`;
+  }
+
+  if (confidence === 'medium') {
+    return `${tree.company} appears to be owned by ${parent}, though some details require further verification.`;
+  }
+
+  return `${tree.company}'s ownership structure remains partially unclear; additional research may be needed.`;
+}
+
+function BriefVerdictView({ tree, positioning, brief }) {
+  const verdict = brief?.verdict?.label || generateDefaultVerdict(tree, positioning);
+  const parent = tree.parent?.company || 'Standalone';
+  const confidence = tree.confidence || 'unknown';
+  const nodeType = tree.node_type === 'legal_entity' ? 'Legal Entity' : 'Operating Brand';
+  const layer = tree.layer || 'Unknown';
+
+  const notes = Array.isArray(positioning?.strategic_notes)
+    ? positioning.strategic_notes
+    : [positioning?.strategic_notes].filter(Boolean);
+
+  return (
+    <div style={{ paddingBottom: 20 }}>
+      <section className="section">
+        <div className="card" style={{
+          padding: 20,
+          borderLeft: `4px solid ${confidenceColor(confidence)}`,
+          background: confidenceBgColor(confidence)
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-muted)', marginBottom: 8 }}>
+            Verdict
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 600, lineHeight: 1.6, color: 'var(--text)' }}>
+            {verdict}
+          </div>
+        </div>
+      </section>
+
+      <section className="section" style={{ marginTop: 16 }}>
+        <div className="section-head">
+          <span className="section-title">Key Facts</span>
+        </div>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: 12
+        }}>
+          <div className="card" style={{ padding: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6 }}>
+              ENTITY TYPE
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 500 }}>
+              {nodeType}
+            </div>
+          </div>
+
+          <div className="card" style={{ padding: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6 }}>
+              PARENT COMPANY
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 500 }}>
+              {parent === 'Standalone' ? '—' : parent}
+            </div>
+          </div>
+
+          <div className="card" style={{ padding: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6 }}>
+              LAYER
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 500, textTransform: 'capitalize' }}>
+              {layer === 'Unknown' ? '—' : layer}
+            </div>
+          </div>
+
+          <div className="card" style={{ padding: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6 }}>
+              CONFIDENCE
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 500, textTransform: 'capitalize' }}>
+              <span className={`chip chip-${confidence}`}>
+                {confidence}
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {notes.length > 0 && (
+        <section className="section" style={{ marginTop: 16 }}>
+          <div className="section-head">
+            <span className="section-title">Supporting Evidence</span>
+          </div>
+          <div className="card" style={{ padding: 12 }}>
+            <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
+              {notes.slice(0, 5).map((note, i) => (
+                <li key={i} style={{ marginBottom: 8, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  {note}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
 function SignalsView({ tree, positioning, selectedKey, onSelect }) {
   const signals = useMemo(() => extractAllSignals(tree), [tree]);
   const [filterType, setFilterType] = useState('all');
@@ -2853,9 +2984,16 @@ function ResultView({
 
       {/* Brief mode content */}
       {mode === 'brief' && (
-        <div className="card" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
-          Brief view ({briefSubNav}) coming soon
-        </div>
+        <>
+          {briefSubNav === 'verdict' && (
+            <BriefVerdictView tree={tree} positioning={positioning} brief={result.intelligence_brief} />
+          )}
+          {briefSubNav !== 'verdict' && (
+            <div className="card" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              {briefSubNav} view coming soon
+            </div>
+          )}
+        </>
       )}
     </>
   );
