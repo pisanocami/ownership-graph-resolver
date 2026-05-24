@@ -822,6 +822,128 @@ export function mergeSiblings(existing, discovered, focalCompany = null) {
   return { siblings: out, added };
 }
 
+// ─── Step 1: Relationship Type Detection & Schema ───────────────────────────
+
+// Entity schema extension (Ticket #57):
+// Each node now carries primary_parent_id (exactly one owner) + secondary_relationships[]
+// (brand_authority, geographic_alias, acquisition_history, co_brand, controlling_shareholder, stewardship)
+// Backward compatible: existing data keeps `role` field; new fields default to null/[]
+
+export function initializeRelationshipFields(tree) {
+  if (!tree) return tree;
+  const clone = JSON.parse(JSON.stringify(tree));
+
+  const initNode = (node) => {
+    if (!node) return;
+
+    // NEW: Initialize primary_parent_id + secondary_relationships
+    if (!node.primary_parent_id && node.parent) {
+      node.primary_parent_id = node.parent.company || null;
+    }
+    if (!node.primary_parent_id && !node.parent) {
+      node.primary_parent_id = null; // Root node
+    }
+
+    if (!node.secondary_relationships) {
+      node.secondary_relationships = [];
+    }
+
+    // Recursively initialize parent chain
+    if (node.parent) initNode(node.parent);
+  };
+
+  initNode(clone);
+  return clone;
+}
+
+export function detectRelationshipType(entity, focal, parentContext = {}) {
+  if (!entity || !focal) return { primary_parent_id: null, type: 'REVIEW_NEEDED' };
+
+  const secondaryRelationships = [];
+
+  // Rule 1: If entity's parent == focal's parent → SIBLING (same segment)
+  const focalParent = focal.parent?.company;
+  const entityParent = entity.parent?.company || parentContext.inferred_parent;
+  if (focalParent && entityParent && focalParent === entityParent) {
+    // Check for brand_authority secondary (launched by parent as focal's premium tier)
+    if (entity.origin_event === 'internal_launch' && entity.launched_year && focal.acquired_year) {
+      if (entity.launched_year > focal.acquired_year) {
+        secondaryRelationships.push({
+          related_entity_id: focal.company,
+          relationship_type: 'brand_authority',
+          evidence: `Launched ${entity.launched_year} by ${focalParent} as ${focal.company}'s premium tier`,
+        });
+      }
+    }
+    // Check for geographic_alias secondary (same entity, different market)
+    if (entity.variant_type === 'geographic_variant') {
+      secondaryRelationships.push({
+        related_entity_id: focal.company,
+        relationship_type: 'geographic_alias',
+        evidence: `Market variant of ${focal.company} for different geography`,
+      });
+    }
+
+    return {
+      primary_parent_id: focalParent,
+      type: 'SIBLING',
+      same_segment: true,
+      secondary_relationships: secondaryRelationships,
+    };
+  }
+
+  // Rule 2: If entity's parent == focal's grandparent AND entity division != focal division → COUSIN
+  const focalGrandparent = focal.parent?.parent?.company;
+  const entityDivision = entity.via_division || parentContext.inferred_division;
+  const focalDivision = focal.focal_segment || parentContext.focal_segment;
+  if (focalGrandparent && entityParent && entityParent === focalGrandparent && entityDivision && focalDivision && entityDivision !== focalDivision) {
+    return {
+      primary_parent_id: focalGrandparent,
+      type: 'COUSIN',
+      same_segment: false,
+      secondary_relationships: secondaryRelationships,
+    };
+  }
+
+  // Rule 3: If entity has acquisition_history with focal as acquirer → CHILD
+  if (entity.acquisition && entity.acquisition.acquired_by === focal.company) {
+    secondaryRelationships.push({
+      related_entity_id: focal.company,
+      relationship_type: 'acquisition_history',
+      evidence: `Acquired by ${focal.company} in ${entity.acquisition.year || 'undated'}${entity.acquisition.price_display ? ' for ' + entity.acquisition.price_display : ''}`,
+      source_url: entity.acquisition.price_source_url || null,
+    });
+    return {
+      primary_parent_id: focal.company,
+      type: 'CHILD',
+      secondary_relationships: secondaryRelationships,
+    };
+  }
+
+  // Rule 4: If entity has strategic_control with PE firm → PE controls focal (controlling_shareholder secondary)
+  if (entity.strategic_control && Array.isArray(entity.strategic_control)) {
+    const peControl = entity.strategic_control.find(sc =>
+      sc.role_description && (sc.role_description.includes('shareholder') || sc.role_description.includes('investor'))
+    );
+    if (peControl) {
+      secondaryRelationships.push({
+        related_entity_id: peControl.entity,
+        relationship_type: 'controlling_shareholder',
+        evidence: peControl.evidence,
+        source_url: peControl.source_url,
+      });
+    }
+  }
+
+  // Default: cannot determine confidently
+  return {
+    primary_parent_id: null,
+    type: 'REVIEW_NEEDED',
+    reason: 'Cannot determine primary parent confidently',
+    secondary_relationships: secondaryRelationships,
+  };
+}
+
 export function collectEntities(ownership) {
   if (!ownership) return [];
   const out = [];
@@ -843,18 +965,28 @@ export function collectEntities(ownership) {
       // sibling lookups for common names (Siena, Mercury, Atlas…) collide with
       // unrelated homonymous companies.
       parent_company: parentName || null,
+      // NEW: Include relationship type info from detection
+      primary_parent_id: extra.primary_parent_id || null,
+      secondary_relationships: extra.secondary_relationships || [],
       ...extra,
     });
   };
   const focalParent = ownership.parent?.company || null;
-  push(ownership, 'focal', focalParent);
+  // NEW: Initialize primary_parent_id for focal (null if root)
+  push(ownership, 'focal', focalParent, {
+    primary_parent_id: focalParent,
+    secondary_relationships: [],
+  });
   let p = ownership.parent;
   let depth = 0;
   while (p && depth < 2) {
     // Skip individuals (UBO natural persons) — the revenue agent investigates
     // companies, not people; "Zhang Yiming revenue" is a meaningless query.
     if (p.node_type !== 'individual') {
-      push(p, depth === 0 ? 'parent' : 'grandparent', p.parent?.company || null);
+      push(p, depth === 0 ? 'parent' : 'grandparent', p.parent?.company || null, {
+        primary_parent_id: p.parent?.company || null,
+        secondary_relationships: [],
+      });
     }
     p = p.parent;
     depth++;
@@ -867,7 +999,11 @@ export function collectEntities(ownership) {
   let root = ownership.parent;
   while (root && root.parent) root = root.parent;
   if (root && root.node_type !== 'individual') {
-    push(root, 'root', null);
+    // Root has no parent
+    push(root, 'root', null, {
+      primary_parent_id: null,
+      secondary_relationships: [],
+    });
   }
   // Issue #4-bis: distribution-channel brands (free OS/browser vehicles such as
   // Chrome or Android) have no standalone revenue — their economics roll up to
@@ -880,8 +1016,22 @@ export function collectEntities(ownership) {
     .filter(earnsStandalone)
     .sort((a, b) => (b.in_current_sources === true) - (a.in_current_sources === true));
   // Siblings share the focal's parent in the corporate tree.
-  orderedSiblings.slice(0, 8).forEach((s) => push(s, 'sibling', focalParent));
-  (ownership.children || []).filter(earnsStandalone).slice(0, 3).forEach((c) => push(c, 'child', ownership.company));
+  orderedSiblings.slice(0, 8).forEach((s) => {
+    const relType = detectRelationshipType(s, ownership, {
+      inferred_parent: focalParent,
+      focal_segment: ownership.focal_segment,
+    });
+    push(s, 'sibling', focalParent, {
+      primary_parent_id: relType.primary_parent_id || focalParent,
+      secondary_relationships: relType.secondary_relationships || [],
+    });
+  });
+  (ownership.children || []).filter(earnsStandalone).slice(0, 3).forEach((c) => {
+    push(c, 'child', ownership.company, {
+      primary_parent_id: ownership.company,
+      secondary_relationships: [],
+    });
+  });
   // Bug #2 co-owners: additional formal owners (steward ownership, JVs,
   // dual-class). Estimate revenue for each so the UI and reconciliation can
   // surface their economic contribution (e.g. Comcast in pre-2023 Hulu).
@@ -890,6 +1040,8 @@ export function collectEntities(ownership) {
     stake_pct: co.stake_pct ?? null,
     voting_pct: co.voting_pct ?? null,
     entity_type: co.entity_type || null,
+    primary_parent_id: null,
+    secondary_relationships: [],
   }));
   // Cousins: same parent, different segment. Capped to keep cost predictable
   // on mega-aggregators (LVMH, P&G, Unilever…). Current-source brands first so
@@ -897,9 +1049,18 @@ export function collectEntities(ownership) {
   const orderedCousins = [...(ownership.intra_parent_cousins || [])]
     .filter(earnsStandalone)
     .sort((a, b) => (b.in_current_sources === true) - (a.in_current_sources === true));
-  orderedCousins.slice(0, 6).forEach((c) => push(c, 'cousin', focalParent, {
-    via_division: c.via_division || null,
-  }));
+  orderedCousins.slice(0, 6).forEach((c) => {
+    const relType = detectRelationshipType(c, ownership, {
+      inferred_parent: focalParent,
+      inferred_division: c.via_division,
+      focal_segment: ownership.focal_segment,
+    });
+    push(c, 'cousin', focalParent, {
+      via_division: c.via_division || null,
+      primary_parent_id: relType.primary_parent_id || focalParent,
+      secondary_relationships: relType.secondary_relationships || [],
+    });
+  });
   return out;
 }
 
@@ -1240,7 +1401,9 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
   // post-attach guard that clears conglomerate revenue misattributed to a
   // sub-affiliate operational layer.
   const { tree: normalized, collapses, holdingFlags } = normalizeChain(ownership, revenueByCompany);
-  const tree = attachRevenue(normalized, revenueByCompany, entitiesByCompany);
+  // NEW (Ticket #57): Initialize primary_parent_id + secondary_relationships on all tree nodes
+  const initialized = initializeRelationshipFields(normalized);
+  const tree = attachRevenue(initialized, revenueByCompany, entitiesByCompany);
   if (parentAnchor) tree.parent_anchor = parentAnchor;
   const notes = [];
   collapses.forEach((c) => {
