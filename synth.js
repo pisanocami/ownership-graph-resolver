@@ -822,7 +822,56 @@ export function mergeSiblings(existing, discovered, focalCompany = null) {
   return { siblings: out, added };
 }
 
-// ─── Step 1: Relationship Type Detection & Schema ───────────────────────────
+// ─── Step 1 & 2: Relationship Type Detection & Divisional Aggregators ────────
+
+// Simple edit distance (Levenshtein) for semantic clustering of category names
+function editDistance(a, b) {
+  const aLower = (a || '').toLowerCase().trim();
+  const bLower = (b || '').toLowerCase().trim();
+  if (aLower === bLower) return 0;
+  const dp = Array(bLower.length + 1).fill(0).map((_, i) => i);
+  for (let i = 1; i <= aLower.length; i++) {
+    let prev = i;
+    for (let j = 1; j <= bLower.length; j++) {
+      const curr = aLower[i - 1] === bLower[j - 1] ? dp[j - 1] : Math.min(dp[j] + 1, dp[j - 1] + 1, prev + 1);
+      dp[j - 1] = prev;
+      prev = curr;
+    }
+    dp[bLower.length] = prev;
+  }
+  return dp[bLower.length];
+}
+
+// Cluster categories by semantic similarity (edit distance < 2 = same cluster)
+function clusterByCategory(entities) {
+  if (!entities || entities.length === 0) return [];
+  const categories = entities
+    .map(e => (e.category || '').toLowerCase().trim())
+    .filter(Boolean);
+  if (categories.length === 0) return [];
+
+  const clusters = [];
+  const assigned = new Set();
+
+  for (let i = 0; i < categories.length; i++) {
+    if (assigned.has(i)) continue;
+    const cluster = [categories[i]];
+    assigned.add(i);
+
+    for (let j = i + 1; j < categories.length; j++) {
+      if (assigned.has(j)) continue;
+      const dist = editDistance(categories[i], categories[j]);
+      if (dist < 2) {
+        cluster.push(categories[j]);
+        assigned.add(j);
+      }
+    }
+
+    if (cluster.length >= 1) clusters.push([...new Set(cluster)]);
+  }
+
+  return clusters;
+}
 
 // Entity schema extension (Ticket #57):
 // Each node now carries primary_parent_id (exactly one owner) + secondary_relationships[]
@@ -854,6 +903,111 @@ export function initializeRelationshipFields(tree) {
 
   initNode(clone);
   return clone;
+}
+
+// Detect divisional segments for multi-segment parents (Step 2, Ticket #57)
+// Returns { divisions: [{ name, entities, colors }], should_aggregate: boolean }
+export function detectDivisionalSegments(parentEntity, siblings = [], cousins = []) {
+  if (!parentEntity) return { divisions: [], should_aggregate: false };
+
+  // Collect all children (siblings + cousins) with categories
+  const allChildren = [...(siblings || []), ...(cousins || [])];
+  if (allChildren.length < 2) return { divisions: [], should_aggregate: false };
+
+  // For public companies, use 10-K segments if available (passed via parentAnchor)
+  // This is delegated to synthesis pipeline — here we detect via category clustering
+
+  // Cluster by category semantic similarity
+  const clusters = clusterByCategory(allChildren);
+  if (clusters.length < 2) return { divisions: [], should_aggregate: false };
+
+  // Filter clusters: keep only those with ≥2 entities
+  const validClusters = clusters.filter(cluster => {
+    const count = allChildren.filter(e =>
+      cluster.includes((e.category || '').toLowerCase().trim())
+    ).length;
+    return count >= 2;
+  });
+
+  if (validClusters.length < 2) return { divisions: [], should_aggregate: false };
+
+  // Map each valid cluster to a division with its entities
+  const divisionMap = {};
+  validClusters.forEach((cluster, idx) => {
+    const divisionName = cluster[0].split(' ')[0].charAt(0).toUpperCase() + cluster[0].slice(1);
+    const entities = allChildren.filter(e =>
+      cluster.includes((e.category || '').toLowerCase().trim())
+    );
+    divisionMap[divisionName] = { name: divisionName, entities, originalCluster: cluster };
+  });
+
+  const divisions = Object.values(divisionMap);
+  return { divisions, should_aggregate: divisions.length >= 2 };
+}
+
+// Generate divisional_aggregator nodes and reassign children (Step 2, Ticket #57)
+export function generateDivisionalAggregators(tree, parentAnchor = null) {
+  if (!tree || !tree.parent) return tree;
+
+  // Check if parent has sufficient children for aggregation
+  const allChildren = [...(tree.siblings || []), ...(tree.intra_parent_cousins || [])];
+  if (allChildren.length < 3) return tree; // Not enough children for meaningful division
+
+  const { divisions, should_aggregate } = detectDivisionalSegments(tree.parent, tree.siblings, tree.intra_parent_cousins);
+  if (!should_aggregate) return tree;
+
+  // Create divisional_aggregator intermediate nodes
+  const aggregators = [];
+  const reclassifiedSiblings = [];
+  const reclassifiedCousins = [];
+
+  divisions.forEach((div, idx) => {
+    const aggregatorId = `${tree.parent.company.replace(/\s+/g, '-').toLowerCase()}_${div.name.replace(/\s+/g, '-').toLowerCase()}`;
+    const aggregator = {
+      company: `${div.name} Division`,
+      node_type: 'divisional_aggregator',
+      layer: 'aggregator',
+      parent: tree.parent,
+      primary_parent_id: tree.parent.company,
+      secondary_relationships: [],
+      children: div.entities,
+      revenue_estimate: {
+        central: div.entities.reduce((sum, e) => sum + ((e.revenue_estimate?.central) || 0), 0),
+        low: div.entities.reduce((sum, e) => sum + ((e.revenue_estimate?.low) || 0), 0),
+        high: div.entities.reduce((sum, e) => sum + ((e.revenue_estimate?.high) || 0), 0),
+        confidence: 'medium',
+      },
+      division_index: idx,
+      _generated: true,
+    };
+    aggregators.push(aggregator);
+
+    // Reclassify siblings/cousins: update their primary_parent_id to aggregator
+    div.entities.forEach(entity => {
+      const wasSibling = tree.siblings?.some(s => s.company === entity.company);
+      const wasCousin = tree.intra_parent_cousins?.some(c => c.company === entity.company);
+
+      if (wasSibling) {
+        reclassifiedSiblings.push({ ...entity, _aggregator_parent: aggregator.company });
+      } else if (wasCousin) {
+        reclassifiedCousins.push({ ...entity, _aggregator_parent: aggregator.company });
+      }
+    });
+  });
+
+  // Return tree with aggregators inserted as intermediate layer
+  // NEW: aggregator nodes become children of parent, old siblings/cousins become children of aggregators
+  if (aggregators.length >= 2) {
+    return {
+      ...tree,
+      _divisional_aggregators: aggregators,
+      // Keep original siblings/cousins for backward compat but mark them as reclassified
+      siblings: reclassifiedSiblings.length > 0 ? reclassifiedSiblings : tree.siblings,
+      intra_parent_cousins: reclassifiedCousins.length > 0 ? reclassifiedCousins : tree.intra_parent_cousins,
+    };
+  }
+
+  return tree;
 }
 
 export function detectRelationshipType(entity, focal, parentContext = {}) {
@@ -1401,9 +1555,11 @@ export function synthesize(ownership, revenueByCompany, parentAnchor = null, ent
   // post-attach guard that clears conglomerate revenue misattributed to a
   // sub-affiliate operational layer.
   const { tree: normalized, collapses, holdingFlags } = normalizeChain(ownership, revenueByCompany);
-  // NEW (Ticket #57): Initialize primary_parent_id + secondary_relationships on all tree nodes
+  // NEW (Ticket #57 Step 1): Initialize primary_parent_id + secondary_relationships on all tree nodes
   const initialized = initializeRelationshipFields(normalized);
-  const tree = attachRevenue(initialized, revenueByCompany, entitiesByCompany);
+  // NEW (Ticket #57 Step 2): Detect and generate divisional aggregators for multi-segment parents
+  const withAggregators = generateDivisionalAggregators(initialized, parentAnchor);
+  const tree = attachRevenue(withAggregators, revenueByCompany, entitiesByCompany);
   if (parentAnchor) tree.parent_anchor = parentAnchor;
   const notes = [];
   collapses.forEach((c) => {
