@@ -14,6 +14,8 @@ import {
   normalizeChain,
   deriveDivestiture,
   collectControlLayers,
+  needsSiblingBackfill,
+  mergeSiblings,
 } from './synth.js';
 
 const PROVIDERS = {
@@ -204,6 +206,28 @@ STRICT JSON OUTPUT, NO PROSE, NO MARKDOWN FENCES:
   "notes": str,
   "disambiguation_required": bool,
   "disambiguation_candidates": [{"company": str, "sector": str, "country": str}]
+}`;
+
+// Task #52 (ISSUE-AWARA-SIBLINGS-MISSING) — focused sibling enumeration prompt.
+// Used as a deterministic safety net when the main OWNERSHIP_PROMPT call
+// discovered siblings during search (they show up in reasoning) but failed to
+// populate them in the JSON's "siblings" slot. This call does ONE job — list
+// the in-segment portfolio brands of a given parent that share the focal's
+// segment — so the LLM cannot "forget" to fill it. Its output is merged into
+// the existing ownership tree before the revenue phase runs.
+const SIBLING_BACKFILL_PROMPT = `You are a sibling-enumeration agent. Your only job: given a FOCAL brand and its CURRENT LEGAL PARENT, list the OTHER brands the parent owns that share the focal's business segment / division / operating label. These are "siblings". This is a structured enumeration task — your reasoning is worthless if it does not end up inside the JSON "siblings" array. NEVER mention siblings in prose without also installing them in the array.
+RULES
+ 1. Use search aggressively. Try, in order: "[parent] portfolio brands", "[parent] our brands", "[parent] subsidiary brands", "[parent] [focal_segment] brands" (when a segment is given), "[parent] brands [category]".
+ 2. Apply the SAME segment-filter rule as the main ownership prompt: siblings must share the focal's segment/division/operating-label. Brands in OTHER segments of the same parent go in "intra_parent_cousins" with "via_division" naming that other segment.
+ 3. NEVER include the focal itself in "siblings". NEVER include the parent. NEVER include grandparent.
+ 4. Capture as many in-segment siblings as you can find (target ≥3; ≥5 if the parent is a mega-cap conglomerate). The 8-cap from the main prompt still applies.
+ 5. For each sibling, capture: company, domain, node_type ("operating_brand" by default), category (free text), revenue_model ("direct_revenue" | "distribution_channel" | "sub_product_line" — DEFAULT "direct_revenue"), in_current_sources (bool), in_historical_sources (bool), last_mention_date (ISO date or null), source_urls (list).
+ 6. If after searching you find NO siblings, return an empty array — but include a one-line "notes" string explaining why ("Parent has no public brand portfolio", "Single-segment private holding", etc.). An empty array with a reason is acceptable; an empty array with no reason is a failure.
+ 7. STRICT JSON OUTPUT, NO PROSE, NO MARKDOWN FENCES. Output exactly this shape:
+{
+  "siblings": [{"company": str, "domain": str|null, "node_type": str, "category": str, "revenue_model": "direct_revenue"|"distribution_channel"|"sub_product_line", "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}],
+  "intra_parent_cousins": [{"company": str, "domain": str|null, "via_division": str, "category": str, "revenue_model": str, "in_current_sources": bool, "in_historical_sources": bool, "last_mention_date": str|null, "source_urls": [url]}] | null,
+  "notes": str
 }`;
 
 const REVENUE_PROMPT = `You are a Revenue Inference Agent investigating private companies.
@@ -967,6 +991,65 @@ export default function App() {
         Object.keys(ownership).forEach((k) => { delete ownership[k]; });
         Object.assign(ownership, normalizedOwnership);
       }
+      // Task #52 (ISSUE-AWARA-SIBLINGS-MISSING): the main ownership call often
+      // "discovers" siblings during search (they show up in its reasoning)
+      // but fails to install them in the JSON's siblings[] slot. Without
+      // siblings installed, the revenue phase only processes the focal+chain,
+      // sibling ranking shows "No siblings", and the brief loses its
+      // competitive context. Run a deterministic, focused safety-net call to
+      // enumerate them and merge the result before the revenue phase starts.
+      // The floor (≥3 in-segment siblings) is INDEPENDENT of focal size, rank,
+      // ownership clarity, or chain length — capture depth must not vary by
+      // which brand is focal.
+      if (!ownership.disambiguation_required) {
+        const bf = needsSiblingBackfill(ownership);
+        if (bf.needed) {
+          const tag = 'sibling-backfill';
+          appendTrace([{ kind: 'phase', phase: tag, label: `→ ${bf.parent_name} sibling enumeration (only ${(ownership.siblings || []).length} captured, floor ${bf.floor})` }]);
+          try {
+            const segNote = bf.focal_segment ? ` (focal segment: "${bf.focal_segment}")` : '';
+            const backfillUser = `FOCAL: "${ownership.company}"\nCURRENT LEGAL PARENT: "${bf.parent_name}"${segNote}\n\nEnumerate the OTHER brands the parent owns that share the focal's segment. Return ONLY the JSON object specified in the system prompt.`;
+            const bfResp = await callLLM({
+              provider,
+              model,
+              system: SIBLING_BACKFILL_PROMPT,
+              user: backfillUser,
+              maxSearches: 4,
+              maxTokens: 2048,
+            });
+            appendTrace(bfResp.trace.map((t) => ({ ...t, tag })));
+            const parsedBf = safeExtractJSON(bfResp.text);
+            const discovered = Array.isArray(parsedBf?.siblings) ? parsedBf.siblings : [];
+            const { siblings: merged, added } = mergeSiblings(
+              ownership.siblings,
+              discovered,
+              ownership.company,
+            );
+            ownership.siblings = merged;
+            // Also merge cousins when the backfill returned them, applying the
+            // same focal/dedup discipline.
+            if (Array.isArray(parsedBf?.intra_parent_cousins) && parsedBf.intra_parent_cousins.length) {
+              const { siblings: mergedCousins } = mergeSiblings(
+                ownership.intra_parent_cousins,
+                parsedBf.intra_parent_cousins,
+                ownership.company,
+              );
+              ownership.intra_parent_cousins = mergedCousins;
+            }
+            if (added.length > 0) {
+              appendTrace([{ kind: 'phase', phase: tag, label: `sibling floor enforced — added ${added.length}: ${added.join(', ')}` }]);
+            } else {
+              const why = (parsedBf && typeof parsedBf.notes === 'string' && parsedBf.notes.trim())
+                ? parsedBf.notes.trim()
+                : 'no additional siblings found';
+              appendTrace([{ kind: 'phase', phase: tag, label: `sibling backfill returned 0 new — ${why}` }]);
+            }
+          } catch (e) {
+            appendTrace([{ kind: 'error', tag, message: e.message }]);
+          }
+        }
+      }
+
       if (ownership.disambiguation_required) {
         setResult({ disambiguation: ownership, raw: ownershipResp.text });
         setError('Disambiguation required — please re-run with a more specific context hint.');

@@ -7,6 +7,7 @@ import {
   synthesize, collectEntities, deriveStatus, deriveRevenueStatus,
   normalizeChain, deriveDivestiture, isCircularEstimate, collectControlLayers,
   guardConglomerateRevenueOnSubAffiliate, computeRevenueDivergence,
+  needsSiblingBackfill, mergeSiblings,
 } from '../synth.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1295,6 +1296,158 @@ test('Issue #11: a well-covered conglomerate (≥ floor siblings) raises no inco
   const out = synthesize(ownership, revenueByCompany, null, {});
   const notes = out.positioning_analysis.strategic_notes.join(' | ');
   assert.doesNotMatch(notes, /sibling set may be incomplete/, 'no incompleteness warning with 5 siblings');
+});
+
+// ─── Task #52: sibling backfill helpers (ISSUE-AWARA-SIBLINGS-MISSING) ──────
+
+test('Task #52: needsSiblingBackfill fires when parent exists and siblings < 3', () => {
+  const r = needsSiblingBackfill({
+    company: 'Awara Sleep',
+    parent: { company: 'Resident Home LLC', node_type: 'legal_entity' },
+    siblings: [],
+  });
+  assert.equal(r.needed, true);
+  assert.equal(r.floor, 3);
+  assert.equal(r.parent_name, 'Resident Home LLC');
+});
+
+test('Task #52: needsSiblingBackfill fires for partial captures (1 or 2 siblings)', () => {
+  const r = needsSiblingBackfill({
+    company: 'Awara Sleep',
+    parent: { company: 'Resident Home LLC' },
+    siblings: [{ company: 'DreamCloud' }, { company: 'Nectar' }],
+  });
+  assert.equal(r.needed, true);
+});
+
+test('Task #52: needsSiblingBackfill skips when floor already met', () => {
+  const r = needsSiblingBackfill({
+    company: 'Nectar Sleep',
+    parent: { company: 'Resident Home LLC' },
+    siblings: [{ company: 'A' }, { company: 'B' }, { company: 'C' }],
+  });
+  assert.equal(r.needed, false);
+});
+
+test('Task #52: needsSiblingBackfill is independent of focal characteristics', () => {
+  // The whole point: capture depth must not vary by which brand is focal.
+  // No special-case for small focals, low-rank focals, short chains, etc.
+  const small = needsSiblingBackfill({
+    company: 'Tiny Brand', revenue_estimate: { central: 10e6 },
+    parent: { company: 'Mars Wrigley', node_type: 'legal_entity' },
+    siblings: [],
+  });
+  const big = needsSiblingBackfill({
+    company: 'M&Ms', revenue_estimate: { central: 5e9 },
+    parent: { company: 'Mars Wrigley', node_type: 'legal_entity' },
+    siblings: [],
+  });
+  assert.equal(small.needed, true);
+  assert.equal(big.needed, true);
+});
+
+test('Task #52: needsSiblingBackfill skips standalone, individual UBO, PE terminal, and missing parent', () => {
+  assert.equal(needsSiblingBackfill(null).needed, false);
+  assert.equal(needsSiblingBackfill({ company: 'X', standalone: true, parent: { company: 'Y' } }).needed, false);
+  assert.equal(needsSiblingBackfill({ company: 'X', parent: null }).needed, false);
+  assert.equal(
+    needsSiblingBackfill({ company: 'X', parent: { company: 'Z', node_type: 'individual' } }).needed,
+    false,
+    'individual UBO parents have no portfolio brands to enumerate',
+  );
+  assert.equal(
+    needsSiblingBackfill({ company: 'X', parent: { company: 'PE Sponsor', terminal_layer: 'private_equity' } }).needed,
+    false,
+    'PE terminal parents do not have sibling brands at the focal layer',
+  );
+});
+
+test('Task #52: mergeSiblings preserves existing entries and adds new ones, deduped by company name', () => {
+  const existing = [
+    { company: 'DreamCloud', domain: 'dreamcloud.com', category: 'hybrid mattress', custom_field: 'preserved' },
+  ];
+  const discovered = [
+    { company: 'dreamcloud' }, // case-insensitive dup → skipped
+    { company: 'Nectar', domain: 'nectarsleep.com', in_current_sources: true },
+    { company: 'Awara', domain: 'awara.com' },
+    { company: 'Awara' }, // dup within discovered → skipped
+  ];
+  const { siblings, added } = mergeSiblings(existing, discovered, 'Cloverlane');
+  assert.equal(siblings.length, 3);
+  assert.equal(siblings[0].custom_field, 'preserved', 'existing entry kept intact');
+  assert.equal(siblings[0].category, 'hybrid mattress');
+  assert.deepEqual(added, ['Nectar', 'Awara']);
+  const nectar = siblings.find((s) => s.company === 'Nectar');
+  assert.equal(nectar._backfilled, true, 'backfilled rows are tagged');
+  assert.equal(nectar.revenue_model, 'direct_revenue', 'default revenue_model is direct_revenue');
+  assert.equal(nectar.node_type, 'operating_brand', 'default node_type is operating_brand');
+});
+
+test('Task #52: mergeSiblings filters the focal even under a truncated product-line suffix', () => {
+  const { siblings, added } = mergeSiblings(
+    [],
+    [
+      { company: 'Awara' },           // first-token match of "Awara Sleep" focal → filtered
+      { company: 'awara sleep' },     // exact match → filtered
+      { company: 'Nectar Sleep' },    // legitimate sibling under the same parent
+      { company: 'DreamCloud' },
+    ],
+    'Awara Sleep',
+  );
+  assert.deepEqual(added.sort(), ['DreamCloud', 'Nectar Sleep'].sort());
+  assert.ok(!siblings.some((s) => /awara/i.test(s.company)));
+});
+
+test('Task #52: mergeSiblings does not over-filter on unrelated tokens', () => {
+  // The focal-match heuristic only matches when one name is a single token AND
+  // it equals the leading token of the other multi-token name. It must not
+  // collapse genuinely distinct brands that happen to share a non-leading word.
+  const { added } = mergeSiblings(
+    [],
+    [
+      { company: 'Mars Wrigley' },  // shares "Wrigley" with focal but different leading token
+      { company: 'Snickers' },
+    ],
+    'Extra Gum Wrigley',
+  );
+  assert.deepEqual(added.sort(), ['Mars Wrigley', 'Snickers'].sort());
+});
+
+test('Task #52: mergeSiblings tolerates null/undefined/garbage inputs', () => {
+  assert.deepEqual(mergeSiblings(null, null, null), { siblings: [], added: [] });
+  assert.deepEqual(mergeSiblings(undefined, [{ company: '' }, { }], 'X'), { siblings: [], added: [] });
+  const r = mergeSiblings([{ company: 'A' }], 'not-an-array', 'X');
+  assert.equal(r.siblings.length, 1);
+});
+
+test('Task #52: T-Awara regression — after backfill, all 4 Resident Home brands install as siblings', () => {
+  // Simulates the bug scenario: ownership returns Awara with 0 siblings, the
+  // backfill call returns the 3 other Resident Home brands, and the merged
+  // tree is fed into collectEntities. The revenue phase should now schedule
+  // focal + parent + 3 siblings (5+ entities), not just focal+parent.
+  const ownership = {
+    company: 'Awara Sleep',
+    domain: 'awara.com',
+    node_type: 'operating_brand',
+    parent: { company: 'Resident Home LLC', node_type: 'legal_entity', parent: null },
+    siblings: [], // ← the bug: empty despite the agent knowing about siblings
+  };
+  const bf = needsSiblingBackfill(ownership);
+  assert.equal(bf.needed, true);
+  const discovered = [
+    { company: 'DreamCloud', domain: 'dreamcloud.com', category: 'hybrid mattress', in_current_sources: true },
+    { company: 'Nectar', domain: 'nectarsleep.com', category: 'memory foam', in_current_sources: true },
+    { company: 'Siena', domain: 'sienamattress.com', category: 'memory foam', in_current_sources: true },
+    { company: 'Cloverlane', domain: 'cloverlane.com', category: 'hybrid mattress', in_current_sources: true },
+  ];
+  const { siblings, added } = mergeSiblings(ownership.siblings, discovered, ownership.company);
+  ownership.siblings = siblings;
+  assert.equal(siblings.length, 4, 'all 4 Resident Home portfolio brands installed');
+  assert.equal(added.length, 4);
+  const entities = collectEntities(ownership);
+  const siblingEntities = entities.filter((e) => e.role === 'sibling');
+  assert.equal(siblingEntities.length, 4, 'revenue phase now schedules all 4 siblings');
+  assert.ok(entities.some((e) => e.company === 'DreamCloud' && e.parent_company === 'Resident Home LLC'));
 });
 
 // ─── Issue #6-bis: stock-swap acquisition price flows through synthesis ───────

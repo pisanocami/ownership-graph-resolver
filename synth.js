@@ -612,6 +612,101 @@ export function collectControlLayers(tree) {
 
 // ─── Entity collection for revenue enrichment ───────────────────────────────
 
+// ─── Sibling backfill helpers (Task #52 — ISSUE-AWARA-SIBLINGS-MISSING) ────
+// The ownership LLM sometimes "discovers" siblings during web search (they
+// appear in its reasoning) but emits an empty siblings[] in the JSON. These
+// helpers are the deterministic safety net the orchestration layer uses to
+// decide whether to run a focused backfill call and to merge its result into
+// the tree without losing the LLM's first-pass data.
+
+// Returns { needed, floor, parent_name, focal_segment } describing whether a
+// post-parse backfill call should run. We require:
+//   - a parent exists (and isn't an individual UBO);
+//   - the parent isn't a PE terminal (no portfolio brands to enumerate);
+//   - the focal isn't standalone;
+//   - the focal's parent has fewer than `floor` siblings (3 by default — the
+//     same floor the prompt's SIBLING CAPTURE FLOOR rule asks the model to
+//     hit). The floor is INDEPENDENT of focal size / rank / clarity — that's
+//     the whole point: capture depth must not vary by which brand is focal.
+export function needsSiblingBackfill(ownership) {
+  if (!ownership) return { needed: false, floor: 3, parent_name: null, focal_segment: null };
+  if (ownership.standalone === true) return { needed: false, floor: 3, parent_name: null, focal_segment: null };
+  const parent = ownership.parent;
+  if (!parent || !parent.company) return { needed: false, floor: 3, parent_name: null, focal_segment: null };
+  if (parent.node_type === 'individual') return { needed: false, floor: 3, parent_name: parent.company, focal_segment: null };
+  if (parent.terminal_layer === 'private_equity') return { needed: false, floor: 3, parent_name: parent.company, focal_segment: null };
+  const siblings = Array.isArray(ownership.siblings) ? ownership.siblings : [];
+  const floor = 3;
+  return {
+    needed: siblings.length < floor,
+    floor,
+    parent_name: parent.company,
+    focal_segment: ownership.focal_segment || null,
+  };
+}
+
+const _sibKey = (s) => (s && s.company ? s.company.toLowerCase().trim() : '');
+
+// True when `sibName` and `focalName` refer to the same brand modulo a common
+// product-line suffix ("Awara" ↔ "Awara Sleep", "Nectar" ↔ "Nectar Sleep",
+// "DreamCloud" ↔ "DreamCloud Mattress"). Conservative: only matches when one
+// name is a single token AND it equals the leading token of the multi-word
+// name. Prevents the backfill call from re-installing the focal under a
+// truncated name as its own sibling — flagged in code review.
+function _matchesFocal(sibName, focalName) {
+  if (!sibName || !focalName) return false;
+  const s = sibName.toLowerCase().trim();
+  const f = focalName.toLowerCase().trim();
+  if (s === f) return true;
+  const sTokens = s.split(/\s+/);
+  const fTokens = f.split(/\s+/);
+  if (sTokens.length === 1 && fTokens.length > 1 && fTokens[0] === sTokens[0]) return true;
+  if (fTokens.length === 1 && sTokens.length > 1 && sTokens[0] === fTokens[0]) return true;
+  return false;
+}
+
+// Merge a backfilled sibling list into an existing one. Existing entries win
+// on every field (we never overwrite the LLM's first-pass data); discovered
+// entries are added only when not already present, and dedup is by company
+// name (case-insensitive). The focal itself is never installed as its own
+// sibling — siblings discovery can return it by mistake.
+export function mergeSiblings(existing, discovered, focalCompany = null) {
+  const out = [];
+  const seen = new Set();
+  const safeArr = (a) => (Array.isArray(a) ? a : []);
+  const added = [];
+  const isFocal = (name) => focalCompany && _matchesFocal(name, focalCompany);
+  for (const s of safeArr(existing)) {
+    const k = _sibKey(s);
+    if (!k || isFocal(s.company) || seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  for (const s of safeArr(discovered)) {
+    const k = _sibKey(s);
+    if (!k || isFocal(s.company) || seen.has(k)) continue;
+    seen.add(k);
+    // Normalize the shape so downstream (collectEntities, attachRevenue,
+    // brief rendering) finds the fields it expects even when the backfill
+    // call omitted them.
+    const normalized = {
+      company: s.company,
+      domain: s.domain || null,
+      node_type: s.node_type || 'operating_brand',
+      category: s.category || '',
+      revenue_model: s.revenue_model || 'direct_revenue',
+      in_current_sources: s.in_current_sources === true,
+      in_historical_sources: s.in_historical_sources === true,
+      last_mention_date: s.last_mention_date || null,
+      source_urls: Array.isArray(s.source_urls) ? s.source_urls : [],
+      _backfilled: true,
+    };
+    out.push(normalized);
+    added.push(normalized.company);
+  }
+  return { siblings: out, added };
+}
+
 export function collectEntities(ownership) {
   if (!ownership) return [];
   const out = [];
