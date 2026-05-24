@@ -2131,87 +2131,114 @@ function ResultView({
         </button>
       </div>
 
-      {/* Banners */}
-      {recon && <ReconciliationBanner recon={recon} parent={tree.parent} anchor={anchor} focal={tree} />}
-      {strategicNotes.filter((n) => n && n.startsWith('⚠')).map((n, i) => (
-        <div key={i} className="banner banner-warning" style={{ marginTop: 10 }}>
-          <span className="banner-icon">⚠</span>
-          <span>{n.replace(/^⚠\s*/, '')}</span>
-        </div>
-      ))}
-
-      {/* Two-column report */}
-      <div className="report-grid">
-        {/* LEFT — ownership structure */}
-        <div className="left-col">
-          <div className="col-header">
-            <div>
-              <h2 className="col-title">Ownership structure</h2>
-              <div className="col-sub">Click a node to inspect its revenue and signals.</div>
-            </div>
-            <div className="toggle-group no-print" role="tablist" aria-label="View mode">
-              <button
-                className={viewMode === 'tree' ? 'active' : ''}
-                onClick={() => setViewMode('tree')}
-                role="tab"
-                aria-selected={viewMode === 'tree'}
-              >
-                Tree
-              </button>
-              <button
-                className={viewMode === 'graph' ? 'active' : ''}
-                onClick={() => setViewMode('graph')}
-                role="tab"
-                aria-selected={viewMode === 'graph'}
-              >
-                Graph
-              </button>
-            </div>
-          </div>
-          {viewMode === 'tree' ? (
-            <TreeView tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} />
-          ) : (
-            <GraphView ref={graphViewRef} tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} theme={theme} />
+      {/* Investigate mode content */}
+      {mode === 'investigate' && (
+        <>
+          {/* Banners */}
+          {recon && investigateSubNav === 'tree' && (
+            <ReconciliationBanner recon={recon} parent={tree.parent} anchor={anchor} focal={tree} />
           )}
+          {strategicNotes.filter((n) => n && n.startsWith('⚠')).map((n, i) => (
+            <div key={i} className="banner banner-warning" style={{ marginTop: 10 }}>
+              <span className="banner-icon">⚠</span>
+              <span>{n.replace(/^⚠\s*/, '')}</span>
+            </div>
+          ))}
 
-          {/* Strategic control per layer + non-warning notes (under tree on desktop) */}
-          <StrategicControlSection tree={tree} />
+          {/* Two-column report */}
+          {investigateSubNav === 'tree' && (
+            <div className="report-grid">
+              {/* LEFT — ownership structure */}
+              <div className="left-col">
+                <div className="col-header">
+                  <div>
+                    <h2 className="col-title">Ownership structure</h2>
+                    <div className="col-sub">Click a node to inspect its revenue and signals.</div>
+                  </div>
+                  <div className="toggle-group no-print" role="tablist" aria-label="View mode">
+                    <button
+                      className={viewMode === 'tree' ? 'active' : ''}
+                      onClick={() => setViewMode('tree')}
+                      role="tab"
+                      aria-selected={viewMode === 'tree'}
+                    >
+                      Tree
+                    </button>
+                    <button
+                      className={viewMode === 'graph' ? 'active' : ''}
+                      onClick={() => setViewMode('graph')}
+                      role="tab"
+                      aria-selected={viewMode === 'graph'}
+                    >
+                      Graph
+                    </button>
+                  </div>
+                </div>
+                {viewMode === 'tree' ? (
+                  <TreeView tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} />
+                ) : (
+                  <GraphView ref={graphViewRef} tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} theme={theme} />
+                )}
 
-          {strategicNotes.filter((n) => n && !n.startsWith('⚠') && n !== 'No distinctive structural signals captured.').length > 0 && (
-            <section className="section">
-              <div className="section-head"><span className="section-title">Notes</span></div>
-              <div className="card" style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                {strategicNotes
-                  .filter((n) => n && !n.startsWith('⚠') && n !== 'No distinctive structural signals captured.')
-                  .map((n, i) => <div key={i} style={{ padding: '4px 0' }}>· {n}</div>)}
+                {/* Strategic control per layer + non-warning notes (under tree on desktop) */}
+                <StrategicControlSection tree={tree} />
+
+                {strategicNotes.filter((n) => n && !n.startsWith('⚠') && n !== 'No distinctive structural signals captured.').length > 0 && (
+                  <section className="section">
+                    <div className="section-head"><span className="section-title">Notes</span></div>
+                    <div className="card" style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                      {strategicNotes
+                        .filter((n) => n && !n.startsWith('⚠') && n !== 'No distinctive structural signals captured.')
+                        .map((n, i) => <div key={i} style={{ padding: '4px 0' }}>· {n}</div>)}
+                    </div>
+                  </section>
+                )}
               </div>
-            </section>
+
+              {/* RIGHT — detail panel */}
+              <div className="right-col">
+                <div className="col-header">
+                  <div>
+                    <h2 className="col-title">Entity detail</h2>
+                    <div className="col-sub">{selectedNode ? roleLabel(selectedNode, tree) : 'Select a node'}</div>
+                  </div>
+                </div>
+                <DetailPanel node={selectedNode} revenueResult={selectedRevenue} tree={tree} positioning={positioning} />
+              </div>
+            </div>
           )}
 
-          {/* Raw JSON */}
-          <section className="section no-print">
-            <button className="raw-toggle" onClick={() => setShowRaw(!showRaw)}>
-              {showRaw ? '▾ Hide raw JSON' : '▸ Show raw JSON'}
-            </button>
-            {showRaw && (
+          {/* Raw JSON tab */}
+          {investigateSubNav === 'json' && (
+            <section className="section no-print">
               <pre className="raw-pre">
                 {JSON.stringify({ focal_company: result.focal_company, ownership_tree: result.ownership_tree, positioning_analysis: result.positioning_analysis }, null, 2)}
               </pre>
-            )}
-          </section>
-        </div>
+            </section>
+          )}
 
-        {/* RIGHT — detail panel */}
-        <div className="right-col">
-          <div className="col-header">
-            <div>
-              <h2 className="col-title">Entity detail</h2>
-              <div className="col-sub">{selectedNode ? roleLabel(selectedNode, tree) : 'Select a node'}</div>
+          {/* Signals tab placeholder */}
+          {investigateSubNav === 'signals' && (
+            <div className="card" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              Signals view coming soon
             </div>
-          </div>
-          <DetailPanel node={selectedNode} revenueResult={selectedRevenue} tree={tree} positioning={positioning} />
+          )}
+
+          {/* Recon tab placeholder */}
+          {investigateSubNav === 'recon' && (
+            <div className="card" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              Reconciliation details coming soon
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Brief mode content */}
+      {mode === 'brief' && (
+        <div className="card" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+          Brief view ({briefSubNav}) coming soon
         </div>
-      </div>
+      )}
     </>
   );
 }
