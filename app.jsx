@@ -344,6 +344,66 @@ STRICT JSON OUTPUT, NO PROSE OUTSIDE THE JSON, NO MARKDOWN FENCES:
   "bottom_line": str
 }`;
 
+// ─── Intelligence Brief enrichment prompts ────────────────────────────────────
+
+const SIGNAL_INTERPRETATION_PROMPT = `You are an intelligence analyst interpreting behavioral signals about a company's growth trajectory.
+
+For EACH behavioral signal in the input array, determine:
+1. What does this signal mean for the company's capital allocation and growth?
+2. Is this signal positive, negative, or neutral for the thesis?
+3. Can you defend the interpretation with the evidence provided?
+
+Return STRICT JSON (one object per signal):
+[
+  {
+    "signal_index": <number>,
+    "interpretation": "Read this as: [substantive insight, 1–2 sentences]" OR null,
+    "directional_implication": "positive" | "negative" | "neutral"
+  }
+]
+
+CRITICAL: If you cannot produce a defensible interpretation rooted in the evidence, return interpretation:null. Null interpretations will be dropped.`;
+
+const MISPRICING_PROMPT = `You are a mispricing analyst. Given the focal company's positioning, M&A signals, and capital patterns, assess whether there is a thesis for mispricing.
+
+Rules:
+- has_thesis:true ONLY if you can articulate a specific, evidence-backed claim about under/overvaluation
+- has_thesis:false with a clear explanation (e.g., "correctly priced relative to peer set")
+- If has_thesis:true, falsifying_signals MUST be non-empty (list signals that would disprove it)
+- If has_thesis:false, falsifying_signals should be []
+
+Return STRICT JSON:
+{
+  "has_thesis": boolean,
+  "hypothesis": "Mispricing thesis: [specific claim]" OR "No mispricing thesis: [reason]",
+  "falsifying_signals": [list of signal types that would disprove this] OR []
+}`;
+
+const VERDICT_THESIS_PROMPT = `You are a portfolio strategist writing a thesis statement for this company's investment positioning.
+
+The thesis should:
+- Be rooted ONLY in the provided verdict label, signals, and reconciliation data
+- Avoid generic filler ("stable mid-sized", "modest contribution", "should monitor", "time will tell")
+- Be 2–3 sentences maximum
+- Emphasize the specific mechanism or concern implied by the verdict
+
+Return STRICT JSON:
+{
+  "thesis": "[substantive, evidence-rooted thesis statement]"
+}`;
+
+const COUNTER_SIGNAL_FILL_PROMPT = `You are a research coordinator. For missing signals (gaps), recommend specific research angles to close them.
+
+For EACH gap in the input array, return a concrete research action.
+
+Return STRICT JSON (array):
+[
+  {
+    "signal_type": "[original expected signal type]",
+    "fill_action": "Search for: [specific data source or angle]"
+  }
+]`;
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function b64urlEncode(bytes) {
@@ -596,6 +656,7 @@ const STEPS = [
   { id: 'anchor', label: 'Anchor' },
   { id: 'synthesis', label: 'Synthesis' },
   { id: 'narrative', label: 'Narrative' },
+  { id: 'brief', label: 'Intelligence Brief' },
 ];
 
 function stepState(stepId, phase, loading, result) {
@@ -609,11 +670,16 @@ function stepState(stepId, phase, loading, result) {
   }
   if (phase === 'synthesis') {
     if (stepId === 'synthesis') return 'active';
-    if (stepId === 'narrative') return 'pending';
+    if (stepId === 'narrative' || stepId === 'brief') return 'pending';
     return 'done';
   }
   if (phase === 'narrative') {
     if (stepId === 'narrative') return 'active';
+    if (stepId === 'brief') return 'pending';
+    return 'done';
+  }
+  if (phase === 'brief') {
+    if (stepId === 'brief') return 'active';
     return 'done';
   }
   return 'pending';
@@ -950,6 +1016,147 @@ export default function App() {
         else appendTrace([{ kind: 'phase', phase: 'narrative', label: 'narrative parse failed — using deterministic copy' }]);
       } catch (e) {
         appendTrace([{ kind: 'error', tag: 'narrative', message: e.message }]);
+      }
+
+      // ── Brief enrichment phase: populate LLM fields (interpretations, thesis, hypotheses)
+      setPhase('brief');
+      appendTrace([{ kind: 'phase', phase: 'brief', label: 'enriching intelligence brief with interpretations' }]);
+      try {
+        if (finalResult.intelligence_brief) {
+          const brief = finalResult.intelligence_brief;
+
+          // Prepare batch LLM call with all brief enrichment prompts
+          const briefInput = {
+            signals: brief.behavioral_signals,
+            counter_signals: brief.counter_signals || [],
+            verdict: brief.verdict,
+            mispricing: brief.mispricing,
+          };
+
+          const batchPrompt = `
+${SIGNAL_INTERPRETATION_PROMPT}
+
+INPUT (signals):
+${JSON.stringify(brief.behavioral_signals, null, 2)}
+
+---
+
+${MISPRICING_PROMPT}
+
+INPUT (mispricing context):
+focal: "${finalResult.focal_company}"
+ma_attention: ${brief.mispricing?.ma_attention || 'none'}
+verdict_label: ${brief.verdict?.label || 'UNKNOWN'}
+reconciliation: ${finalResult.positioning_analysis?.reconciliation ? JSON.stringify(finalResult.positioning_analysis.reconciliation) : 'null'}
+
+---
+
+${VERDICT_THESIS_PROMPT}
+
+INPUT (verdict):
+${JSON.stringify(brief.verdict, null, 2)}
+
+---
+
+${COUNTER_SIGNAL_FILL_PROMPT}
+
+INPUT (gaps):
+${JSON.stringify(brief.counter_signals || [], null, 2)}
+
+RESPOND WITH A SINGLE JSON OBJECT (no markdown, no code fences):
+{
+  "signal_interpretations": [ { "signal_index": <number>, "interpretation": "..." OR null, "directional_implication": "positive"|"negative"|"neutral" } ],
+  "mispricing": { "has_thesis": boolean, "hypothesis": "...", "falsifying_signals": [...] },
+  "verdict_thesis": { "thesis": "..." },
+  "counter_fills": [ { "signal_type": "...", "fill_action": "..." } ]
+}`;
+
+          const briefResp = await callLLM({
+            provider: 'gemini',
+            model: 'gemini-2.5-flash',
+            system: 'You are an intelligence analyst enriching a corporate investment brief.',
+            user: batchPrompt,
+            maxTokens: 4096,
+          });
+          appendTrace(briefResp.trace.map((t) => ({ ...t, tag: 'brief' })));
+          const briefEnrich = safeExtractJSON(briefResp.text);
+
+          if (briefEnrich) {
+            // Merge signal interpretations
+            if (briefEnrich.signal_interpretations) {
+              briefEnrich.signal_interpretations.forEach((si) => {
+                if (si.signal_index !== undefined && brief.behavioral_signals[si.signal_index]) {
+                  if (si.interpretation !== null) {
+                    brief.behavioral_signals[si.signal_index].interpretation = si.interpretation;
+                    brief.behavioral_signals[si.signal_index].directional_implication = si.directional_implication;
+                  }
+                }
+              });
+              // Drop signals with null interpretation
+              brief.behavioral_signals = brief.behavioral_signals.filter((s) => s.interpretation !== null);
+              // Enforce minimum of 3 signals (deterministic fallback)
+              if (brief.behavioral_signals.length < 3) {
+                appendTrace([{
+                  kind: 'phase',
+                  phase: 'brief',
+                  label: `Warning: only ${brief.behavioral_signals.length} behavioral signals after filtering; deterministic fallback may apply`,
+                }]);
+              }
+            }
+
+            // Merge mispricing hypothesis
+            if (briefEnrich.mispricing) {
+              brief.mispricing.has_thesis = briefEnrich.mispricing.has_thesis;
+              brief.mispricing.hypothesis = briefEnrich.mispricing.hypothesis;
+              brief.mispricing.falsifying_signals = briefEnrich.mispricing.falsifying_signals || [];
+            }
+
+            // Merge verdict thesis
+            if (briefEnrich.verdict_thesis && briefEnrich.verdict_thesis.thesis) {
+              const thesis = briefEnrich.verdict_thesis.thesis;
+              // Reject forbidden phrases
+              const forbiddenPhrases = ['stable mid-sized', 'modest contribution', 'should monitor', 'time will tell'];
+              const hasForbidden = forbiddenPhrases.some((phrase) => thesis.toLowerCase().includes(phrase));
+              if (hasForbidden) {
+                appendTrace([{
+                  kind: 'phase',
+                  phase: 'brief',
+                  label: `Warning: verdict thesis contained forbidden filler phrase; using fallback template`,
+                }]);
+                // Fallback template based on label
+                const fallbacks = {
+                  BUY: 'Growth signals and capital allocation support expansion; recommend tracking execution.',
+                  'HOLD WITH UPSIDE': 'Core asset with underexploited capacity; upside depends on growth signal realization.',
+                  HOLD: 'Stable positioning; no immediate catalyst; monitor for material changes.',
+                  'PULL BACK': 'Declining signals and capital reallocation suggest contraction; watch for stabilization.',
+                  WATCH: 'Strategic inflection point; outcome depends on signaled activity.',
+                  AVOID: 'Structural headwinds and weak signals; reposition capital elsewhere.',
+                  'ACQUIRE TARGET': 'Growth trajectory and positioning suggest acquisition readiness.',
+                  'EXIT IMMINENT': 'Late-stage signals and secondary activity indicate pre-exit phase.',
+                };
+                brief.verdict.thesis = fallbacks[brief.verdict.label] || 'Unable to generate thesis; investigate manually.';
+              } else {
+                brief.verdict.thesis = thesis;
+              }
+            }
+
+            // Merge counter-signal fill actions
+            if (briefEnrich.counter_fills && brief.counter_signals) {
+              briefEnrich.counter_fills.forEach((cf) => {
+                const counterSignal = brief.counter_signals.find((cs) => cs.signal_type === cf.signal_type);
+                if (counterSignal) {
+                  counterSignal.fill_action = cf.fill_action;
+                }
+              });
+            }
+
+            appendTrace([{ kind: 'phase', phase: 'brief', label: 'brief enrichment complete' }]);
+          } else {
+            appendTrace([{ kind: 'phase', phase: 'brief', label: 'brief enrichment parse failed — using deterministic brief' }]);
+          }
+        }
+      } catch (e) {
+        appendTrace([{ kind: 'error', tag: 'brief', message: e.message }]);
       }
 
       setResult(finalResult);
