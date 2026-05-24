@@ -326,3 +326,68 @@ test('Bug #5: synthesize surfaces a collapse note when normalization fires', () 
   const noteHit = out.positioning_analysis.strategic_notes.some((n) => /Chain normalized.*ByteDance Ltd\./.test(n));
   assert.ok(noteHit, 'collapse surfaces in strategic_notes');
 });
+
+// ─── Bug #3 follow-up: cousins get revenue with parent context ──────────────
+
+test('Cousins: collectEntities includes intra_parent_cousins with role and parent context', () => {
+  const ownership = {
+    company: 'Tiffany & Co.',
+    domain: 'tiffany.com',
+    siblings: [{ company: 'Bulgari', domain: 'bulgari.com', in_current_sources: true }],
+    intra_parent_cousins: [
+      { company: 'Louis Vuitton', domain: 'louisvuitton.com', via_division: 'Fashion & Leather Goods', in_current_sources: true },
+      { company: 'Dior', domain: 'dior.com', via_division: 'Fashion & Leather Goods', in_current_sources: true },
+    ],
+    parent: { company: 'LVMH', domain: 'lvmh.com', parent: null },
+  };
+  const ents = collectEntities(ownership);
+  const lv = ents.find((e) => e.company === 'Louis Vuitton');
+  assert.ok(lv, 'cousin is collected for revenue');
+  assert.equal(lv.role, 'cousin');
+  assert.equal(lv.parent_company, 'LVMH', 'cousin carries parent context for disambiguation');
+  assert.equal(lv.via_division, 'Fashion & Leather Goods');
+});
+
+test('Cousins: cap respects in_current_sources prioritization', () => {
+  const many = Array.from({ length: 10 }, (_, i) => ({
+    company: `LegacyBrand${i}`,
+    in_current_sources: false,
+    in_historical_sources: true,
+    via_division: 'Other',
+  }));
+  many.push({ company: 'LiveBrand', in_current_sources: true, via_division: 'Other' });
+  const ownership = {
+    company: 'Focal', siblings: [],
+    intra_parent_cousins: many,
+    parent: { company: 'Parent', parent: null },
+  };
+  const ents = collectEntities(ownership);
+  const cousins = ents.filter((e) => e.role === 'cousin');
+  assert.ok(cousins.length <= 6, 'cousins are capped to keep cost predictable');
+  assert.ok(cousins.some((c) => c.company === 'LiveBrand'), 'current-source brand survives the cap');
+});
+
+test('Cousins: synthesize attaches revenue estimate to cousin nodes', () => {
+  const ownership = {
+    company: 'Tiffany & Co.',
+    siblings: [],
+    intra_parent_cousins: [
+      { company: 'Louis Vuitton', via_division: 'Fashion & Leather Goods', in_current_sources: true },
+    ],
+    parent: { company: 'LVMH', parent: null },
+  };
+  const revenueByCompany = {
+    'louis vuitton': {
+      revenue_estimate: { low: 20e9, high: 25e9, central: 22e9 },
+      confidence: 'high',
+      signals_found: [{ type: 'press', label: 'LVMH 10-K', value: '$22B', source: 'lvmh.com', weight: 'high' }],
+      reasoning_summary: 'From LVMH Fashion & Leather Goods segment.',
+    },
+  };
+  const out = synthesize(ownership, revenueByCompany, null, {});
+  const lv = out.ownership_tree.intra_parent_cousins.find((c) => c.company === 'Louis Vuitton');
+  assert.ok(lv, 'cousin survives in synthesized tree');
+  assert.equal(lv.revenue_estimate.central, 22e9, 'cousin revenue is attached');
+  assert.equal(lv.revenue_estimate.confidence, 'high');
+  assert.equal(lv.via_division, 'Fashion & Leather Goods', 'via_division preserved for UI');
+});

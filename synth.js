@@ -334,7 +334,7 @@ export function collectEntities(ownership) {
   if (!ownership) return [];
   const out = [];
   const seen = new Set();
-  const push = (entity, role, parentName) => {
+  const push = (entity, role, parentName, extra = {}) => {
     if (!entity || !entity.company) return;
     const key = entity.company.toLowerCase().trim();
     if (seen.has(key)) return;
@@ -351,6 +351,7 @@ export function collectEntities(ownership) {
       // sibling lookups for common names (Siena, Mercury, Atlas…) collide with
       // unrelated homonymous companies.
       parent_company: parentName || null,
+      ...extra,
     });
   };
   const focalParent = ownership.parent?.company || null;
@@ -370,6 +371,15 @@ export function collectEntities(ownership) {
   // Siblings share the focal's parent in the corporate tree.
   orderedSiblings.slice(0, 8).forEach((s) => push(s, 'sibling', focalParent));
   (ownership.children || []).slice(0, 3).forEach((c) => push(c, 'child', ownership.company));
+  // Cousins: same parent, different segment. Capped to keep cost predictable
+  // on mega-aggregators (LVMH, P&G, Unilever…). Current-source brands first so
+  // a cap never drops a live brand in favor of a historical one.
+  const orderedCousins = [...(ownership.intra_parent_cousins || [])].sort(
+    (a, b) => (b.in_current_sources === true) - (a.in_current_sources === true)
+  );
+  orderedCousins.slice(0, 6).forEach((c) => push(c, 'cousin', focalParent, {
+    via_division: c.via_division || null,
+  }));
   return out;
 }
 
@@ -432,25 +442,27 @@ export function attachRevenue(ownership, revenueByCompany, entitiesByCompany = {
     }
     node._derived_status = deriveStatus(node);
     if (node.parent) visit(node.parent);
-    (node.siblings || []).forEach((s) => {
-      const sk = (s.company || '').toLowerCase().trim();
-      const sr = revenueByCompany[sk];
-      if (sr) {
-        applyContextUnverifiedDiscipline(sr, lookupEnt(sk));
-        s.revenue_estimate = {
-          low: sr.revenue_estimate?.low ?? 0,
-          high: sr.revenue_estimate?.high ?? 0,
-          central: sr.revenue_estimate?.central ?? 0,
-          confidence: sr.confidence || 'low',
+    const applyToPeer = (peer) => {
+      const pk = (peer.company || '').toLowerCase().trim();
+      const pr = revenueByCompany[pk];
+      if (pr) {
+        applyContextUnverifiedDiscipline(pr, lookupEnt(pk));
+        peer.revenue_estimate = {
+          low: pr.revenue_estimate?.low ?? 0,
+          high: pr.revenue_estimate?.high ?? 0,
+          central: pr.revenue_estimate?.central ?? 0,
+          confidence: pr.confidence || 'low',
         };
-        s.signals_found = sr.signals_found || [];
-        s.reasoning_summary = sr.reasoning_summary || '';
-        if (sr.reason_for_null) s.reason_for_null = sr.reason_for_null;
-        if (sr.context_unverified_all) s.context_unverified_all = true;
-        if (sr.context_unverified_some) s.context_unverified_some = true;
+        peer.signals_found = pr.signals_found || [];
+        peer.reasoning_summary = pr.reasoning_summary || '';
+        if (pr.reason_for_null) peer.reason_for_null = pr.reason_for_null;
+        if (pr.context_unverified_all) peer.context_unverified_all = true;
+        if (pr.context_unverified_some) peer.context_unverified_some = true;
       }
-      s._derived_status = deriveStatus(s);
-    });
+      peer._derived_status = deriveStatus(peer);
+    };
+    (node.siblings || []).forEach(applyToPeer);
+    (node.intra_parent_cousins || []).forEach(applyToPeer);
     (node.children || []).forEach(visit);
   };
   visit(clone);

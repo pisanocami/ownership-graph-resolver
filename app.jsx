@@ -743,8 +743,8 @@ export default function App() {
             if (ent.parent_company) ctxParts.push(`parent: "${ent.parent_company}"`);
             if (ent.category) ctxParts.push(`category: ${ent.category}`);
             const ctx = ctxParts.length ? ` Context — ${ctxParts.join('; ')}.` : '';
-            const disambiguationNote = ent.role === 'sibling' && ent.parent_company
-              ? ` Disambiguation: "${ent.company}" is a common name — your FIRST web search MUST include the parent ("${ent.parent_company}")${ent.category ? ` or the category ("${ent.category}")` : ''} as a qualifier; mark any signal whose source does not reference ${ent.parent_company}, its other brands, or this sector as context_unverified.`
+            const disambiguationNote = (ent.role === 'sibling' || ent.role === 'cousin') && ent.parent_company
+              ? ` Disambiguation: "${ent.company}" is a common name — your FIRST web search MUST include the parent ("${ent.parent_company}")${ent.via_division ? ` or its division ("${ent.via_division}")` : ent.category ? ` or the category ("${ent.category}")` : ''} as a qualifier; mark any signal whose source does not reference ${ent.parent_company}, its other brands, or this sector as context_unverified.`
               : '';
             const user = `Investigate the annual revenue of: "${ent.company}"${ent.domain ? ` (domain: ${ent.domain})` : ''}. Role in corporate family: ${ent.role}.${ctx}${disambiguationNote}`;
             const resp = await callLLM({ provider, model, system: REVENUE_PROMPT, user, maxSearches: 4, maxTokens: 3072 });
@@ -1829,6 +1829,11 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
         {node.layer && <span className="chip">{node.layer}</span>}
         {node.node_type && <span className="chip">{node.node_type.replace('_', ' ')}</span>}
         {node.category && <span className="chip">{node.category}</span>}
+        {node.via_division && (
+          <span className="chip" title="Cousin: same parent, different division">
+            via {node.via_division}
+          </span>
+        )}
         {node.terminal_layer === 'private_equity' && <span className="chip chip-warning">PE-owned</span>}
         {node.standalone && <span className="chip chip-accent">standalone</span>}
         {(node.context_unverified_all || node.context_unverified_some) && (
