@@ -2915,11 +2915,22 @@ async function generateBriefPDF(result, svgImage = null) {
   if (!result || !result.intelligence_brief) return;
 
   const brief = result.intelligence_brief;
+  const tree = result.ownership_tree || {};
   const focal = (typeof result.focal_company === 'string' ? result.focal_company : result.focal_company?.name)
-    || result.ownership_tree?.company
+    || tree.company
     || 'Unknown';
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+
+  // Revenue formatting
+  const formatRev = (n) => {
+    if (!n || n === 0) return 'undisclosed';
+    if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+    if (n >= 1e6) return `$${(n / 1e6).toFixed(0)}M`;
+    return `$${(n / 1e3).toFixed(0)}K`;
+  };
+  const revEst = tree.revenue_estimate || {};
+  const revRange = revEst.central ? `${formatRev(revEst.low || revEst.central * 0.7)}–${formatRev(revEst.high || revEst.central * 1.3)} (central: ${formatRev(revEst.central)})` : 'Undisclosed';
 
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageW = pdf.internal.pageSize.getWidth();
@@ -2930,8 +2941,14 @@ async function generateBriefPDF(result, svgImage = null) {
   let y = margin;
 
   const font = (size, style = 'normal') => { pdf.setFontSize(size); pdf.setFont('helvetica', style); };
-  const addPage = () => { pdf.addPage(); y = margin; };
+  let pageNum = 1;
+  const addPage = () => { pdf.addPage(); pageNum++; y = margin; };
   const ensure = (h) => { if (y + h > bottomLimit) addPage(); };
+
+  const renderPageNum = () => {
+    pdf.setFontSize(8); pdf.setTextColor(150, 150, 150);
+    pdf.text(`Page ${pageNum}`, pageW - margin - 20, pageH - 8);
+  };
 
   const text = (str, opts = {}) => {
     const { size = 10, style = 'normal', color = [24, 24, 27], x = margin, maxW = contentW, gap = 1.8 } = opts;
@@ -2944,6 +2961,17 @@ async function generateBriefPDF(result, svgImage = null) {
       y += lineH;
     });
     y += gap;
+  };
+
+  const badge = (label, bgColor = [200, 220, 240], textColor = [8, 145, 178]) => {
+    ensure(8);
+    const bw = 25, bh = 5;
+    pdf.setFillColor(...bgColor);
+    pdf.rect(margin, y, bw, bh, 'F');
+    pdf.setTextColor(...textColor);
+    font(8, 'bold');
+    pdf.text(label, margin + 1, y + 1.2);
+    y += 7;
   };
 
   const section = (title) => {
@@ -2965,8 +2993,14 @@ async function generateBriefPDF(result, svgImage = null) {
   font(24, 'bold'); pdf.setTextColor(8, 145, 178);
   text(verdictLabel, { size: 24, style: 'bold', color: [8, 145, 178] });
 
+  // Confidence badge
+  const confidenceLevels = { high: [76, 175, 80], medium: [255, 152, 0], low: [244, 67, 54] };
+  const confColor = confidenceLevels[brief.verdict?.confidence] || [150, 150, 150];
+  badge((brief.verdict?.confidence || 'unknown').toUpperCase(), confColor, [255, 255, 255]);
+
   text(`Trajectory: ${brief.verdict?.trajectory || 'N/A'}`, { size: 11 });
   text(`Capital Decision: ${brief.verdict?.capital_decision || 'N/A'}`, { size: 11 });
+  text(`Revenue Estimate: ${revRange}`, { size: 10, color: [80, 120, 160] });
   if (brief.verdict?.thesis) text(`Thesis: ${brief.verdict.thesis}`, { size: 10 });
 
   y += 4;
@@ -2986,9 +3020,22 @@ async function generateBriefPDF(result, svgImage = null) {
   // Counter-signals (gaps where expected signals are missing)
   if (brief.counter_signals && brief.counter_signals.length > 0) {
     y += 2;
-    text('Expected but missing:', { size: 10, style: 'bold' });
+    text('Research Gaps:', { size: 10, style: 'bold', color: [200, 120, 40] });
     brief.counter_signals.forEach((gap) => {
-      text(`   - ${gap.signal_type}${gap.fill_action ? ` -> ${gap.fill_action}` : ''}`, { size: 9, color: [180, 100, 20] });
+      ensure(6);
+      pdf.setFillColor(255, 245, 220);
+      pdf.rect(margin, y, contentW, 5.5, 'F');
+      pdf.setDrawColor(220, 160, 80);
+      pdf.rect(margin, y, contentW, 5.5);
+      font(9, 'bold');
+      pdf.setTextColor(180, 100, 20);
+      pdf.text(gap.signal_type, margin + 1.5, y + 0.8);
+      if (gap.fill_action) {
+        font(8);
+        pdf.setTextColor(100, 100, 100);
+        pdf.text(`↳ ${gap.fill_action}`, margin + 1.5, y + 3);
+      }
+      y += 6;
     });
   }
 
@@ -3004,13 +3051,70 @@ async function generateBriefPDF(result, svgImage = null) {
   y += 4;
   section('RECONCILIATION');
   if (brief.reconciliation_honest) {
-    text(`Interpretation: ${brief.reconciliation_honest.interpretation}`, { size: 10, style: 'bold' });
-    text(`Direction: ${brief.reconciliation_honest.raw_numbers?.delta_pct > 0 ? '+' : ''}${brief.reconciliation_honest.raw_numbers?.delta_pct || 0}%`, { size: 10 });
-    if (brief.reconciliation_honest.honest_explanation) {
-      text(brief.reconciliation_honest.honest_explanation, { size: 9 });
+    const recon = brief.reconciliation_honest;
+    const interpretation = recon.interpretation || 'unknown';
+
+    // Color-code by interpretation
+    const reconColors = {
+      overshoot: [200, 230, 201], // green
+      gap_uncovered: [255, 243, 224], // amber
+      circular: [255, 205, 210], // red
+      coverage_win: [200, 230, 201],
+      reconciles: [240, 248, 255], // light blue
+    };
+    const bgColor = reconColors[interpretation] || [240, 240, 240];
+
+    // Draw interpretation box
+    ensure(14);
+    pdf.setFillColor(...bgColor);
+    pdf.rect(margin, y, contentW, 8, 'F');
+    pdf.setDrawColor(180, 180, 180);
+    pdf.rect(margin, y, contentW, 8);
+    font(9, 'bold');
+    pdf.setTextColor(17, 17, 20);
+    const deltaStr = (recon.raw_numbers?.delta_pct || 0) > 0 ? '+' : '';
+    const deltaVal = recon.raw_numbers?.delta_pct || 0;
+    pdf.text(`${interpretation.toUpperCase()} · ${deltaStr}${deltaVal}%`, margin + 2, y + 1.5);
+    y += 10;
+
+    // Explanation
+    if (recon.honest_explanation) {
+      text(recon.honest_explanation, { size: 9 });
+    }
+
+    // Table: reconciliation numbers
+    ensure(12);
+    const rows = [
+      ['Sum of Siblings', formatRev(recon.raw_numbers?.sum_siblings || 0)],
+      ['Parent Benchmark', formatRev(recon.raw_numbers?.anchor || 0)],
+    ];
+    rows.forEach((row, i) => {
+      if (i > 0) y += 0.5;
+      pdf.setDrawColor(220, 220, 220);
+      pdf.rect(margin, y, contentW / 2, 4.5);
+      pdf.rect(margin + contentW / 2, y, contentW / 2, 4.5);
+      font(9);
+      pdf.setTextColor(80, 80, 80);
+      pdf.text(row[0], margin + 1, y + 1);
+      pdf.setTextColor(17, 17, 20);
+      pdf.text(row[1], margin + contentW / 2 + 1, y + 1);
+      y += 4.5;
+    });
+    y += 2;
+
+    // Overstated/Understated siblings
+    if ((recon.siblings_likely_overstated && recon.siblings_likely_overstated.length > 0) ||
+        (recon.siblings_likely_understated && recon.siblings_likely_understated.length > 0)) {
+      ensure(8);
+      if (recon.siblings_likely_overstated?.length > 0) {
+        text(`⚠ Likely overstated: ${recon.siblings_likely_overstated.join(', ')}`, { size: 9, color: [200, 80, 80] });
+      }
+      if (recon.siblings_likely_understated?.length > 0) {
+        text(`◆ Likely understated: ${recon.siblings_likely_understated.join(', ')}`, { size: 9, color: [80, 120, 200] });
+      }
     }
   } else {
-    text('No reconciliation data (standalone)', { size: 10 });
+    text('No reconciliation data (standalone)', { size: 10, color: [150, 150, 150] });
   }
 
   y += 4;
@@ -3055,6 +3159,52 @@ async function generateBriefPDF(result, svgImage = null) {
     });
   }
 
+  // Confidence gaps
+  const gaps = brief.confidence_gaps || {};
+  const hasGaps = (gaps.high_confidence?.length > 0) || (gaps.medium_confidence?.length > 0) ||
+                 (gaps.known_gaps?.length > 0) || (gaps.verdict_changers?.length > 0);
+  if (hasGaps) {
+    y += 4;
+    section('CONFIDENCE & GAPS');
+
+    const gapColors = {
+      high_confidence: [76, 175, 80], // green
+      medium_confidence: (255, 152, 0), // orange
+      known_gaps: (244, 67, 54), // red
+      verdict_changers: (63, 81, 181), // indigo
+    };
+
+    const gapLabels = {
+      high_confidence: '✓ HIGH CONFIDENCE',
+      medium_confidence: '◆ MEDIUM CONFIDENCE',
+      known_gaps: '○ KNOWN GAPS',
+      verdict_changers: '⚠ VERDICT CHANGERS',
+    };
+
+    ['high_confidence', 'medium_confidence', 'known_gaps', 'verdict_changers'].forEach((key) => {
+      const items = gaps[key] || [];
+      if (items.length > 0) {
+        ensure(6);
+        const colors = { high_confidence: [76, 175, 80], medium_confidence: [255, 152, 0], known_gaps: [244, 67, 54], verdict_changers: [63, 81, 181] };
+        const col = colors[key] || [150, 150, 150];
+        pdf.setFillColor(...col);
+        pdf.rect(margin, y, contentW, 4.5, 'F');
+        font(8, 'bold');
+        pdf.setTextColor(255, 255, 255);
+        pdf.text(gapLabels[key], margin + 1, y + 1.5);
+        y += 5;
+
+        items.slice(0, 3).forEach((item) => {
+          text(`  • ${item}`, { size: 9, color: [60, 60, 60] });
+        });
+        if (items.length > 3) {
+          text(`  ... and ${items.length - 3} more`, { size: 8, color: [120, 120, 120] });
+        }
+        y += 1;
+      }
+    });
+  }
+
   y += 4;
   section('DATA TRACE');
   text(`Report Date: ${dateStr}`, { size: 9 });
@@ -3063,6 +3213,15 @@ async function generateBriefPDF(result, svgImage = null) {
   }
   if (brief.data_trace?.methodology_note) {
     text(brief.data_trace.methodology_note, { size: 8, color: [120, 120, 130] });
+  }
+
+  // Render page numbers on all pages
+  const pageCount = pdf.internal.pages.length - 1; // exclude blank first element
+  for (let i = 1; i <= pageCount; i++) {
+    pdf.setPage(i);
+    pdf.setFontSize(8);
+    pdf.setTextColor(150, 150, 150);
+    pdf.text(`Page ${i}`, pageW - margin - 20, pageH - 8);
   }
 
   const filename = `${focal}-intelligence-brief-${dateStr.replace(/\s+/g, '-')}.pdf`;

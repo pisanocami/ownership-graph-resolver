@@ -215,8 +215,11 @@ export function buildAsciiTree(tree) {
   }
 
   if (tree.strategic_control && tree.strategic_control.length > 0) {
-    const controlLabels = tree.strategic_control.slice(0, 2).map((s) => s.company || s.relationship).join(', ');
-    lines.push(`'- Key stakeholders: ${controlLabels}${tree.strategic_control.length > 2 ? ` (+${tree.strategic_control.length - 2})` : ''}`);
+    const validControllers = tree.strategic_control.filter((s) => s.company || s.relationship);
+    if (validControllers.length > 0) {
+      const controlLabels = validControllers.slice(0, 2).map((s) => s.company || s.relationship).join(', ');
+      lines.push(`'- Key stakeholders: ${controlLabels}${validControllers.length > 2 ? ` (+${validControllers.length - 2})` : ''}`);
+    }
   }
 
   return lines.slice(0, 8).join('\n');
@@ -383,6 +386,55 @@ export function buildIntelligenceBrief(tree, positioning, { collapses = {}, hold
   const mispricing = buildMispricingSkeleton(tree, positioning);
   const data_trace = buildDataTrace(tree);
 
+  // Build confidence gaps
+  const confidence_gaps = {
+    high_confidence: [],
+    medium_confidence: [],
+    known_gaps: [],
+    verdict_changers: [],
+  };
+
+  // High confidence: revenue estimate with high confidence + clear ownership
+  if (tree.revenue_estimate?.confidence === 'high') {
+    confidence_gaps.high_confidence.push(`Revenue estimate (${tree.revenue_estimate.source || 'source'})`);
+  }
+  if (tree.parent && !tree.co_owners) {
+    confidence_gaps.high_confidence.push('Clear parent company ownership');
+  }
+
+  // Medium confidence: moderate confidence signals, signals with sources
+  if (tree.revenue_estimate?.confidence === 'medium') {
+    confidence_gaps.medium_confidence.push(`Revenue estimate (${tree.revenue_estimate.source || 'source'})`);
+  }
+  if (tree.signals_found?.length > 0) {
+    const verifiedSignals = tree.signals_found.filter((s) => !s.context_unverified);
+    if (verifiedSignals.length > 0) {
+      confidence_gaps.medium_confidence.push(`${verifiedSignals.length} verified signal${verifiedSignals.length !== 1 ? 's' : ''}`);
+    }
+  }
+
+  // Known gaps: missing parent anchor, missing acquisition details, no M&A signals for growth company
+  if (tree.parent && !positioning.parent_benchmark) {
+    confidence_gaps.known_gaps.push('Parent segment revenue anchor (10-K) not publicly available');
+  }
+  if (tree.parent && !tree.co_owners && tree.revenue_estimate?.central > 500e6 && !tree.signals_found?.some((s) => s.type === 'm_and_a')) {
+    confidence_gaps.known_gaps.push('No M&A/strategic signals detected for large subsidiary');
+  }
+  if (tree.siblings && tree.siblings.length > 0 && tree.siblings.some((s) => !s.revenue_estimate?.central)) {
+    confidence_gaps.known_gaps.push(`${tree.siblings.filter((s) => !s.revenue_estimate?.central).length} sibling(s) without revenue estimates`);
+  }
+
+  // Verdict changers: data that could flip the verdict
+  if (tree.pending_acquisition || tree.acquisition?.status === 'rumored') {
+    confidence_gaps.verdict_changers.push('Pending or rumored M&A could change trajectory');
+  }
+  if (tree.co_owners && tree.co_owners.length > 1) {
+    confidence_gaps.verdict_changers.push('Multi-owner structure limits capital decisions');
+  }
+  if (positioning.reconciliation?.pct_delta > 30 || positioning.reconciliation?.pct_delta < -30) {
+    confidence_gaps.verdict_changers.push('Reconciliation delta ±30%+ suggests missing siblings or estimate issues');
+  }
+
   return {
     verdict: {
       ...verdict,
@@ -395,12 +447,7 @@ export function buildIntelligenceBrief(tree, positioning, { collapses = {}, hold
     mispricing,
     competitive_context: null, // web-search Phase 4
     reconciliation_honest,
-    confidence_gaps: {
-      high_confidence: [],
-      medium_confidence: [],
-      known_gaps: [],
-      verdict_changers: [],
-    },
+    confidence_gaps,
     strategic_notes_by_audience: {
       for_investors: verdict.capital_decision === 'Not actionable as standalone' ? null : 'Pending LLM enrichment',
       for_competitors: null, // web-search Phase 4
