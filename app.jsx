@@ -94,6 +94,26 @@ Emit "legal_entity_reference" (CIK/LEI/registration ID) and "ticker" on each lay
 
 Step 7 — Strategic control. Capture control/governance relationships that are NOT formal ownership: founders, the last pre-acquisition funding round, the current executive leader (CEO/President), board members, investors/VCs, PE backers, major shareholders. Include ONLY with clear evidence (funding press release, SEC 13D/13G, official board page, M&A announcement). Describe each relationship as a FREE-TEXT role_description (e.g. "lead Series B investor", "co-founder & CEO", "PE sponsor") — do NOT pick from a fixed list. POPULATE strategic_control for EVERY node in the chain (root, each parent, and the focal), not just the focal. Aggregator layers especially tend to have independent founders and prior funding rounds. For acquired companies, capture BOTH the historical pre-acquisition investors AND the current post-acquisition executives. If a layer genuinely has no evidenced control info, set strategic_control:[] and strategic_control_note:"no_data_found: <reason>".
 
+Step 7.5 — UBO promotion (Ultimate Beneficial Owner as a chain node). The chain's "root" is normally the topmost legal entity. PROMOTE an additional layer above that legal entity — as its own node in the parent chain — when ANY of these four triggers fires with clear evidence:
+  A. FAMILY OFFICE / HOLDING VEHICLE declared: a named family-controlled holding or office that owns the top operating entity (e.g. "Arnault Family Group" over LVMH, "Pontegadea Inversiones" over Inditex, "Walton Enterprises" over Walmart, "Cascade Investment" over a Gates holding). Use node_type:"individual" only when the UBO is literally a natural person; use node_type:"legal_entity" with ubo_type:"family_group" when the vehicle is an entity.
+  B. INDIVIDUAL FOUNDER / SHAREHOLDER with material control: a natural person holding >20% equity OR >50% voting power in the top legal entity (e.g. Zhang Yiming in ByteDance Ltd., Mark Zuckerberg in Meta via Class B voting, Amancio Ortega in Inditex via Pontegadea, Warren Buffett in Berkshire Hathaway). Use node_type:"individual" and ubo_type:"individual".
+  C. TRUST / FOUNDATION / NONPROFIT as declared owner (e.g. Robert Bosch Stiftung over Bosch, Tata Trusts over Tata Sons, Novo Nordisk Foundation over Novo Holdings). Use node_type:"legal_entity" and ubo_type:"trust".
+  D. SOVEREIGN WEALTH FUND / STATE OWNER with majority stake (e.g. PIF over Lucid majority, Mubadala over GlobalFoundries, Temasek over Singtel). Use node_type:"legal_entity" and ubo_type:"sovereign".
+
+DO NOT promote a UBO node when:
+  - Founder stake is <10% with no special voting class and no board control (typical late-stage public CEO).
+  - The top entity is a widely-held public company with dispersed ownership (no single shareholder >10%, no family bloc, no foundation owner — e.g. Apple, Microsoft today, most S&P 500 names). In that case the legal entity IS the root; institutional shareholders go in strategic_control, not as a UBO node.
+  - You only have rumors / press speculation without a primary source (proxy filing, foundation page, family office press release, M&A doc).
+
+When a UBO node is promoted, it becomes the new "root" layer of the parent chain (its terminal_layer is "root"), and the previously-topmost legal entity becomes its child via the normal parent recursion. Populate the UBO node payload with:
+  - node_type: "individual" | "legal_entity"
+  - ubo_type: "family_group" | "individual" | "trust" | "sovereign"
+  - terminal_layer: "root"
+  - stake: { equity_pct: number|null, voting_pct: number|null, evidence: str, source_url: str } — capture whatever is disclosed; null fields are fine.
+  - Standard fields (company, layer:"root", confidence, sources, strategic_control where applicable — e.g. an individual UBO's strategic_control may be empty or describe other roles such as board chair).
+
+If multiple triggers apply, prefer the most concrete vehicle (a named family office trumps a bare individual name; a foundation trumps an individual trustee). Document the chosen trigger in "notes" ("UBO promoted: trigger B — individual founder Zhang Yiming holds ~22% equity per ...").
+
 DEPTH/FAN-OUT CAP
 Limit ownership recursion to 2–3 generations. Cap siblings to the 8 most material brands, but ALWAYS include every brand with in_current_sources:true before any historical-only brand — only drop historical-only brands when over the cap. Cap children to 6 direct subsidiaries.
 
@@ -107,10 +127,17 @@ low: only Tier C or >3 years without reconfirmation.
 
 STRICT JSON OUTPUT, NO PROSE, NO MARKDOWN FENCES:
 {
-  "company": str, "domain": str, "node_type": "legal_entity"|"operating_brand",
+  "company": str, "domain": str, "node_type": "legal_entity"|"operating_brand"|"individual",
   "layer": "brand"|"aggregator"|"parent"|"root",
   "standalone": bool,
   "terminal_layer": "root"|"private_equity"|null,
+  "ubo_type": "family_group"|"individual"|"trust"|"sovereign"|null,    // populated ONLY on a promoted UBO node (Step 7.5). null on regular corporate layers.
+  "stake": {                                                            // populated ONLY on a promoted UBO node. Captures the ownership/control evidence.
+    "equity_pct": <number 0-100>|null,
+    "voting_pct": <number 0-100>|null,
+    "evidence": str,
+    "source_url": str
+  } | null,
   "in_current_sources": bool,          // appears in a PRIMARY/current source
   "in_historical_sources": bool,       // appears in a SECONDARY/older source
   "last_mention_date": str|null,       // most recent date referenced (ISO-ish) or null
@@ -1571,28 +1598,57 @@ function CousinsSection({ cousins, selectedKey, onSelect, parentName }) {
   );
 }
 
+// Human-friendly label + tooltip for the UBO type badge (Bug #4).
+function uboTypeMeta(ubo_type) {
+  switch (ubo_type) {
+    case 'family_group':
+      return { label: 'UBO · family', title: 'Ultimate Beneficial Owner — named family group / family holding vehicle.' };
+    case 'individual':
+      return { label: 'UBO · individual', title: 'Ultimate Beneficial Owner — natural person holding >20% equity or >50% voting control.' };
+    case 'trust':
+      return { label: 'UBO · trust', title: 'Ultimate Beneficial Owner — trust, foundation or nonprofit declared as owner.' };
+    case 'sovereign':
+      return { label: 'UBO · sovereign', title: 'Ultimate Beneficial Owner — sovereign wealth fund or state owner with majority stake.' };
+    default:
+      return null;
+  }
+}
+
 function TreeNode({ node, role, selectedKey, onSelect }) {
   const isFocal = role === 'focal';
+  const isIndividual = node.node_type === 'individual';
   const isSelected = keyOf(node) === selectedKey;
   const rev = node.revenue_estimate;
+  const uboMeta = uboTypeMeta(node.ubo_type);
   return (
     <button
       type="button"
-      className={`tree-node ${isFocal ? 'focal' : ''} ${isSelected ? 'selected' : ''}`}
+      className={`tree-node ${isFocal ? 'focal' : ''} ${isIndividual ? 'individual' : ''} ${isSelected ? 'selected' : ''}`}
       onClick={() => onSelect(keyOf(node))}
+      title={uboMeta?.title}
     >
       <div className="tree-node-main">
-        <span className="tree-node-name">{node.company}</span>
+        <span className="tree-node-name">
+          {isIndividual && <span className="ubo-icon" aria-hidden="true">◉</span>}
+          {node.company}
+        </span>
         <div className="tree-node-meta">
           <span className={`chip ${isFocal ? 'chip-accent' : ''}`}>{role}</span>
           {node.layer && <span className="chip">{node.layer}</span>}
           {node.category && <span className="chip">{node.category}</span>}
           {node.terminal_layer === 'private_equity' && <span className="chip chip-warning">PE</span>}
+          {uboMeta && (
+            <span className="chip chip-accent" title={uboMeta.title}>{uboMeta.label}</span>
+          )}
           <StatusBadge node={node} />
         </div>
       </div>
       <div className={`tree-node-rev ${rev && rev.central > 0 ? '' : 'empty'}`}>
-        {rev && rev.central > 0 ? (
+        {isIndividual ? (
+          <span style={{ color: 'var(--text-subtle)', fontSize: 11, fontStyle: 'italic' }}>
+            {node.stake?.equity_pct != null ? `${node.stake.equity_pct}% eq` : node.stake?.voting_pct != null ? `${node.stake.voting_pct}% vote` : 'natural person'}
+          </span>
+        ) : rev && rev.central > 0 ? (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span className={`confidence-dot confidence-${rev.confidence || 'unknown'}`} />
             {formatUSD(rev.central)}
@@ -1611,18 +1667,25 @@ function FlowNode({ data }) {
   const { node, role, selected, onSelect } = data;
   const rev = node.revenue_estimate;
   const isFocal = role === 'focal';
+  const isIndividual = node.node_type === 'individual';
+  const uboMeta = uboTypeMeta(node.ubo_type);
   const handleStyle = { background: 'transparent', border: 'none', width: 1, height: 1 };
   return (
     <div
-      className={`flow-node ${isFocal ? 'focal' : ''} ${selected ? 'selected' : ''}`}
+      className={`flow-node ${isFocal ? 'focal' : ''} ${isIndividual ? 'individual' : ''} ${selected ? 'selected' : ''}`}
       onClick={() => onSelect(keyOf(node))}
+      title={uboMeta?.title}
     >
       <Handle type="target" position={Position.Top} style={handleStyle} className="flow-handle" />
-      <div className="flow-node-name">{node.company}</div>
+      <div className="flow-node-name">
+        {isIndividual && <span className="ubo-icon" aria-hidden="true">◉ </span>}
+        {node.company}
+      </div>
       {node.domain && <div className="flow-node-domain">{node.domain}</div>}
       <div className="flow-node-meta">
         <span className={`chip ${isFocal ? 'chip-accent' : ''}`}>{role}</span>
         {node.category && <span className="chip">{node.category}</span>}
+        {uboMeta && <span className="chip chip-accent" title={uboMeta.title}>{uboMeta.label}</span>}
         <StatusBadge node={node} />
         {rev && rev.central > 0 && (
           <>
@@ -1836,6 +1899,10 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
         )}
         {node.terminal_layer === 'private_equity' && <span className="chip chip-warning">PE-owned</span>}
         {node.standalone && <span className="chip chip-accent">standalone</span>}
+        {(() => {
+          const m = uboTypeMeta(node.ubo_type);
+          return m ? <span className="chip chip-accent" title={m.title}>{m.label}</span> : null;
+        })()}
         {(node.context_unverified_all || node.context_unverified_some) && (
           <span
             className="chip chip-warning"
@@ -1850,6 +1917,30 @@ function DetailPanel({ node, revenueResult, tree, positioning }) {
         )}
         <StatusBadge node={node} />
       </div>
+
+      {node.stake && (node.stake.equity_pct != null || node.stake.voting_pct != null || node.stake.evidence) && (
+        <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid var(--accent-soft-border)', borderRadius: 6, background: 'var(--accent-soft)', fontSize: 13 }}>
+          <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>
+            Ownership stake
+          </div>
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', color: 'var(--text-muted)' }}>
+            {node.stake.equity_pct != null && (
+              <span><span className="mono" style={{ color: 'var(--text)', fontWeight: 600 }}>{node.stake.equity_pct}%</span> equity</span>
+            )}
+            {node.stake.voting_pct != null && (
+              <span><span className="mono" style={{ color: 'var(--text)', fontWeight: 600 }}>{node.stake.voting_pct}%</span> voting</span>
+            )}
+          </div>
+          {node.stake.evidence && (
+            <div style={{ marginTop: 6, color: 'var(--text-muted)', fontSize: 12 }}>{node.stake.evidence}</div>
+          )}
+          {node.stake.source_url && isSafeUrl(node.stake.source_url) && (
+            <div style={{ marginTop: 4, fontSize: 11 }}>
+              <a href={node.stake.source_url} target="_blank" rel="noopener noreferrer">{node.stake.source_url}</a>
+            </div>
+          )}
+        </div>
+      )}
 
       {node.acquisition?.acquired_by && (
         <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)' }}>

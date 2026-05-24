@@ -279,7 +279,19 @@ a:hover { text-decoration: underline; }
 }
 .tree-node:hover { border-color: var(--border-strong); background: var(--surface); }
 .tree-node.focal { border-color: var(--accent); background: var(--accent-soft); }
+.tree-node.individual {
+  border-style: dashed;
+  border-color: var(--accent-soft-border);
+  background: var(--accent-soft);
+}
+.tree-node.individual .tree-node-name { font-style: italic; }
 .tree-node.selected { border-color: var(--accent); box-shadow: var(--focus-ring); }
+.ubo-icon {
+  display: inline-block;
+  color: var(--accent);
+  margin-right: 4px;
+  font-size: 12px;
+}
 .tree-node-main { flex: 1; min-width: 0; }
 .tree-node-name { font-weight: 600; font-size: 13px; color: var(--text); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-node-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -396,6 +408,12 @@ a:hover { text-decoration: underline; }
 }
 .flow-node:hover { border-color: var(--border-strong); }
 .flow-node.focal { border-color: var(--accent); background: var(--accent-soft); }
+.flow-node.individual {
+  border-style: dashed;
+  border-color: var(--accent-soft-border);
+  background: var(--accent-soft);
+}
+.flow-node.individual .flow-node-name { font-style: italic; }
 .flow-node.selected { box-shadow: var(--focus-ring); border-color: var(--accent); }
 .flow-node-name { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.2; }
 .flow-node-domain { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); margin-top: 2px; }

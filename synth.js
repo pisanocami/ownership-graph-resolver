@@ -359,7 +359,11 @@ export function collectEntities(ownership) {
   let p = ownership.parent;
   let depth = 0;
   while (p && depth < 2) {
-    push(p, depth === 0 ? 'parent' : 'grandparent', p.parent?.company || null);
+    // Skip individuals (UBO natural persons) — the revenue agent investigates
+    // companies, not people; "Zhang Yiming revenue" is a meaningless query.
+    if (p.node_type !== 'individual') {
+      push(p, depth === 0 ? 'parent' : 'grandparent', p.parent?.company || null);
+    }
     p = p.parent;
     depth++;
   }
