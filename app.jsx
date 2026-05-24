@@ -10,6 +10,7 @@ import {
   safeExtractJSON,
   deriveStatus,
   deriveRevenueStatus,
+  normalizeChain,
 } from './synth.js';
 
 const PROVIDERS = {
@@ -63,6 +64,20 @@ SECONDARY (historical, may be stale): FTC/SEC filings, press releases older than
 RULE: a brand present in a PRIMARY source but ABSENT from SECONDARY ones is CURRENT, not invalid — capture it (e.g. a brand launched in the last 1–2 years). NEVER drop a brand solely because older/secondary sources omit it.
 
 Step 6 — Children. If the input is a parent, list direct subsidiaries.
+
+Step 6.5 — Chain normalization (legal_name vs brand_name). Before emitting JSON, walk the parent chain and for EACH consecutive parent↔child pair ask: are these actually the SAME legal entity captured under two name forms (e.g. "ByteDance Ltd." as root and "ByteDance" as parent)? COLLAPSE the pair into ONE layer when they share 2+ of these identifiers:
+  (a) canonical domain (after stripping www/protocol),
+  (b) ticker symbol,
+  (c) legal-entity reference (CIK, LEI, registration ID, or SEC filer ID),
+  (d) the triple {headquarters, founders, founding_date} matching together.
+When collapsing: keep the MORE FORMAL legal name as canonical ("X Ltd." > "X", "Y Corporation" > "Y"); union sources/signals/strategic_control; if revenues diverge, take the WIDEST unified range; note the collapse in "notes" ("Collapsed X and Y — shared <identifiers>").
+DO NOT collapse when only the bare names match (modulo legal suffix) without 2+ identifier overlap — that is not enough evidence.
+DO NOT collapse legitimately distinct layers:
+  - Holding vs operating subsidiary with different UBO (e.g. Inditex ≠ Pontegadea Inversiones).
+  - Holding vs operating subsidiary with distinct domains/tickers (e.g. Alphabet Inc. abc.xyz ≠ Google LLC google.com).
+SPECIAL CASE — "X Holdings" / "X Group" paired with "X" (same root token, no other identifier overlap): do NOT auto-collapse. Keep both layers and add to "notes": "Review needed: <X Holdings> and <X> may be the same legal entity — verify.".
+After this step, no two consecutive layers in the chain should be the same legal entity under different name forms.
+Emit "legal_entity_reference" (CIK/LEI/registration ID) and "ticker" on each layer when known — these IDs are what makes the normalization auditable.
 
 Step 7 — Strategic control. Capture control/governance relationships that are NOT formal ownership: founders, the last pre-acquisition funding round, the current executive leader (CEO/President), board members, investors/VCs, PE backers, major shareholders. Include ONLY with clear evidence (funding press release, SEC 13D/13G, official board page, M&A announcement). Describe each relationship as a FREE-TEXT role_description (e.g. "lead Series B investor", "co-founder & CEO", "PE sponsor") — do NOT pick from a fixed list. POPULATE strategic_control for EVERY node in the chain (root, each parent, and the focal), not just the focal. Aggregator layers especially tend to have independent founders and prior funding rounds. For acquired companies, capture BOTH the historical pre-acquisition investors AND the current post-acquisition executives. If a layer genuinely has no evidenced control info, set strategic_control:[] and strategic_control_note:"no_data_found: <reason>".
 
@@ -657,6 +672,18 @@ export default function App() {
           ? ' — output was truncated. Try Gemini 2.5 Pro or Claude Sonnet for this query.'
           : (!preview ? ' — empty response from the model.' : '');
         throw new Error(`Ownership phase did not return parseable JSON${fr}.${hintMsg}${preview ? ` Preview: "${preview}…"` : ''}`);
+      }
+      // Bug #5: defensively collapse duplicate parent↔child layers BEFORE
+      // spawning revenue calls so we don't pay for the same entity twice.
+      const { tree: normalizedOwnership, collapses: chainCollapses } = normalizeChain(ownership);
+      if (chainCollapses.length > 0) {
+        appendTrace(chainCollapses.map((c) => ({
+          kind: 'phase',
+          phase: 'ownership',
+          label: `chain normalized — collapsed "${c.from[0]}" + "${c.from[1]}" → "${c.canonical}" (shared: ${c.shared.join(', ')})`,
+        })));
+        Object.keys(ownership).forEach((k) => { delete ownership[k]; });
+        Object.assign(ownership, normalizedOwnership);
       }
       if (ownership.disambiguation_required) {
         setResult({ disambiguation: ownership, raw: ownershipResp.text });

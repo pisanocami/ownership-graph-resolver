@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { synthesize, collectEntities, deriveStatus, deriveRevenueStatus } from '../synth.js';
+import { synthesize, collectEntities, deriveStatus, deriveRevenueStatus, normalizeChain } from '../synth.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const load = (f) => JSON.parse(readFileSync(join(here, 'fixtures', f), 'utf8'));
@@ -182,4 +182,147 @@ test('Zara: strategic_control is deduplicated across layers', () => {
   const focalRepeats = tree.strategic_control.filter((s) => parentEntities.has(s.entity));
   assert.equal(focalRepeats.length, 0, 'no owner repeated from the parent layer on the focal');
   assert.ok(tree.parent.strategic_control.some((s) => s.entity === 'Amancio Ortega'));
+});
+
+// ─── Bug #5: Chain normalization (legal_name vs brand_name) ─────────────────
+
+test('Bug #5: ByteDance Ltd. + ByteDance with shared domain+founders+HQ collapse to one', () => {
+  const ownership = {
+    company: 'TikTok',
+    domain: 'tiktok.com',
+    node_type: 'operating_brand',
+    parent: {
+      company: 'ByteDance',
+      domain: 'bytedance.com',
+      node_type: 'legal_entity',
+      headquarters: 'Beijing, China',
+      founding_date: '2012-03-01',
+      founders: ['Zhang Yiming', 'Liang Rubo'],
+      sources: ['https://bytedance.com/about'],
+      revenue_estimate: { low: 150e9, high: 160e9, central: 155e9, confidence: 'medium' },
+      parent: {
+        company: 'ByteDance Ltd.',
+        domain: 'bytedance.com',
+        node_type: 'legal_entity',
+        headquarters: 'Beijing, China',
+        founding_date: '2012-03-01',
+        founders: ['Zhang Yiming', 'Liang Rubo'],
+        sources: ['https://sec.gov/...'],
+        revenue_estimate: { low: 165e9, high: 175e9, central: 170.5e9, confidence: 'high' },
+        parent: null,
+      },
+    },
+  };
+  const { tree, collapses } = normalizeChain(ownership);
+  assert.equal(collapses.length, 1, 'one collapse fires');
+  assert.equal(collapses[0].canonical, 'ByteDance Ltd.', 'formal legal name wins as canonical');
+  assert.ok(collapses[0].shared.includes('domain'));
+  assert.ok(collapses[0].shared.length >= 2, '2+ identifiers shared');
+  // Chain should now be TikTok → ByteDance Ltd. (single layer), no nested duplicate.
+  assert.equal(tree.parent.company, 'ByteDance Ltd.');
+  assert.equal(tree.parent.parent, null, 'duplicate layer removed');
+  // Revenue range unified to the widest band [150B, 175B].
+  assert.equal(tree.parent.revenue_estimate.low, 150e9);
+  assert.equal(tree.parent.revenue_estimate.high, 175e9);
+  // Sources merged.
+  assert.equal(tree.parent.sources.length, 2);
+});
+
+test('Bug #5: Inditex + Pontegadea (distinct UBO, distinct domains) do NOT collapse', () => {
+  // Inject a Pontegadea-like layer above Inditex.
+  const ownership = JSON.parse(JSON.stringify(tZara.ownership));
+  ownership.parent.parent = {
+    company: 'Pontegadea Inversiones SL',
+    domain: 'pontegadea.com',
+    node_type: 'legal_entity',
+    parent: null,
+  };
+  const { collapses } = normalizeChain(ownership);
+  assert.equal(collapses.length, 0, 'Inditex ≠ Pontegadea: no collapse');
+});
+
+test('Bug #5: Alphabet Inc. + Google LLC (distinct domains) do NOT collapse', () => {
+  const ownership = {
+    company: 'YouTube',
+    domain: 'youtube.com',
+    parent: {
+      company: 'Google LLC',
+      domain: 'google.com',
+      node_type: 'legal_entity',
+      ticker: null,
+      headquarters: 'Mountain View, CA',
+      parent: {
+        company: 'Alphabet Inc.',
+        domain: 'abc.xyz',
+        node_type: 'legal_entity',
+        ticker: 'GOOGL',
+        headquarters: 'Mountain View, CA',
+        parent: null,
+      },
+    },
+  };
+  const { collapses } = normalizeChain(ownership);
+  assert.equal(collapses.length, 0, 'Alphabet ≠ Google: no collapse');
+});
+
+test('Bug #5: "X Holdings" + "X" with no other identifier overlap is flagged, not collapsed', () => {
+  const ownership = {
+    company: 'Focal',
+    parent: {
+      company: 'Acme',
+      domain: 'acme.com',
+      parent: {
+        company: 'Acme Holdings',
+        domain: 'acmeholdings.com',
+        parent: null,
+      },
+    },
+  };
+  const { collapses, holdingFlags } = normalizeChain(ownership);
+  assert.equal(collapses.length, 0, 'holding/operating pair not auto-collapsed');
+  assert.ok(holdingFlags.some((f) => f.includes('Acme')), 'flagged for review');
+});
+
+test('Bug #5: name match modulo legal suffix alone is NOT enough to collapse', () => {
+  const ownership = {
+    company: 'Focal',
+    parent: {
+      company: 'Foo',
+      domain: 'foo-operating.com',
+      parent: {
+        company: 'Foo Ltd.',
+        domain: 'foo-holdings.com',
+        parent: null,
+      },
+    },
+  };
+  const { collapses } = normalizeChain(ownership);
+  assert.equal(collapses.length, 0, 'distinct domains + just name match → no collapse');
+});
+
+test('Bug #5: synthesize surfaces a collapse note when normalization fires', () => {
+  const ownership = {
+    company: 'TikTok',
+    domain: 'tiktok.com',
+    siblings: [],
+    parent: {
+      company: 'ByteDance',
+      domain: 'bytedance.com',
+      ticker: null,
+      headquarters: 'Beijing',
+      founders: ['Zhang Yiming'],
+      founding_date: '2012-03-01',
+      parent: {
+        company: 'ByteDance Ltd.',
+        domain: 'bytedance.com',
+        headquarters: 'Beijing',
+        founders: ['Zhang Yiming'],
+        founding_date: '2012-03-01',
+        parent: null,
+      },
+    },
+  };
+  const out = synthesize(ownership, {}, null, {});
+  const noteHit = out.positioning_analysis.strategic_notes.some((n) => /Chain normalized.*ByteDance Ltd\./.test(n));
+  assert.ok(noteHit, 'collapse surfaces in strategic_notes');
 });

@@ -57,6 +57,199 @@ export function safeExtractJSON(text) {
   return null;
 }
 
+// ─── Bug #5: Chain normalization (legal_name vs brand_name) ─────────────────
+// Some models emit two consecutive layers that are actually the SAME legal
+// entity captured under different name forms ("ByteDance Ltd." as root and
+// "ByteDance" as parent, both with bytedance.com). This produces a duplicated
+// tree with divergent revenues. We collapse a parent→child pair when they
+// share 2+ strong identifiers (domain, ticker, legal entity reference, or
+// HQ+founders+founding date triple). We deliberately do NOT collapse:
+//   - Holding vs operating subsidiary with distinct UBO (Inditex ≠ Pontegadea)
+//   - Holding vs operating subsidiary that legitimately differ (Alphabet ≠ Google LLC)
+//   - "X Holdings" / "X Group" + "X" sibling pairs — flagged in notes for review.
+const LEGAL_SUFFIX_RE = /\b(inc\.?|incorporated|ltd\.?|limited|llc|l\.l\.c\.|corp\.?|corporation|plc|sa|s\.a\.|se|ag|gmbh|kk|kabushiki|nv|n\.v\.|bv|b\.v\.|oyj|spa|s\.p\.a\.|pte\.?|pty\.?|co\.?)\b/gi;
+const HOLDING_TOKEN_RE = /\b(holdings?|group|holding)\b/i;
+
+function stripLegalSuffix(name) {
+  if (!name) return '';
+  return String(name).toLowerCase().replace(LEGAL_SUFFIX_RE, '').replace(/[.,]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function normDomain(d) {
+  if (!d) return null;
+  return String(d).toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '').trim() || null;
+}
+
+function sameToken(a, b) {
+  if (!a || !b) return false;
+  return String(a).toLowerCase().trim() === String(b).toLowerCase().trim();
+}
+
+// Returns array of identifier names that match between two nodes.
+function sharedIdentifiers(a, b) {
+  const shared = [];
+  const da = normDomain(a.domain), db = normDomain(b.domain);
+  if (da && db && da === db) shared.push('domain');
+  if (sameToken(a.ticker, b.ticker)) shared.push('ticker');
+  const lerA = a.legal_entity_reference || a.cik || a.lei || a.registration_id;
+  const lerB = b.legal_entity_reference || b.cik || b.lei || b.registration_id;
+  if (sameToken(lerA, lerB)) shared.push('legal_entity_reference');
+  const hq = sameToken(a.headquarters || a.hq, b.headquarters || b.hq);
+  const founded = sameToken(a.founding_date || a.founded, b.founding_date || b.founded);
+  const foundersA = (a.founders || []).map((f) => (typeof f === 'string' ? f : f?.name || '').toLowerCase().trim()).filter(Boolean).sort().join('|');
+  const foundersB = (b.founders || []).map((f) => (typeof f === 'string' ? f : f?.name || '').toLowerCase().trim()).filter(Boolean).sort().join('|');
+  const founders = foundersA && foundersB && foundersA === foundersB;
+  if (hq && founded && founders) shared.push('hq+founders+founding_date');
+  return shared;
+}
+
+function pickCanonicalName(a, b) {
+  // Prefer the name carrying a formal legal suffix (e.g. "ByteDance Ltd." over "ByteDance").
+  const aHas = LEGAL_SUFFIX_RE.test(a.company || ''); LEGAL_SUFFIX_RE.lastIndex = 0;
+  const bHas = LEGAL_SUFFIX_RE.test(b.company || ''); LEGAL_SUFFIX_RE.lastIndex = 0;
+  if (aHas && !bHas) return a.company;
+  if (bHas && !aHas) return b.company;
+  // Otherwise the longer name (typically more specific).
+  return (a.company || '').length >= (b.company || '').length ? a.company : b.company;
+}
+
+function uniqueByLower(arr) {
+  const seen = new Set();
+  const out = [];
+  for (const v of arr || []) {
+    const k = typeof v === 'string' ? v.toLowerCase().trim() : JSON.stringify(v);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(v);
+  }
+  return out;
+}
+
+function uniqueStrategicControl(arr) {
+  const seen = new Set();
+  const out = [];
+  for (const sc of arr || []) {
+    const k = `${(sc.entity || '').toLowerCase().trim()}|${(sc.role_description || sc.relationship || '').toLowerCase().trim()}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(sc);
+  }
+  return out;
+}
+
+function mergeRevenueRange(a, b) {
+  // Widest unified range; central = midpoint of unified range when both present.
+  if (!a && !b) return undefined;
+  if (!a) return b;
+  if (!b) return a;
+  const low = Math.min(a.low || 0, b.low || 0);
+  const high = Math.max(a.high || 0, b.high || 0);
+  const central = high > 0 ? Math.round((low + high) / 2) : 0;
+  return {
+    low,
+    high,
+    central,
+    confidence: a.confidence === 'high' || b.confidence === 'high' ? 'high'
+      : a.confidence === 'medium' || b.confidence === 'medium' ? 'medium' : 'low',
+  };
+}
+
+// Merge child INTO parent (parent name slot keeps recursion structure but takes
+// canonical name). Returns the merged node; child.parent becomes the new parent.
+function mergePair(parent, child, sharedKeys) {
+  const canonical = pickCanonicalName(parent, child);
+  const merged = { ...parent };
+  merged.company = canonical;
+  merged.domain = normDomain(parent.domain) || normDomain(child.domain) || parent.domain || child.domain;
+  merged.node_type = parent.node_type === 'legal_entity' || child.node_type === 'legal_entity' ? 'legal_entity' : (parent.node_type || child.node_type);
+  merged.sources = uniqueByLower([...(parent.sources || []), ...(child.sources || [])]);
+  merged.signals_found = uniqueByLower([...(parent.signals_found || []), ...(child.signals_found || [])]);
+  merged.strategic_control = uniqueStrategicControl([...(parent.strategic_control || []), ...(child.strategic_control || [])]);
+  if (parent.revenue_estimate || child.revenue_estimate) {
+    merged.revenue_estimate = mergeRevenueRange(parent.revenue_estimate, child.revenue_estimate);
+  }
+  const noteParts = [];
+  if (parent.notes) noteParts.push(parent.notes);
+  if (child.notes) noteParts.push(child.notes);
+  noteParts.push(`Collapsed duplicate chain layers "${parent.company}" and "${child.company}" (shared: ${sharedKeys.join(', ')}); canonical name: "${canonical}".`);
+  merged.notes = noteParts.join(' | ');
+  merged._collapsed_from = uniqueByLower([
+    ...((parent._collapsed_from) || []),
+    ...((child._collapsed_from) || []),
+    parent.company,
+    child.company,
+  ]);
+  merged._collapsed_shared = sharedKeys;
+  // The merged node takes the LOWER (child) slot in the tree; its new parent
+  // is whatever sat above the HIGHER layer (parent.parent).
+  merged.parent = parent.parent || null;
+  // Siblings/children: prefer the child's set (it's the operating/lower layer
+  // where brand-level fan-out usually lives), fall back to the parent's.
+  merged.siblings = (child.siblings && child.siblings.length) ? child.siblings : (parent.siblings || []);
+  merged.children = (child.children && child.children.length) ? child.children : (parent.children || []);
+  return merged;
+}
+
+// Walk focal → root, collapsing adjacent layers that should be one entity.
+// Returns { tree, collapses: [{ from: [a,b], canonical, shared }], holdingFlags: [...] }
+export function normalizeChain(ownership) {
+  if (!ownership) return { tree: ownership, collapses: [], holdingFlags: [] };
+  const tree = JSON.parse(JSON.stringify(ownership));
+  const collapses = [];
+  const holdingFlags = [];
+
+  // Climb from focal. At each step, check (current → current.parent) pair.
+  // We treat the higher node (parent) as the "canonical slot" being merged into.
+  // For simplicity, do a fixed number of passes; chain length is small (<=4).
+  for (let pass = 0; pass < 4; pass++) {
+    let changed = false;
+    let cursor = tree;
+    let prev = null; // node whose .parent === cursor
+    while (cursor && cursor.parent) {
+      const child = cursor;          // "lower" layer
+      const parent = cursor.parent;  // "higher" layer
+      const strippedChild = stripLegalSuffix(child.company);
+      const strippedParent = stripLegalSuffix(parent.company);
+      const nameMatch = strippedChild && strippedParent && strippedChild === strippedParent;
+
+      // "X Holdings" / "X Group" + "X" → don't auto-collapse, flag for review.
+      const childToken = (child.company || '').match(HOLDING_TOKEN_RE);
+      const parentToken = (parent.company || '').match(HOLDING_TOKEN_RE);
+      const holdingShape = !nameMatch && (
+        (childToken && stripLegalSuffix((child.company || '').replace(HOLDING_TOKEN_RE, '')) === strippedParent) ||
+        (parentToken && stripLegalSuffix((parent.company || '').replace(HOLDING_TOKEN_RE, '')) === strippedChild)
+      );
+
+      const shared = sharedIdentifiers(parent, child);
+      // Collapse rule: share 2+ identifiers from {domain, ticker, legal_entity_reference, hq+founders+founding_date}.
+      // Name-equivalence (modulo legal suffix) alone is NOT enough.
+      if (!holdingShape && shared.length >= 2) {
+        const merged = mergePair(parent, child, shared);
+        collapses.push({ from: [parent.company, child.company], canonical: merged.company, shared });
+        if (prev) prev.parent = merged;
+        else {
+          // child was the focal — splice merged in as the focal.
+          Object.keys(child).forEach((k) => { delete child[k]; });
+          Object.assign(child, merged);
+        }
+        changed = true;
+        break; // restart pass
+      }
+
+      if (holdingShape) {
+        const tag = `${parent.company} ↔ ${child.company}`;
+        if (!holdingFlags.includes(tag)) holdingFlags.push(tag);
+      }
+
+      prev = cursor;
+      cursor = cursor.parent;
+    }
+    if (!changed) break;
+  }
+
+  return { tree, collapses, holdingFlags };
+}
+
 export function formatUSD(n) {
   if (n == null || isNaN(n)) return '—';
   if (n === 0) return '$0';
@@ -390,10 +583,20 @@ function buildReconciliationExplanation({ ratio, tree, siblings, parentAnchor })
 // positioning math is mechanical (ratios, ranking) and (b) it avoids token cost
 // and JSON-parse risk of a synthesis call given two large prior outputs.
 export function synthesize(ownership, revenueByCompany, parentAnchor = null, entitiesByCompany = {}) {
-  const tree = attachRevenue(ownership, revenueByCompany, entitiesByCompany);
+  // Defensive normalization: even if the model honored the chain-collapse
+  // instruction, re-run the rule downstream so two-layer duplicates are never
+  // displayed (Bug #5).
+  const { tree: normalized, collapses, holdingFlags } = normalizeChain(ownership);
+  const tree = attachRevenue(normalized, revenueByCompany, entitiesByCompany);
   const anchorAdjustment = applyAnchorAdjustment(tree, parentAnchor);
   if (parentAnchor) tree.parent_anchor = parentAnchor;
   const notes = [];
+  collapses.forEach((c) => {
+    notes.push(`Chain normalized: collapsed "${c.from[0]}" and "${c.from[1]}" into "${c.canonical}" (shared identifiers: ${c.shared.join(', ')}).`);
+  });
+  holdingFlags.forEach((tag) => {
+    notes.push(`⚠ Review: ${tag} look like a holding/operating pair — kept as separate layers; verify they are not the same legal entity.`);
+  });
 
   // Normalize per-layer strategic_control (Bundle C): every node in the chain
   // carries its own array + note; default to [] so the UI can iterate safely.
