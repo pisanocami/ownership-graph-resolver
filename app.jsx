@@ -2845,6 +2845,100 @@ async function generatePDF(result) {
     }
   }
 
+  // ─── Act 2 — Ownership Hierarchy (the revelation: who owns this?) ───
+  // Moved early in narrative: after thesis, before revenue/positioning.
+  const chain = [];
+  let cp = tree.parent;
+  while (cp) { chain.unshift(cp); cp = cp.parent; }
+  const siblings = tree.siblings || [];
+
+  // Ownership pyramid (top-down: root → focal) — ENHANCED with visual hierarchy
+  if (chain.length > 0) {
+    section('Ownership Hierarchy');
+    transition(narr.transition_ownership);
+    text(`${chain.length + 1} ownership level${chain.length > 0 ? 's' : ''} from ultimate parent to ${focal}.`,
+      { size: 8.5, style: 'italic', color: C.muted, gap: 3 });
+    const levels = [...chain, tree];
+    const boxH = 16, vGap = 10;
+    const maxW = contentW * 0.9, minW = contentW * 0.55;
+
+    levels.forEach((node, idx) => {
+      ensure(boxH + vGap + 2);
+      const t = levels.length > 1 ? idx / (levels.length - 1) : 0;
+      const w = maxW - (maxW - minW) * t;
+      const x = margin + (contentW - w) / 2;
+      const isFocal = node === tree;
+      const isRoot = idx === 0;
+
+      // Main box with enhanced styling
+      pdf.setFillColor(...(isFocal ? C.accent : C.surface));
+      pdf.setDrawColor(...(isFocal ? C.accentHover : C.border));
+      pdf.setLineWidth(isFocal ? 0.8 : 0.4);
+      pdf.roundedRect(x, y, w, boxH, 2.2, 2.2, 'FD');
+
+      // Left marker shape (drawn with primitives — no Unicode glyphs).
+      // focal: filled circle · root: filled square · intermediate: ring.
+      const mCx = x + 5, mCy = y + 5.5, mR = 2;
+      if (isFocal) {
+        pdf.setFillColor(...C.tint);
+        pdf.circle(mCx, mCy, mR, 'F');
+      } else if (isRoot) {
+        pdf.setFillColor(...[100, 116, 139]);
+        pdf.rect(mCx - mR, mCy - mR, mR * 2, mR * 2, 'F');
+      } else {
+        pdf.setFillColor(...C.accent);
+        pdf.circle(mCx, mCy, mR, 'F');
+        pdf.setFillColor(...C.surface);
+        pdf.circle(mCx, mCy, mR - 0.8, 'F');
+      }
+
+      // Company name
+      font(9.5, 'bold'); pdf.setTextColor(...(isFocal ? C.white : C.ink));
+      pdf.text(truncateToWidth(node.company || '?', w - 42), x + 10, y + 5.5, { baseline: 'middle' });
+
+      // Revenue on right
+      const rv = node.revenue_estimate;
+      const revStr = rv && rv.central > 0 ? formatUSD(rv.central) : '—';
+      font(8, isFocal ? 'bold' : 'normal');
+      pdf.setTextColor(...(isFocal ? C.tint : C.muted));
+      pdf.text(revStr, x + w - 4, y + 5.5, { align: 'right', baseline: 'middle' });
+
+      // Level label (plain text, no glyphs)
+      font(6.5, 'normal'); pdf.setTextColor(...(isFocal ? C.tint : C.subtle));
+      const levelLabel = isFocal ? 'FOCAL COMPANY' : (isRoot ? 'ULTIMATE PARENT' : `OWNER LEVEL ${idx}`);
+      pdf.text(levelLabel, x + 10, y + 11.2, { baseline: 'middle' });
+
+      // Confidence indicator: a colored dot + letter side-by-side (no overlap)
+      if (rv && rv.confidence) {
+        const confColor = rv.confidence === 'high' ? [34, 197, 94]
+                        : rv.confidence === 'medium' ? [234, 179, 8]
+                        : [239, 68, 68];
+        const cy = y + 11.2;
+        font(6, 'normal'); pdf.setTextColor(...(isFocal ? C.tint : C.subtle));
+        const confLabel = rv.confidence.toUpperCase();
+        const cw = pdf.getTextWidth(confLabel);
+        pdf.text(confLabel, x + w - 4, cy, { align: 'right', baseline: 'middle' });
+        pdf.setFillColor(...confColor);
+        pdf.circle(x + w - 6 - cw - 1.5, cy, 1.2, 'F');
+      }
+
+      // Connector with arrow head between levels
+      if (idx < levels.length - 1) {
+        pdf.setDrawColor(...C.border); pdf.setLineWidth(0.5);
+        const centerX = margin + contentW / 2;
+        const connectorY1 = y + boxH;
+        const connectorY2 = y + boxH + vGap;
+        pdf.line(centerX, connectorY1, centerX, connectorY2);
+        const arrowSize = 1.2;
+        pdf.line(centerX - arrowSize, connectorY2 - arrowSize, centerX, connectorY2);
+        pdf.line(centerX + arrowSize, connectorY2 - arrowSize, centerX, connectorY2);
+      }
+
+      y += boxH + vGap;
+    });
+    y += 2;
+  }
+
   // ─── Risk Assessment (Act 5 — the verdict) ───
   // Defined here, but invoked near the end of the report so the risk grade reads
   // as the conclusion of the story rather than a stat block up top.
@@ -3161,97 +3255,7 @@ async function generatePDF(result) {
   }
 
   // ─── Ownership Map (native vector diagram) ───
-  const chain = [];
-  let cp = tree.parent;
-  while (cp) { chain.unshift(cp); cp = cp.parent; }
-  const siblings = tree.siblings || [];
-
-  // Ownership pyramid (top-down: root → focal) — ENHANCED with visual hierarchy
-  if (chain.length > 0) {
-    section('Ownership Hierarchy');
-    transition(narr.transition_ownership);
-    text(`${chain.length + 1} ownership level${chain.length > 0 ? 's' : ''} from ultimate parent to ${focal}.`,
-      { size: 8.5, style: 'italic', color: C.muted, gap: 3 });
-    const levels = [...chain, tree];
-    const boxH = 16, vGap = 10;
-    const maxW = contentW * 0.9, minW = contentW * 0.55;
-
-    levels.forEach((node, idx) => {
-      ensure(boxH + vGap + 2);
-      const t = levels.length > 1 ? idx / (levels.length - 1) : 0;
-      const w = maxW - (maxW - minW) * t;
-      const x = margin + (contentW - w) / 2;
-      const isFocal = node === tree;
-      const isRoot = idx === 0;
-
-      // Main box with enhanced styling
-      pdf.setFillColor(...(isFocal ? C.accent : C.surface));
-      pdf.setDrawColor(...(isFocal ? C.accentHover : C.border));
-      pdf.setLineWidth(isFocal ? 0.8 : 0.4);
-      pdf.roundedRect(x, y, w, boxH, 2.2, 2.2, 'FD');
-
-      // Left marker shape (drawn with primitives — no Unicode glyphs).
-      // focal: filled circle · root: filled square · intermediate: ring.
-      const mCx = x + 5, mCy = y + 5.5, mR = 2;
-      if (isFocal) {
-        pdf.setFillColor(...C.tint);
-        pdf.circle(mCx, mCy, mR, 'F');
-      } else if (isRoot) {
-        pdf.setFillColor(...[100, 116, 139]);
-        pdf.rect(mCx - mR, mCy - mR, mR * 2, mR * 2, 'F');
-      } else {
-        pdf.setFillColor(...C.accent);
-        pdf.circle(mCx, mCy, mR, 'F');
-        pdf.setFillColor(...C.surface);
-        pdf.circle(mCx, mCy, mR - 0.8, 'F');
-      }
-
-      // Company name
-      font(9.5, 'bold'); pdf.setTextColor(...(isFocal ? C.white : C.ink));
-      pdf.text(truncateToWidth(node.company || '?', w - 42), x + 10, y + 5.5, { baseline: 'middle' });
-
-      // Revenue on right
-      const rv = node.revenue_estimate;
-      const revStr = rv && rv.central > 0 ? formatUSD(rv.central) : '—';
-      font(8, isFocal ? 'bold' : 'normal');
-      pdf.setTextColor(...(isFocal ? C.tint : C.muted));
-      pdf.text(revStr, x + w - 4, y + 5.5, { align: 'right', baseline: 'middle' });
-
-      // Level label (plain text, no glyphs)
-      font(6.5, 'normal'); pdf.setTextColor(...(isFocal ? C.tint : C.subtle));
-      const levelLabel = isFocal ? 'FOCAL COMPANY' : (isRoot ? 'ULTIMATE PARENT' : `OWNER LEVEL ${idx}`);
-      pdf.text(levelLabel, x + 10, y + 11.2, { baseline: 'middle' });
-
-      // Confidence indicator: a colored dot + letter side-by-side (no overlap)
-      if (rv && rv.confidence) {
-        const confColor = rv.confidence === 'high' ? [34, 197, 94]
-                        : rv.confidence === 'medium' ? [234, 179, 8]
-                        : [239, 68, 68];
-        const cy = y + 11.2;
-        font(6, 'normal'); pdf.setTextColor(...(isFocal ? C.tint : C.subtle));
-        const confLabel = rv.confidence.toUpperCase();
-        const cw = pdf.getTextWidth(confLabel);
-        pdf.text(confLabel, x + w - 4, cy, { align: 'right', baseline: 'middle' });
-        pdf.setFillColor(...confColor);
-        pdf.circle(x + w - 6 - cw - 1.5, cy, 1.2, 'F');
-      }
-
-      // Connector with arrow head between levels
-      if (idx < levels.length - 1) {
-        pdf.setDrawColor(...C.border); pdf.setLineWidth(0.5);
-        const centerX = margin + contentW / 2;
-        const connectorY1 = y + boxH;
-        const connectorY2 = y + boxH + vGap;
-        pdf.line(centerX, connectorY1, centerX, connectorY2);
-        const arrowSize = 1.2;
-        pdf.line(centerX - arrowSize, connectorY2 - arrowSize, centerX, connectorY2);
-        pdf.line(centerX + arrowSize, connectorY2 - arrowSize, centerX, connectorY2);
-      }
-
-      y += boxH + vGap;
-    });
-    y += 2;
-  }
+  // Note: chain and siblings are already defined earlier in Act 2 (Ownership Hierarchy)
 
   const drawEntityBox = (x, yy, w, h, node, focal = false) => {
     pdf.setFillColor(...(focal ? C.accentSoft : C.white));
