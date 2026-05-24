@@ -1,0 +1,411 @@
+# Sprint: Capa 2 — Iteración tras hard mode batch
+
+Cinco bugs detectados en testing (T12-T16) que comparten un mismo principio architectural: **el agente captura correctamente la información, pero el schema no tiene dónde meterla, o la mete en el lugar equivocado**.
+
+Orden de implementación: por dependencia técnica + impacto. Bug #2 es el más complejo (cambio de schema fundamental); los otros son refinements sobre la captura existente.
+
+Prioridad: **#1 > #5 > #3 > #4 > #2**. Bug #2 deja para el final porque rompe el tree estructural y requiere refactor del renderer.
+
+---
+
+## Principios architecturales que se mantienen
+
+(Estos NO se tocan — son la base sobre la que se hacen los fixes)
+
+- **F11: capture before classify.** Nada de enums hardcoded en ningún campo
+- **Discovery-based metadata.** Categories, status, roles como strings descubiertos con evidence
+- **Presence flags ≠ derived status.** Capture (`in_current_sources`, `last_mention_date`) separado de interpretación (`_derived_status`)
+- **Sources primarias.** No redirects de search engines. Si el provider devuelve redirects, resolverlos al URL primario antes de persistir
+
+---
+
+## Bug #1 — Disambiguation cruzada en siblings con nombre común
+
+**Detectado en:** T04* Nectar Sleep (Siena confundida con "Siena AI" SaaS)
+
+**Prioridad:** ALTA — afecta directamente la confiabilidad del revenue per sibling
+
+### Síntoma
+
+Cuando un sibling tiene nombre común o homónimo con otra empresa (Siena, Bundle, Mercury, Apple, etc), el agente capturó revenue signals que pertenecen a la empresa equivocada. En T04* Siena (mattress brand de Resident) recibió signals de Siena AI (customer service SaaS): "$5.9M revenue", "HexClad, FIGS como clientes", "G2 4.8/5 ratings", "$750/month pricing + $0.90/conversation".
+
+### Causa
+
+El agente busca el sibling por nombre sin verificar que las fuentes lo mencionan **en el contexto del aggregator parent**. Si TM Capital habla de las brands de Resident y menciona "Siena", esa mención sí cuenta. Si getlatka.com habla de "Siena" en otro contexto, no.
+
+### Fix
+
+Agregar al SYSTEM_PROMPT en la fase de revenue inference para siblings:
+
+```
+Para cada sibling capturado, antes de aceptar un revenue signal:
+
+1. Verificar que la fuente menciona el sibling EN EL CONTEXTO 
+   del aggregator parent. Ejemplos:
+   - ✅ "Siena" mencionada en docs de Resident Home / Ashley acquisition
+   - ❌ "Siena" mencionada en docs de Y Combinator (otra empresa)
+
+2. Si el signal source NO menciona explícitamente el parent o 
+   contexto del aggregator, marcar el signal con weight: "low" y 
+   agregar nota "context_unverified".
+
+3. Si TODOS los signals capturados para un sibling tienen 
+   "context_unverified", reducir confidence del revenue_estimate 
+   a "low" y agregar reason_for_null tipo: 
+   "Could not verify signals belong to {sibling} as brand of {parent} 
+   vs homonymous entities."
+
+4. Para siblings con nombres comunes (Siena, Bundle, Apple, Mercury, 
+   Mars, etc), buscar específicamente: 
+   "{sibling_name}" "{parent_name}" como query inicial 
+   antes de buscar el sibling solo.
+```
+
+### Test de validación
+
+T04* re-run después del fix:
+- Siena debería tener revenue_estimate con confidence "low" o reason_for_null descriptivo, NO los signals de Siena AI
+- Si los signals que SÍ aplican son escasos (sub-$10M de mattress brand sin disclosure), ese debe ser el output honesto
+
+---
+
+## Bug #5 — Chain normalization (legal_name vs brand_name)
+
+**Detectado en:** T15 TikTok ("ByteDance Ltd." + "ByteDance" como dos layers separados)
+
+**Prioridad:** ALTA — bug visible que rompe la lectura del tree
+
+### Síntoma
+
+El agente capturó "ByteDance Ltd." como root y "ByteDance" como parent — son la misma entity legal, con revenues distintos ($170.5B vs $155B) y categorías distintas. El tree quedó duplicado por confusión entre legal name y brand/short name.
+
+### Causa
+
+El agente no normaliza nombres antes de tree construction. Dos layers consecutivas con misma identidad legal se renderizan como distintas porque el string del nombre difiere.
+
+### Fix
+
+Agregar step de normalization después de la captura, antes de tree construction:
+
+```
+NORMALIZATION STEP (before persisting tree):
+
+Para cada par de layers consecutivas (parent → child) en el chain:
+
+1. Comparar identity claims:
+   - Mismo domain (lvmh.com == lvmh.com)
+   - Mismo legal entity reference (canonical name match)
+   - Mismo ticker (si aplica)
+   - Mismo HQ + founders + founding date
+
+2. Si dos layers consecutivas comparten 2+ de estos identifiers:
+   - Colapsarlas en una sola entity
+   - Usar el legal name como canonical (preferir "X Inc." sobre "X")
+   - Merge sources, signals, strategic_control de ambos
+   - Si revenues divergen, usar el rango unificado más amplio
+
+3. Casos comunes que disparan normalization:
+   - "X Ltd." + "X" → colapsar a "X Ltd."
+   - "X Corporation" + "X Corp" + "X" → colapsar a la forma más legal
+   - "X Holdings" + "X Group" → INVESTIGAR (puede ser real separation 
+     entre holdco y opco — NO colapsar automáticamente, marcar para review)
+
+4. Cuando NO normalizar:
+   - "Industria de Diseño Textil S.A." + "Inditex" → mismo entity 
+     pero DIFERENTE de Pontegadea Inversiones (real parent)
+   - "Alphabet Inc." + "Google LLC" → diferentes legal entities 
+     (Alphabet es holding, Google es subsidiary operativa)
+```
+
+### Test de validación
+
+T15 re-run debería mostrar:
+- Chain limpio: TikTok → ByteDance Ltd. (una sola layer, no duplicada)
+- Si emerge Zhang Yiming + Chinese investors como UBO, eso es bonus (depende de Bug #4)
+
+---
+
+## Bug #3 — Sibling filter regresión por division
+
+**Detectado en:** T13 Tiffany (cousins de otras divisions aplastados como siblings)
+
+**Prioridad:** MEDIA — el filter funcionó en T13 run #1 pero regresó en T13 re-run
+
+### Síntoma
+
+En T13 run #1 (pre-UBO fix): siblings filtrados correctamente a brands de Watches & Jewelry division (Bulgari, Chaumet, Fred, Repossi, TAG Heuer, Hublot). Run #2 (post-UBO fix): siblings ahora incluyen Louis Vuitton, Dior, Givenchy, Fendi, Celine, Kenzo — brands de otras divisions de LVMH. **Son cousins, no siblings**.
+
+### Causa
+
+Cuando se implementó el UBO slot, posiblemente se modificó la lógica que filtraba siblings por segment/division. El filter implícito (que en T13 run #1 funcionó leyendo logs de search) no quedó persistido como rule.
+
+### Fix
+
+Hacer explícita la regla de "siblings deben compartir division/segment con el focal", como instrucción al agente:
+
+```
+Para identificar siblings del focal:
+
+1. Determinar si el parent tiene segments declarados públicamente 
+   (10-K segments, division structure en about page, etc.)
+
+2. Si existen segments:
+   - Identificar qué segment contiene al focal (puede estar en 
+     parent_anchor.segments con flag contains_focal: true)
+   - Siblings = otras brands en EL MISMO segment
+   - Brands en otros segments del mismo parent = "cousins", 
+     NO siblings. Capturarlas en slot separado:
+     
+     "intra_parent_cousins": [
+       {
+         "company": "Louis Vuitton",
+         "via_division": "Fashion & Leather Goods",
+         ...
+       }
+     ]
+
+3. Si NO existen segments declarados (companies privadas sin segment 
+   disclosure):
+   - Todos los hijos del aggregator son siblings funcionales
+   - Pero capturar `category` de cada uno y agrupar visualmente 
+     por categoría descubierta en el rendering
+
+4. Regla crítica para mega-aggregators (P&G, LVMH, Inditex, Unilever):
+   - SIEMPRE buscar segment structure antes de listar siblings
+   - Si el output va a tener >10 siblings, probablemente hay 
+     segment structure que no se está usando — segmentar
+```
+
+### Test de validación
+
+T13 re-run #3 debería mostrar:
+- Siblings: solo brands de Watches & Jewelry (Bulgari, Chaumet, Fred, Repossi, TAG Heuer, Hublot)
+- `intra_parent_cousins`: Louis Vuitton, Dior, Givenchy, Fendi, etc. (con campo `via_division`)
+- Bulgari debería tener revenue capturado de nuevo (regresión vs T13 run #1)
+
+T11 Tide post-fix debería mostrar:
+- Siblings: solo laundry brands (Ariel, Gain, posiblemente Cheer)
+- Cousins: Downy (fabric softener), Dawn (dish), Febreze (air), Mr. Clean (surface)
+- Cada uno con su `via_division` o equivalente
+
+---
+
+## Bug #4 — UBO para founders individuales
+
+**Detectado en:** T15 TikTok (Zhang Yiming no emerge), parcialmente T12 Zara (Ortega individual no como nodo)
+
+**Prioridad:** MEDIA — funciona bien cuando hay "family group declarado" pero falla cuando es individual
+
+### Síntoma
+
+En T13 Tiffany el UBO slot funcionó perfecto con "Arnault Family Group" como root node — el agente reconoció la entity legal del family office. En T15 TikTok, Zhang Yiming (founder, ~22% stake según fuentes) no aparece como UBO node — solo en strategic_control de ByteDance. Mismo patrón parcial en T12 con Amancio Ortega (Pontegadea SÍ existe como entity, pero el agente no la promovió a nodo).
+
+### Causa
+
+El UBO slot probablemente fue diseñado para "named holding/family group" como entity legal. No activa cuando el UBO es:
+- Individual founder con stake significativo (Zhang Yiming, Mark Zuckerberg con voting control)
+- Family office con nombre menos obvio (Pontegadea — tiene nombre legal pero el agente puede no buscar específicamente)
+- Founding individual sin holding company intermedio
+
+### Fix
+
+Generalizar el criterio de UBO para que sea agnóstico a tipo de entity:
+
+```
+Criterio para emerger una entity como UBO node (root del tree):
+
+Activar UBO node si CUALQUIERA de estos casos se cumple:
+
+A. Family office o holding personal con nombre declarado
+   (Arnault Family Group, Pontegadea Inversiones, Mars Inc family group)
+
+B. Individual con stake declarado de >20% del corporate parent
+   O voting control de >50%
+   (Zhang Yiming en ByteDance, Mark Zuckerberg en Meta via Class B, 
+   Warren Buffett en Berkshire, Amancio Ortega en Inditex)
+
+C. Trust o nonprofit ownership declarado
+   (Patagonia Purpose Trust, Bosch Foundation, etc.)
+
+D. Sovereign wealth fund o state-owned holding con stake mayoritario
+   (Saudi PIF en Aramco, Temasek en Singapore companies, etc.)
+
+CAPTURA cuando el UBO es individual:
+{
+  "company": "Zhang Yiming (founder, individual UBO)",
+  "node_type": "individual",  // tipo nuevo
+  "layer": "root",
+  "terminal_layer": "root",
+  "category": "founder with controlling stake",
+  "stake": {
+    "equity_pct": 22,
+    "voting_pct": "see strategic_control",
+    "evidence": "string"
+  },
+  "strategic_control": [
+    {
+      "entity": "Zhang Yiming",
+      "role_description": "Founder of ByteDance, retains ~22% equity stake",
+      ...
+    }
+  ],
+  ...
+}
+
+NO emerger UBO node cuando:
+- Stake fundador es <10% (típico post-multiple dilution rounds)
+- No hay voting control declarado
+- La empresa es publicly traded y dispersed ownership (sin shareholder dominante)
+```
+
+### Test de validación
+
+T15 re-run: ByteDance Ltd. debería tener Zhang Yiming (o "Zhang Yiming founder holding") como root layer.
+
+T12 re-run: chain debería ser Zara → Inditex → Pontegadea Inversiones → Amancio Ortega (4 layers, con Pontegadea como entity legal intermedia entre la empresa cotizada y el individual UBO).
+
+T18 GEICO (cuando se corra): debería tener Warren Buffett como UBO o "Buffett-controlled Berkshire" como node — porque Buffett controla ~30% voting power.
+
+---
+
+## Bug #2 — Schema multi-owner
+
+**Detectado en:** T16 Patagonia (Holdfast Collective no emerge como peer del Purpose Trust)
+
+**Prioridad:** BAJA por ahora — cambio de schema fundamental que requiere refactor del tree renderer. Hacer al final.
+
+### Síntoma
+
+Patagonia tiene **dos owners simultáneos** con stakes complementarios:
+- Patagonia Purpose Trust: 2% total, 100% voting (control governance)
+- Holdfast Collective: 98% total, non-voting (recibe dividendos)
+
+El tree actual solo permite single-parent. El agente eligió Purpose Trust como parent y metió Holdfast Collective en `strategic_control`. La información está capturada pero estructuralmente mal representada. Síntoma visible: `focal_vs_parent_ratio: 102.0%` (>100% porque el Trust no captura el revenue económico).
+
+### Causa
+
+Schema del tree fuerza single-parent. Patrón válido para PE/corporate acquisitions tradicionales (que son 95% de los casos), pero falla con:
+- Steward ownership (Patagonia, Bosch, otras)
+- Joint Ventures (Hulu pre-2023 con Disney + Comcast)
+- Cross-shareholding (keiretsu japonés)
+- Class A/B/C stock splits con voting power desbalanceado (Snap, Meta, Google, NYT)
+
+### Fix
+
+Cambio de schema fundamental: permitir múltiples owners en lugar de single parent.
+
+**Opción A — Multi-parent array (más fiel a la realidad):**
+
+```json
+"ownership_tree": {
+  "company": "Patagonia, Inc.",
+  ...
+  "parents": [  // array en lugar de single object
+    {
+      "company": "Patagonia Purpose Trust",
+      "ownership_type": "voting_control",
+      "stake_pct": 2,
+      "voting_pct": 100,
+      "evidence": "string",
+      ...
+    },
+    {
+      "company": "Holdfast Collective",
+      "ownership_type": "economic",
+      "stake_pct": 98,
+      "voting_pct": 0,
+      "evidence": "string",
+      "entity_type": "501(c)(4) nonprofit",
+      ...
+    }
+  ],
+  // Single parent retrocompatibilidad opcional:
+  "primary_parent": "Patagonia Purpose Trust",  
+  // (cuál usar como anchor visual si la UI no maneja multi-parent)
+}
+```
+
+**Opción B — Single parent + co_owners slot (menos disruption):**
+
+```json
+"ownership_tree": {
+  "company": "Patagonia, Inc.",
+  ...
+  "parent": {
+    "company": "Patagonia Purpose Trust",
+    "ownership_role": "voting_control",
+    ...
+  },
+  "co_owners": [
+    {
+      "company": "Holdfast Collective",
+      "ownership_role": "economic_beneficiary",
+      "stake_pct": 98,
+      ...
+    }
+  ]
+}
+```
+
+**Recomendación:** Opción B para v1. Menos refactor del tree renderer, sigue capturando la dualidad correctamente, y queda compatible con tests anteriores. Migrar a Opción A en v2 si aparecen casos donde >2 co-owners (poco común pero existe en keiretsu).
+
+### Test de validación
+
+T16 re-run post-fix:
+- Tree muestra Patagonia → Purpose Trust (parent) + Holdfast Collective (co_owner con stake 98% economic)
+- `focal_vs_parent_ratio` ya no supera 100% porque ahora hay parent + co_owner para distribuir
+- Pattern aplicable a Hulu pre-2023 (4 co-owners: Disney 67% + NBC 33%) o post-2023 (Disney 100%, sin co_owners)
+
+T20 Hulu (cuando se corra): debería mostrar la history como sequence de configuraciones (multi-owner pre-2023 → single owner post-2023). Si el resolver maneja temporal versioning como bonus, mejor.
+
+---
+
+## Orden de implementación recomendado
+
+1. **Bug #1 (disambiguation)** — quick fix de prompt, alto impacto en confiabilidad
+2. **Bug #5 (chain normalization)** — quick fix de logic, bug muy visible
+3. **Bug #3 (sibling filter por division)** — refinement de existing logic, no breaking
+4. **Bug #4 (UBO individual)** — generalización del slot existente, schema extension menor
+5. **Bug #2 (multi-owner schema)** — refactor más profundo, dejar al final
+
+Cada bug es self-contained — podés implementar uno, validar con re-run, y seguir sin romper los anteriores.
+
+---
+
+## Tests de regresión después de cada bug
+
+Después de Bug #1: T04* Nectar (Siena no debería tener signals de Siena AI)
+
+Después de Bug #5: T15 TikTok (chain limpio, no ByteDance duplicado)
+
+Después de Bug #3: T11 Tide + T13 Tiffany (siblings filtrados por segment, cousins en slot separado)
+
+Después de Bug #4: T15 TikTok + T12 Zara (UBO individual aparece como nodo)
+
+Después de Bug #2: T16 Patagonia + T20 Hulu (multi-owner representado correctamente)
+
+---
+
+## Notas para Windsurf
+
+- Todos los fixes modifican el SYSTEM_PROMPT del resolver integrado (Ownership + Revenue)
+- Bug #2 requiere también modificar el tree renderer (frontend) para mostrar co_owners
+- Los demás bugs no requieren cambios de UI — la UI ya renderiza los campos si están presentes
+- Considerar agregar al UI:
+  - Badge de `context_unverified` en signals (Bug #1)
+  - Indicator visual de co_owners separado del parent principal (Bug #2)
+  - Tooltip explicando el tipo de UBO node (family vs individual vs trust) (Bug #4)
+
+---
+
+## Bugs conocidos NO incluidos en este sprint
+
+Decisiones explícitas de NO arreglar en este sprint:
+
+- **Source URLs como redirects de Gemini**: depende del provider, no del prompt. Solución sería resolver redirects a URLs primarias en post-processing — fuera de scope de este sprint. Workaround: usar Claude Sonnet 4 cuando se necesite trazabilidad alta.
+
+- **Variabilidad de revenue estimates entre runs**: Bershka pasó de $3.1B a $4.1B entre runs. Es ruido natural del LLM. Mitigar con cache + locking de outputs validados, no con cambio de prompt.
+
+- **Temporal versioning del tree**: Hulu pre-2023 vs post-2023 — capturar historia es complejo y entra en versionamiento de estado. Fuera de scope. Solución pragmática: usar `notes` para documentar transitions.
+
+- **Tin Shed Ventures como "operating_brand"**: clasificación errónea de VC arm como brand. Necesita extender `node_type` enum — pero es bajo prioridad (no rompe nada, solo es etiquetado impreciso).
