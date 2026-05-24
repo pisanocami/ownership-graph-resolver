@@ -878,7 +878,7 @@ export default function App() {
   });
   // New state for sidebar + mode
   const [mode, setMode] = useState('investigate'); // investigate | brief
-  const [investigateSubNav, setInvestigateSubNav] = useState('tree'); // tree | signals | recon | json
+  const [investigateSubNav, setInvestigateSubNav] = useState('ownership-structure'); // ownership-structure | signals | recon | json
   const [briefSubNav, setBriefSubNav] = useState('verdict'); // verdict | signals | mispricing | competitive | confidence | audiences
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [historySearch, setHistorySearch] = useState('');
@@ -2671,10 +2671,10 @@ function ResultView({
           {mode === 'investigate' ? (
             <>
               <button
-                onClick={() => setInvestigateSubNav('tree')}
-                className={investigateSubNav === 'tree' ? 'active' : ''}
+                onClick={() => setInvestigateSubNav('ownership-structure')}
+                className={investigateSubNav === 'ownership-structure' ? 'active' : ''}
               >
-                Tree
+                Ownership Structure
               </button>
               <button
                 onClick={() => setInvestigateSubNav('signals')}
@@ -2749,7 +2749,7 @@ function ResultView({
       {mode === 'investigate' && (
         <>
           {/* Banners */}
-          {recon && investigateSubNav === 'tree' && (
+          {recon && investigateSubNav === 'ownership-structure' && (
             <ReconciliationBanner recon={recon} parent={tree.parent} anchor={anchor} focal={tree} />
           )}
           {strategicNotes.filter((n) => n && n.startsWith('⚠')).map((n, i) => (
@@ -2759,65 +2759,55 @@ function ResultView({
             </div>
           ))}
 
-          {/* Two-column report */}
-          {investigateSubNav === 'tree' && (
-            <div className="report-grid">
-              {/* LEFT — ownership structure */}
-              <div className="left-col">
+          {/* Ownership Structure tab: Graph on top, Tree below */}
+          {investigateSubNav === 'ownership-structure' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', marginTop: '20px' }}>
+              {/* Graph section - full width */}
+              <div className="card">
                 <div className="col-header">
                   <div>
-                    <h2 className="col-title">Ownership structure</h2>
-                    <div className="col-sub">Click a node to inspect its revenue and signals.</div>
-                  </div>
-                  <div className="toggle-group no-print" role="tablist" aria-label="View mode">
-                    <button
-                      className={viewMode === 'tree' ? 'active' : ''}
-                      onClick={() => setViewMode('tree')}
-                      role="tab"
-                      aria-selected={viewMode === 'tree'}
-                    >
-                      Tree
-                    </button>
-                    <button
-                      className={viewMode === 'graph' ? 'active' : ''}
-                      onClick={() => setViewMode('graph')}
-                      role="tab"
-                      aria-selected={viewMode === 'graph'}
-                    >
-                      Graph
-                    </button>
+                    <h2 className="col-title">Corporate Structure — Graph</h2>
+                    <div className="col-sub">Hierarchical ownership diagram. Click nodes to inspect.</div>
                   </div>
                 </div>
-                {viewMode === 'tree' ? (
-                  <TreeView tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} />
-                ) : (
-                  <GraphView ref={graphViewRef} tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} theme={theme} />
-                )}
-
-                {/* Strategic control per layer + non-warning notes (under tree on desktop) */}
-                <StrategicControlSection tree={tree} />
-
-                {strategicNotes.filter((n) => n && !n.startsWith('⚠') && n !== 'No distinctive structural signals captured.').length > 0 && (
-                  <section className="section">
-                    <div className="section-head"><span className="section-title">Notes</span></div>
-                    <div className="card" style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                      {strategicNotes
-                        .filter((n) => n && !n.startsWith('⚠') && n !== 'No distinctive structural signals captured.')
-                        .map((n, i) => <div key={i} style={{ padding: '4px 0' }}>· {n}</div>)}
-                    </div>
-                  </section>
-                )}
+                <GraphView ref={graphViewRef} tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} theme={theme} />
               </div>
 
-              {/* RIGHT — detail panel */}
-              <div className="right-col">
-                <div className="col-header">
-                  <div>
-                    <h2 className="col-title">Entity detail</h2>
-                    <div className="col-sub">{selectedNode ? roleLabel(selectedNode, tree) : 'Select a node'}</div>
+              {/* Tree + Detail section - 2-column grid */}
+              <div className="report-grid">
+                {/* LEFT — Tree view */}
+                <div className="left-col">
+                  <div className="col-header">
+                    <h2 className="col-title">Corporate Structure — Tree</h2>
+                    <div className="col-sub">Indented hierarchy view.</div>
                   </div>
+                  <TreeView tree={tree} onSelect={setSelectedKey} />
+
+                  {/* Strategic control per layer + non-warning notes (under tree) */}
+                  <StrategicControlSection tree={tree} />
+
+                  {strategicNotes.filter((n) => n && !n.startsWith('⚠') && n !== 'No distinctive structural signals captured.').length > 0 && (
+                    <section className="section">
+                      <div className="section-head"><span className="section-title">Notes</span></div>
+                      <div className="card" style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                        {strategicNotes
+                          .filter((n) => n && !n.startsWith('⚠') && n !== 'No distinctive structural signals captured.')
+                          .map((n, i) => <div key={i} style={{ padding: '4px 0' }}>· {n}</div>)}
+                      </div>
+                    </section>
+                  )}
                 </div>
-                <DetailPanel node={selectedNode} revenueResult={selectedRevenue} tree={tree} positioning={positioning} />
+
+                {/* RIGHT — detail panel */}
+                <div className="right-col">
+                  <div className="col-header">
+                    <div>
+                      <h2 className="col-title">Entity detail</h2>
+                      <div className="col-sub">{selectedNode ? roleLabel(selectedNode, tree) : 'Select a node'}</div>
+                    </div>
+                  </div>
+                  <DetailPanel node={selectedNode} revenueResult={selectedRevenue} tree={tree} positioning={positioning} />
+                </div>
               </div>
             </div>
           )}
@@ -3462,52 +3452,64 @@ function TreeNode({ node, role, selectedKey, onSelect }) {
   );
 }
 
-// ─── Graph view (React Flow) ────────────────────────────────────────────────
+// ─── Graph view (React Flow) with Ticket #57 node/edge types ─────────────────
 
-const flowNodeTypes = { entity: FlowNode };
+import dagre from 'dagre';
+import {
+  IndividualNode,
+  FamilyNode,
+  PEFirmNode,
+  PublicCompanyNode,
+  PrivateCompanyNode,
+  AggregatorNode,
+  BrandNode,
+} from './components/nodes/index.js';
+import {
+  PrimaryEdge,
+  BrandAuthorityEdge,
+  AliasEdge,
+  HistoricalEdge,
+  ControlEdge,
+} from './components/edges/index.js';
+import TreeView from './components/TreeView.jsx';
 
-function FlowNode({ data }) {
-  const { node, role, selected, onSelect } = data;
-  const rev = node.revenue_estimate;
-  const isFocal = role === 'focal';
-  const isIndividual = node.node_type === 'individual';
-  const uboMeta = uboTypeMeta(node.ubo_type);
-  const collapsedFrom = Array.isArray(node._collapsed_from) && node._collapsed_from.length > 0
-    ? `Normalized from: ${node._collapsed_from.join(', ')}`
-    : null;
-  const titleText = [uboMeta?.title, collapsedFrom].filter(Boolean).join('\n') || undefined;
-  const handleStyle = { background: 'transparent', border: 'none', width: 1, height: 1 };
-  return (
-    <div
-      className={`flow-node ${isFocal ? 'focal' : ''} ${isIndividual ? 'individual' : ''} ${selected ? 'selected' : ''}`}
-      onClick={() => onSelect(keyOf(node))}
-      title={titleText}
-    >
-      <Handle type="target" position={Position.Top} style={handleStyle} className="flow-handle" />
-      <div className="flow-node-name">
-        {isIndividual && <span className="ubo-icon" aria-hidden="true">◉ </span>}
-        {node.company}
-      </div>
-      {node.domain && <div className="flow-node-domain">{node.domain}</div>}
-      <div className="flow-node-meta">
-        <span className={`chip ${isFocal ? 'chip-accent' : ''}`}>{role}</span>
-        {node.category && <span className="chip">{node.category}</span>}
-        {uboMeta && <span className="chip chip-accent" title={uboMeta.title}>{uboMeta.label}</span>}
-        <StatusBadge node={node} />
-        {rev && rev.central > 0 && (
-          <>
-            <span className={`confidence-dot confidence-${rev.confidence || 'unknown'}`} />
-            <span className="flow-node-rev">{formatUSD(rev.central)}</span>
-          </>
-        )}
-        {node.requires_review && (
-          <span className="chip" title={node.revenue_review_reason || 'Flagged for review'}>review</span>
-        )}
-      </div>
-      <Handle type="source" position={Position.Bottom} style={handleStyle} className="flow-handle" />
-    </div>
-  );
+// Map entity types to node components (Ticket #57)
+function selectNodeType(entity) {
+  if (entity.node_type === 'individual') return 'individual';
+  if (entity.ubo_type === 'family_group') return 'family';
+  if (entity.ubo_type === 'pe_firm') return 'pe_firm';
+  if (entity.node_type === 'public_company' || entity.ticker) return 'public_company';
+  if (entity._generated) return 'divisional_aggregator'; // aggregator
+  if (entity.node_type === 'operating_brand') return 'brand';
+  return 'private_company'; // default
 }
+
+// Map secondary relationships to edge types (Ticket #57)
+function selectEdgeType(edge, allEdges) {
+  if (edge.data?.relationship_type === 'brand_authority') return 'brand_authority';
+  if (edge.data?.relationship_type === 'geographic_alias') return 'geographic_alias';
+  if (edge.data?.relationship_type === 'acquisition_history') return 'historical';
+  if (edge.data?.relationship_type === 'controlling_shareholder') return 'control';
+  return 'primary_parent'; // default for primary edges
+}
+
+const flowNodeTypes = {
+  individual: IndividualNode,
+  family: FamilyNode,
+  pe_firm: PEFirmNode,
+  public_company: PublicCompanyNode,
+  private_company: PrivateCompanyNode,
+  divisional_aggregator: AggregatorNode,
+  brand: BrandNode,
+};
+
+const flowEdgeTypes = {
+  primary_parent: PrimaryEdge,
+  brand_authority: BrandAuthorityEdge,
+  geographic_alias: AliasEdge,
+  historical: HistoricalEdge,
+  control: ControlEdge,
+};
 
 function HistoryRow({ item, active, onOpen, onDelete }) {
   return (
@@ -3619,6 +3621,7 @@ const GraphView = React.forwardRef(({ tree, selectedKey, onSelect, theme }, ref)
         nodes={nodes}
         edges={edges}
         nodeTypes={flowNodeTypes}
+        edgeTypes={flowEdgeTypes}
         fitView
         fitViewOptions={{ padding: 0.18 }}
         nodesDraggable={false}
@@ -3642,78 +3645,190 @@ const GraphView = React.forwardRef(({ tree, selectedKey, onSelect, theme }, ref)
 GraphView.displayName = 'GraphView';
 
 function buildFlowData(tree, selectedKey, onSelect) {
-  const nodes = [];
-  const edges = [];
-  const GAP_Y = 130;
-  const GAP_X = 260;
+  if (!tree) return { nodes: [], edges: [] };
 
+  const nodes = [];
+  const edgesRaw = [];
+  const dagreGraph = new dagre.graphlib.Graph();
+  dagreGraph.setDefaultEdgeLabel(() => ({}));
+  dagreGraph.setGraph({
+    rankdir: 'TB',
+    ranksep: 80,
+    nodesep: 40,
+    edgesep: 20,
+  });
+
+  // Collect parent chain
   const parents = [];
   let p = tree.parent;
   while (p) { parents.unshift(p); p = p.parent; }
 
+  // Build parent chain nodes + edges
   parents.forEach((node, i) => {
-    nodes.push({
-      id: `p${i}`,
-      type: 'entity',
-      position: { x: 0, y: i * GAP_Y },
-      data: { node, role: i === 0 && parents.length > 1 ? 'root' : 'parent', selected: keyOf(node) === selectedKey, onSelect },
-    });
-    if (i > 0) edges.push({ id: `ep${i - 1}_${i}`, source: `p${i - 1}`, target: `p${i}` });
-  });
+    const id = `p${i}`;
+    const role = i === 0 && parents.length > 1 ? 'root' : 'parent';
+    const nodeType = selectNodeType(node);
+    const height = nodeType === 'divisional_aggregator' ? 64 : 80;
 
-  const focalY = parents.length * GAP_Y;
-  const siblings = tree.siblings || [];
-  const half = Math.ceil(siblings.length / 2);
-  const row = [
-    ...siblings.slice(0, half).map((s, idx) => ({ id: `sL${idx}`, node: s, role: 'sibling' })),
-    { id: 'focal', node: tree, role: 'focal' },
-    ...siblings.slice(half).map((s, idx) => ({ id: `sR${idx}`, node: s, role: 'sibling' })),
-  ];
-  row.forEach((item, idx) => {
-    const x = (idx - (row.length - 1) / 2) * GAP_X;
     nodes.push({
-      id: item.id,
-      type: 'entity',
-      position: { x, y: focalY },
-      data: { node: item.node, role: item.role, selected: keyOf(item.node) === selectedKey, onSelect },
+      id,
+      type: nodeType,
+      position: { x: 0, y: 0 }, // dagre will compute
+      data: { node, role, onSelect },
     });
-    if (parents.length > 0) {
-      edges.push({ id: `epf_${item.id}`, source: `p${parents.length - 1}`, target: item.id });
+    dagreGraph.setNode(id, { width: 180, height });
+
+    if (i > 0) {
+      edgesRaw.push({ id: `ep${i - 1}_${i}`, source: `p${i - 1}`, target: id, type: 'primary_parent' });
+      dagreGraph.setEdge(`p${i - 1}`, id);
     }
   });
 
-  const children = tree.children || [];
-  const childY = focalY + GAP_Y;
-  children.forEach((node, i) => {
-    const id = `c${i}`;
-    const x = (i - (children.length - 1) / 2) * GAP_X;
-    nodes.push({
-      id,
-      type: 'entity',
-      position: { x, y: childY },
-      data: { node, role: 'child', selected: keyOf(node) === selectedKey, onSelect },
-    });
-    edges.push({ id: `efc_${id}`, source: 'focal', target: id });
-  });
+  // Focal + divisional aggregators
+  const focalId = 'focal';
+  const focalNodeType = selectNodeType(tree);
+  const focalHeight = focalNodeType === 'divisional_aggregator' ? 64 : 80;
 
-  // Other units under the immediate parent (e.g. a JV/subsidiary), placed to the
-  // right of the parent so their ownership split isn't lost.
+  nodes.push({
+    id: focalId,
+    type: focalNodeType,
+    position: { x: 0, y: 0 }, // dagre will compute
+    data: { node: tree, role: 'focal', onSelect },
+  });
+  dagreGraph.setNode(focalId, { width: 180, height: focalHeight });
+
   if (parents.length > 0) {
-    const immediate = parents[parents.length - 1];
-    const units = (immediate.children || []).filter((c) => keyOf(c) !== keyOf(tree));
-    units.forEach((node, i) => {
-      const id = `pc${i}`;
+    edgesRaw.push({ id: `epf_${focalId}`, source: `p${parents.length - 1}`, target: focalId, type: 'primary_parent' });
+    dagreGraph.setEdge(`p${parents.length - 1}`, focalId);
+  }
+
+  // Handle divisional aggregators (Ticket #57)
+  if (tree._divisional_aggregators && tree._divisional_aggregators.length > 0) {
+    tree._divisional_aggregators.forEach((agg, aggIdx) => {
+      const aggId = `agg${aggIdx}`;
+      const aggNodeType = selectNodeType(agg);
+      const aggHeight = aggNodeType === 'divisional_aggregator' ? 64 : 80;
+
       nodes.push({
-        id,
-        type: 'entity',
-        position: { x: (i + 1.5) * GAP_X, y: (parents.length - 1) * GAP_Y },
-        data: { node, role: 'subsidiary', selected: keyOf(node) === selectedKey, onSelect },
+        id: aggId,
+        type: aggNodeType,
+        position: { x: 0, y: 0 },
+        data: { node: agg, role: 'cousin', onSelect },
       });
-      edges.push({ id: `epc_${id}`, source: `p${parents.length - 1}`, target: id });
+      dagreGraph.setNode(aggId, { width: 180, height: aggHeight });
+
+      // Edge from parent to aggregator
+      if (parents.length > 0) {
+        edgesRaw.push({ id: `ep_agg${aggIdx}`, source: `p${parents.length - 1}`, target: aggId, type: 'primary_parent' });
+        dagreGraph.setEdge(`p${parents.length - 1}`, aggId);
+      }
+
+      // Children of aggregator
+      (agg.children || []).forEach((child, childIdx) => {
+        const childId = `agg${aggIdx}_c${childIdx}`;
+        const childNodeType = selectNodeType(child);
+        const childHeight = childNodeType === 'divisional_aggregator' ? 64 : 80;
+
+        nodes.push({
+          id: childId,
+          type: childNodeType,
+          position: { x: 0, y: 0 },
+          data: { node: child, role: 'sibling', onSelect },
+        });
+        dagreGraph.setNode(childId, { width: 180, height: childHeight });
+        edgesRaw.push({ id: `e_agg${aggIdx}_c${childIdx}`, source: aggId, target: childId, type: 'primary_parent' });
+        dagreGraph.setEdge(aggId, childId);
+      });
     });
   }
 
-  return { nodes, edges };
+  // Siblings (without aggregators, for backward compat)
+  const siblings = (tree.siblings || []).filter(s => !tree._divisional_aggregators?.some(agg => agg.children?.some(c => c.company === s.company)));
+  siblings.forEach((node, i) => {
+    const id = `s${i}`;
+    const nodeType = selectNodeType(node);
+    const height = nodeType === 'divisional_aggregator' ? 64 : 80;
+
+    nodes.push({
+      id,
+      type: nodeType,
+      position: { x: 0, y: 0 },
+      data: { node, role: 'sibling', onSelect },
+    });
+    dagreGraph.setNode(id, { width: 180, height });
+
+    // Edge from parent to sibling
+    if (parents.length > 0) {
+      edgesRaw.push({ id: `eps_${i}`, source: `p${parents.length - 1}`, target: id, type: 'primary_parent' });
+      dagreGraph.setEdge(`p${parents.length - 1}`, id);
+    } else {
+      // No parent, edge from focal
+      edgesRaw.push({ id: `efsib_${i}`, source: focalId, target: id, type: 'primary_parent' });
+      dagreGraph.setEdge(focalId, id);
+    }
+  });
+
+  // Children
+  const children = tree.children || [];
+  children.forEach((node, i) => {
+    const id = `c${i}`;
+    const nodeType = selectNodeType(node);
+    const height = nodeType === 'divisional_aggregator' ? 64 : 80;
+
+    nodes.push({
+      id,
+      type: nodeType,
+      position: { x: 0, y: 0 },
+      data: { node, role: 'child', onSelect },
+    });
+    dagreGraph.setNode(id, { width: 180, height });
+    edgesRaw.push({ id: `efc_${i}`, source: focalId, target: id, type: 'primary_parent' });
+    dagreGraph.setEdge(focalId, id);
+  });
+
+  // Cousins (via intra_parent_cousins)
+  const cousins = tree.intra_parent_cousins || [];
+  cousins.forEach((node, i) => {
+    const id = `cos${i}`;
+    const nodeType = selectNodeType(node);
+    const height = nodeType === 'divisional_aggregator' ? 64 : 80;
+
+    nodes.push({
+      id,
+      type: nodeType,
+      position: { x: 0, y: 0 },
+      data: { node, role: 'cousin', onSelect },
+    });
+    dagreGraph.setNode(id, { width: 180, height });
+
+    if (parents.length > 0) {
+      edgesRaw.push({ id: `ecos_${i}`, source: `p${parents.length - 1}`, target: id, type: 'primary_parent' });
+      dagreGraph.setEdge(`p${parents.length - 1}`, id);
+    }
+  });
+
+  // Run dagre layout
+  dagre.layout(dagreGraph);
+
+  // Apply positions from dagre
+  const layoutedNodes = nodes.map(node => {
+    const pos = dagreGraph.node(node.id);
+    return {
+      ...node,
+      position: {
+        x: pos.x - 90,
+        y: pos.y - 40,
+      },
+    };
+  });
+
+  // Build edges with proper types
+  const edges = edgesRaw.map(edge => ({
+    ...edge,
+    type: edge.type || 'primary_parent',
+  }));
+
+  return { nodes: layoutedNodes, edges };
 }
 
 // ─── Detail panel ────────────────────────────────────────────────────────────
