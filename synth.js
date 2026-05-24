@@ -314,8 +314,12 @@ export function normalizeChain(ownership, revenueByCompany = null) {
       walker = walker.parent;
     }
     // Find the longest run of consecutive layers sharing a common token.
+    // The focal (index 0) is EXCLUDED — the user's queried entity must never
+    // be collapsed into its parent/root even if the names share a token
+    // (e.g. "Disney Cruise" → "Disney Entertainment" → "The Walt Disney
+    // Company"; focal must remain "Disney Cruise").
     let bestStart = -1; let bestLen = 0; let bestTok = null;
-    for (let i = 0; i < chainArr.length - 1; i++) {
+    for (let i = 1; i < chainArr.length - 1; i++) {
       for (let j = chainArr.length; j > i + 1; j--) {
         const slice = chainArr.slice(i, j);
         const tok = commonHoldingToken(slice);

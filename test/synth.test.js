@@ -505,6 +505,33 @@ test('Round 2: the guard never clears the focal\'s own revenue even when an ance
   assert.equal(tree.revenue_estimate.central, 1.6e9);
 });
 
+test('Round 2: the focal is NEVER collapsed even when it shares a holding token with its parent and root', () => {
+  // Disney Cruise → Disney Entertainment → The Walt Disney Company. All three
+  // share the "disney" token, but the user queried Disney Cruise — collapsing
+  // the focal away would destroy the queried entity's identity.
+  const ownership = {
+    company: 'Disney Cruise',
+    domain: 'disneycruise.disney.go.com',
+    parent: {
+      company: 'Disney Entertainment',
+      domain: 'disneyentertainment.com',
+      parent: {
+        company: 'The Walt Disney Company',
+        domain: 'thewaltdisneycompany.com',
+        ticker: 'DIS',
+        parent: null,
+      },
+    },
+  };
+  const out = synthesize(ownership, {}, null, {});
+  assert.equal(out.ownership_tree.company, 'Disney Cruise', 'focal identity preserved');
+  // The two parent-chain layers above the focal still share "disney" but
+  // there are only 2 of them — Pass A needs 3+, so they remain separate
+  // (and the existing 2-identifier rule doesn't fire either).
+  assert.equal(out.ownership_tree.parent.company, 'Disney Entertainment');
+  assert.equal(out.ownership_tree.parent.parent.company, 'The Walt Disney Company');
+});
+
 // ─── Bug #3 follow-up: cousins get revenue with parent context ──────────────
 
 test('Cousins: collectEntities includes intra_parent_cousins with role and parent context', () => {
