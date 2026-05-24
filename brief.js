@@ -1208,9 +1208,18 @@ export function sanitizeForPdf(s) {
     .replace(/[○◯]/g, 'o')
     .replace(/[→➔➜]/g, '->')
     .replace(/[←]/g, '<-')
+    .replace(/[\u{2265}\u{2267}\u{2A7E}]/gu, '>=')
+    .replace(/[\u{2264}\u{2266}\u{2A7D}]/gu, '<=')
+    .replace(/[\u{00D7}]/gu, 'x')
+    .replace(/[\u{20AC}]/gu, 'EUR')
     .replace(/[\u{1F000}-\u{1FAFF}]/gu, '')
     .replace(/[\u{2190}-\u{21FF}]/gu, '')
     .replace(/[\u{2300}-\u{27BF}]/gu, '')
     .replace(/[\u{2B00}-\u{2BFF}]/gu, '')
+    // Safety net: any remaining code point > U+00FF makes jsPDF switch the whole
+    // string to 2-byte encoding — garbled glyphs plus a blank inserted before
+    // every letter, so the line renders ~2x wide and overflows the margin. Strip
+    // them so one stray glyph can never poison a whole line again.
+    .replace(/[^\u{0000}-\u{00FF}]/gu, '')
     .replace(/\uFE0F/g, '');
 }

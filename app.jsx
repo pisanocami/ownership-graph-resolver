@@ -3132,7 +3132,7 @@ function drawReconciliationWaterfall(pdf, startY, pageW, margin, contentW, brief
   const deltaColor = deltaPct > 0 ? [220, 120, 80] : [100, 160, 200];
   pdf.setTextColor(...deltaColor);
   pdf.setFontSize(9);
-  pdf.text(`Δ ${deltaPct > 0 ? '+' : ''}${deltaPct}%`, margin + 35 + deltaHigh + 3, y - 0.5);
+  pdf.text(`${deltaPct > 0 ? '+' : ''}${deltaPct}%`, margin + 35 + deltaHigh + 3, y - 0.5);
 
   return y + 4;
 }
@@ -3153,10 +3153,9 @@ function drawSignalSentiment(pdf, startY, pageW, margin, contentW, brief) {
   // Draw axes labels
   pdf.setFontSize(8); pdf.setTextColor(100, 100, 100);
   pdf.text('Signal Type', margin + 5, y + 18);
-  pdf.save();
   pdf.setFont('helvetica', 'italic');
-  pdf.text('Weight →', margin + contentW - 15, y + 10);
-  pdf.restore();
+  pdf.text('Weight ->', margin + contentW - 15, y + 10);
+  pdf.setFont('helvetica', 'normal');
 
   // Draw grid
   pdf.setDrawColor(230, 230, 235);
@@ -3288,11 +3287,10 @@ function drawCompetitivePositioning(pdf, startY, pageW, margin, contentW, brief)
 
   // Axis labels
   pdf.setFontSize(7); pdf.setTextColor(100, 100, 100);
-  pdf.text('Revenue →', chartX + chartW - 15, chartY + chartH + 2);
-  pdf.save();
+  pdf.text('Revenue ->', chartX + chartW - 15, chartY + chartH + 2);
   pdf.setFont('helvetica', 'italic');
   pdf.text('Distance', chartX - 15, chartY + 2);
-  pdf.restore();
+  pdf.setFont('helvetica', 'normal');
 
   // Distance categories (y)
   const distMap = { direct: 3, adjacent: 2, tangential: 1 };
@@ -3402,7 +3400,7 @@ async function generateBriefPDF(result, svgImage = null) {
     pdf.rect(margin, y, bw, bh, 'F');
     pdf.setTextColor(...textColor);
     font(8, 'bold');
-    pdf.text(label, margin + 1, y + 1.2);
+    pdf.text(sanitizeForPdf(label), margin + 2, y + bh / 2, { baseline: 'middle' });
     y += 7;
   };
 
@@ -3506,27 +3504,35 @@ async function generateBriefPDF(result, svgImage = null) {
     y += 2;
     text(`Counter-signals · ${brief.counter_signals.length} gaps with fill actions`, { size: 10, style: 'bold', color: [200, 120, 40] });
     brief.counter_signals.forEach((gap) => {
-      ensure(12);
-      const blockH = 5 + (gap.fill_action ? 3 : 0) + (gap.why_matters ? 6 : 0);
-      pdf.setFillColor(255, 245, 220);
-      pdf.rect(margin, y, contentW, blockH, 'F');
-      pdf.setDrawColor(220, 160, 80);
-      pdf.rect(margin, y, contentW, blockH);
+      // Measure wrapped lines first so the box is drawn tall enough to contain
+      // them — the old fixed estimate under-counted and text spilled past the border.
+      font(8);
+      const fillLines = gap.fill_action
+        ? pdf.splitTextToSize(sanitizeForPdf(`-> ${gap.fill_action}`), contentW - 3).slice(0, 2)
+        : [];
+      const whyLines = gap.why_matters
+        ? pdf.splitTextToSize(sanitizeForPdf(`Why this matters: ${gap.why_matters}`), contentW - 3).slice(0, 3)
+        : [];
+      const headH = 4.5, lineH = 3.3;
+      const blockH = headH + (fillLines.length + whyLines.length) * lineH + 1.5;
+      ensure(blockH + 2);
       const blockTop = y;
+      pdf.setFillColor(255, 245, 220);
+      pdf.rect(margin, blockTop, contentW, blockH, 'F');
+      pdf.setDrawColor(220, 160, 80);
+      pdf.rect(margin, blockTop, contentW, blockH);
       font(9, 'bold'); pdf.setTextColor(180, 100, 20);
-      pdf.text(`Gap: ${gap.signal_type}`, margin + 1.5, blockTop + 1.5);
-      let inner = blockTop + 4.2;
-      if (gap.fill_action) {
+      pdf.text(sanitizeForPdf(`Gap: ${gap.signal_type}`), margin + 1.5, blockTop + 1.2, { baseline: 'top' });
+      let inner = blockTop + headH;
+      if (fillLines.length) {
         font(8); pdf.setTextColor(80, 80, 90);
-        const lines = pdf.splitTextToSize(`→ ${gap.fill_action}`, contentW - 3);
-        lines.slice(0, 2).forEach((ln) => { pdf.text(ln, margin + 1.5, inner); inner += 3; });
+        fillLines.forEach((ln) => { pdf.text(ln, margin + 1.5, inner, { baseline: 'top' }); inner += lineH; });
       }
-      if (gap.why_matters) {
+      if (whyLines.length) {
         font(8, 'italic'); pdf.setTextColor(110, 90, 60);
-        const lines = pdf.splitTextToSize(`Why this matters: ${gap.why_matters}`, contentW - 3);
-        lines.slice(0, 3).forEach((ln) => { pdf.text(ln, margin + 1.5, inner); inner += 3; });
+        whyLines.forEach((ln) => { pdf.text(ln, margin + 1.5, inner, { baseline: 'top' }); inner += lineH; });
       }
-      y = blockTop + Math.max(blockH, inner - blockTop) + 1.5;
+      y = blockTop + blockH + 1.5;
     });
   }
 
@@ -3782,7 +3788,7 @@ async function generateBriefPDF(result, svgImage = null) {
       ensure(6);
       pdf.setFillColor(...col); pdf.rect(margin, y, 22, 4.5, 'F');
       font(8, 'bold'); pdf.setTextColor(255, 255, 255);
-      pdf.text(label, margin + 1, y + 1.5);
+      pdf.text(sanitizeForPdf(label), margin + 1.5, y + 2.25, { baseline: 'middle' });
       y += 5;
       items.forEach((it) => text(`  - ${it.claim} - ${it.reason}`, { size: 8.5, color: [50, 50, 60] }));
       y += 0.5;
@@ -3847,7 +3853,7 @@ async function generateBriefPDF(result, svgImage = null) {
         pdf.rect(margin, y, contentW, 4.5, 'F');
         font(8, 'bold');
         pdf.setTextColor(255, 255, 255);
-        pdf.text(gapLabels[key], margin + 1, y + 1.5);
+        pdf.text(sanitizeForPdf(gapLabels[key]), margin + 1.5, y + 2.25, { baseline: 'middle' });
         y += 5;
 
         items.slice(0, 3).forEach((item) => {
