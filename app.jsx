@@ -924,7 +924,7 @@ export default function App() {
           model: 'gemini-2.5-flash',
           system: NARRATIVE_PROMPT,
           user: `Write the executive narrative for this resolved ownership result. Use ONLY these facts:\n\n${JSON.stringify(narrativeInput(finalResult), null, 2)}`,
-          maxTokens: 2048,
+          maxTokens: 4096,
         });
         appendTrace(narrResp.trace.map((t) => ({ ...t, tag: 'narrative' })));
         const narrative = safeExtractJSON(narrResp.text);
