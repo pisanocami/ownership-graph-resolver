@@ -2547,34 +2547,52 @@ async function generatePDF(result) {
     }
   }
 
-  // ─── Co-owners ───
-  const coOwners = Array.isArray(tree.co_owners) ? tree.co_owners : [];
-  if (coOwners.length > 0) {
+  // ─── Co-owners (focal + any siblings / cousins that declare them) ───
+  const coOwnerEntities = [
+    { node: tree, role: 'focal', parent: tree.parent },
+    ...(tree.siblings || []).map((s) => ({ node: s, role: 'sibling', parent: tree.parent })),
+    ...(Array.isArray(tree.intra_parent_cousins) ? tree.intra_parent_cousins : [])
+      .map((c) => ({ node: c, role: 'cousin', parent: tree.parent })),
+  ].filter(({ node }) => Array.isArray(node.co_owners) && node.co_owners.length > 0);
+
+  if (coOwnerEntities.length > 0) {
     section('Co-owners');
     text('Additional formal owners beyond the consolidating parent (economic / voting stakes).',
-      { size: 8.5, style: 'italic', color: C.muted, gap: 2 });
-    if (tree.parent?.company) {
-      const roleText = tree.ownership_role ? ` — ${tree.ownership_role.replace(/_/g, ' ')}` : '';
-      text(`Parent: ${tree.parent.company}${roleText} (consolidates)`,
-        { size: 9.5, style: 'bold', color: C.text, gap: 1.5 });
-    }
-    const coRows = coOwners.map((co) => {
-      const bits = [];
-      if (co.stake_pct != null) bits.push(`${co.stake_pct}% econ`);
-      if (co.voting_pct != null) bits.push(`${co.voting_pct}% vote`);
-      return [
-        { text: co.company || '—', bold: true },
-        co.ownership_role ? co.ownership_role.replace(/_/g, ' ') : '—',
-        co.entity_type ? co.entity_type.replace(/_/g, ' ') : '—',
-        bits.length ? bits.join(' · ') : '—',
-      ];
-    });
-    table(['Co-owner', 'Role', 'Type', 'Stake'], coRows, [54, 52, 32, 40]);
-    coOwners.forEach((co) => {
-      if (!co.evidence) return;
-      text(`${co.company}: ${co.evidence}`, { size: 8.5, color: C.muted, x: margin + 3, maxW: contentW - 6, gap: 1 });
-      const srcs = Array.isArray(co.source_urls) ? co.source_urls.filter(isSafeUrl).slice(0, 2) : [];
-      srcs.forEach((u) => text(u, { size: 7.5, color: C.accentHover, x: margin + 3, maxW: contentW - 6, gap: 0.5 }));
+      { size: 8.5, style: 'italic', color: C.muted, gap: 2.5 });
+    coOwnerEntities.forEach(({ node, role, parent }, idx) => {
+      ensure(14);
+      if (idx > 0) y += 2;
+      // Entity header (which node these co-owners apply to)
+      font(10, 'bold'); pdf.setTextColor(...C.ink);
+      pdf.text(truncateToWidth(node.company, contentW - 40), margin, y + 0.3, { baseline: 'top' });
+      let lx = margin + pdf.getTextWidth(sanitize(node.company)) + 3;
+      pill(role, lx, y - 0.2, role === 'focal' ? C.accentSoft : C.surface, role === 'focal' ? C.accentHover : C.muted);
+      y += 6;
+      if (parent?.company) {
+        const roleText = node.ownership_role ? ` — ${node.ownership_role.replace(/_/g, ' ')}` : '';
+        text(`Parent: ${parent.company}${roleText} (consolidates)`,
+          { size: 9, style: 'bold', color: C.text, x: margin + 3, maxW: contentW - 6, gap: 1.5 });
+      }
+      const cos = node.co_owners;
+      const coRows = cos.map((co) => {
+        const bits = [];
+        if (co.stake_pct != null) bits.push(`${co.stake_pct}% econ`);
+        if (co.voting_pct != null) bits.push(`${co.voting_pct}% vote`);
+        return [
+          { text: co.company || '—', bold: true },
+          co.ownership_role ? co.ownership_role.replace(/_/g, ' ') : '—',
+          co.entity_type ? co.entity_type.replace(/_/g, ' ') : '—',
+          bits.length ? bits.join(' · ') : '—',
+        ];
+      });
+      table(['Co-owner', 'Role', 'Type', 'Stake'], coRows, [54, 52, 32, 40]);
+      cos.forEach((co) => {
+        if (!co.evidence) return;
+        const label = co.company ? `${co.company}: ` : '';
+        text(`${label}${co.evidence}`, { size: 8.5, color: C.muted, x: margin + 3, maxW: contentW - 6, gap: 1 });
+        const srcs = Array.isArray(co.source_urls) ? co.source_urls.filter(isSafeUrl).slice(0, 2) : [];
+        srcs.forEach((u) => text(u, { size: 7.5, color: C.accentHover, x: margin + 3, maxW: contentW - 6, gap: 0.5 }));
+      });
     });
   }
 
