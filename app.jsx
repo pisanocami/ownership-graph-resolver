@@ -2318,6 +2318,379 @@ function BriefVerdictView({ tree, positioning, brief }) {
   );
 }
 
+// ─── Brief Mode: Signals Tab ──────────────────────────────────────────────────
+
+function BriefSignalsView({ tree, positioning, brief }) {
+  const allSignals = useMemo(() => {
+    const signals = tree.signals_found || [];
+    return signals.map(s => ({
+      ...s,
+      weight: s.weight || 0.5,
+      confidence: s.confidence || 'unknown'
+    }));
+  }, [tree.signals_found]);
+
+  const topSignals = useMemo(() => {
+    return allSignals
+      .filter(s => s.weight > 0.5 || s.confidence === 'high')
+      .sort((a, b) => (b.weight || 0) - (a.weight || 0))
+      .slice(0, 10);
+  }, [allSignals]);
+
+  const detectedTypes = useMemo(() => {
+    const types = new Set(topSignals.map(s => s.type));
+    return Array.from(types);
+  }, [topSignals]);
+
+  const interpretations = {
+    'acquisition': 'Entity has undergone M&A activity.',
+    'co_owner': 'Multiple entities hold stakes.',
+    'parent_relationship': 'Subsidiary of larger entity.',
+    'strategic_control': 'Governance/control relationships beyond ownership.'
+  };
+
+  if (topSignals.length === 0) {
+    return (
+      <div style={{ paddingBottom: 20 }}>
+        <div className="card" style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)' }}>
+          No significant signals detected.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ paddingBottom: 20 }}>
+      <section className="section">
+        <div className="section-head">
+          <span className="section-title">Top Behavioral Signals ({topSignals.length})</span>
+        </div>
+        <div className="card">
+          {topSignals.map((signal, i) => (
+            <div
+              key={i}
+              style={{
+                padding: 12,
+                borderBottom: i < topSignals.length - 1 ? '1px solid var(--border)' : 'none',
+                fontSize: 13
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 500, marginBottom: 4 }}>
+                    <code style={{ background: 'var(--surface-2)', padding: '2px 6px', borderRadius: 3, fontFamily: 'monospace', fontSize: 11 }}>
+                      {signal.type}
+                    </code>
+                  </div>
+                  <div style={{ color: 'var(--text)', marginBottom: 4 }}>
+                    {signal.value}
+                  </div>
+                  {signal.details && (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                      {signal.details}
+                    </div>
+                  )}
+                </div>
+                <div
+                  className={`confidence-dot confidence-${signal.confidence || 'unknown'}`}
+                  style={{ marginLeft: 8, flexShrink: 0, width: 8, height: 8, borderRadius: '50%' }}
+                  title={signal.confidence}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {detectedTypes.length > 0 && (
+        <section className="section" style={{ marginTop: 16 }}>
+          <div className="section-head">
+            <span className="section-title">Signal Interpretation</span>
+          </div>
+          <div className="card" style={{ padding: 12, fontSize: 13, color: 'var(--text-muted)' }}>
+            {detectedTypes.map((type, i) => (
+              interpretations[type] && (
+                <div key={i} style={{ marginBottom: 8 }}>
+                  • <strong>{type.replace(/_/g, ' ')}:</strong> {interpretations[type]}
+                </div>
+              )
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+// ─── Brief Mode: Mispricing Tab ──────────────────────────────────────────────
+
+function BriefMispricingView({ tree, positioning }) {
+  const recon = positioning?.reconciliation || {};
+  const anchor = positioning?.parent_anchor || {};
+
+  const focalRev = tree.revenue_estimate?.central || 0;
+  const parentDisclosed = anchor.revenue_estimate?.central;
+  const gap = parentDisclosed ? parentDisclosed - focalRev : null;
+  const gapPct = gap && parentDisclosed ? Math.abs(gap) / parentDisclosed * 100 : null;
+
+  const gapColor = gapPct
+    ? gapPct > 30 ? 'var(--danger)'
+    : gapPct > 15 ? 'var(--warning)'
+    : 'var(--success)'
+    : null;
+
+  const gapBgColor = gapPct
+    ? gapPct > 30 ? 'var(--danger-bg)'
+    : gapPct > 15 ? 'var(--warning-bg)'
+    : 'var(--info-bg)'
+    : null;
+
+  if (!gapPct || gapPct < 5) {
+    return (
+      <div style={{ paddingBottom: 20 }}>
+        <div className="card" style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>
+          No significant revenue gap detected (coverage {parentDisclosed ? ((focalRev / parentDisclosed) * 100).toFixed(0) : '?'}%).
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ paddingBottom: 20 }}>
+      <section className="section">
+        <div className="section-head">
+          <span className="section-title">Revenue Reconciliation Gap</span>
+        </div>
+        <div className="card" style={{
+          padding: 16,
+          background: gapBgColor
+        }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+            Reported parent revenue vs. our breakdown
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 600, marginBottom: 12, color: gapColor }}>
+            {gapPct > 0 ? '+' : ''}{gapPct.toFixed(1)}% gap ({formatUSD(Math.abs(gap))})
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text)' }}>
+            {gapPct > 30 && '⚠ Large gap suggests missing units or structural complexity'}
+            {gapPct > 15 && gapPct <= 30 && '↳ Moderate gap — likely other segments not detailed here'}
+            {gapPct <= 15 && '✓ Small gap — good coverage'}
+          </div>
+        </div>
+      </section>
+
+      {recon.likely_causes && Array.isArray(recon.likely_causes) && recon.likely_causes.length > 0 && (
+        <section className="section" style={{ marginTop: 16 }}>
+          <div className="section-head">
+            <span className="section-title">Likely Causes</span>
+          </div>
+          <div className="card" style={{ padding: 12 }}>
+            <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
+              {recon.likely_causes.map((cause, i) => (
+                <li key={i} style={{ marginBottom: 6, color: 'var(--text-muted)' }}>
+                  {cause}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+// ─── Brief Mode: Competitive Tab ─────────────────────────────────────────────
+
+function BriefCompetitiveView({ tree }) {
+  const siblings = tree.siblings || [];
+
+  const focalRev = tree.revenue_estimate?.central || 0;
+  const siblingsData = siblings.map(s => ({
+    company: s.company,
+    revenue: s.revenue_estimate?.central || 0,
+    confidence: s.confidence
+  }));
+
+  const totalRev = focalRev + siblingsData.reduce((sum, s) => sum + s.revenue, 0);
+
+  if (siblings.length === 0) {
+    return (
+      <div style={{ paddingBottom: 20 }}>
+        <div className="card" style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>
+          No sibling companies identified.
+        </div>
+      </div>
+    );
+  }
+
+  const allCompanies = [
+    { company: tree.company, revenue: focalRev, isFocal: true },
+    ...siblingsData
+  ].sort((a, b) => b.revenue - a.revenue);
+
+  return (
+    <div style={{ paddingBottom: 20 }}>
+      <section className="section">
+        <div className="section-head">
+          <span className="section-title">Position Among Siblings</span>
+        </div>
+
+        {/* Bar chart */}
+        <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 10 }}>
+            Revenue distribution across sibling group
+          </div>
+          <div style={{ display: 'flex', gap: 8, height: 40, alignItems: 'flex-end' }}>
+            {allCompanies.map((item, i) => {
+              const height = totalRev ? (item.revenue / totalRev) * 100 : 0;
+              return (
+                <div
+                  key={i}
+                  style={{
+                    flex: 1,
+                    height: `${Math.max(4, height * 0.8)}px`,
+                    background: item.isFocal ? 'var(--accent)' : 'var(--surface-2)',
+                    borderRadius: 4,
+                    minHeight: 4,
+                    transition: 'height 0.3s ease'
+                  }}
+                  title={`${item.company}: ${formatUSD(item.revenue)}`}
+                />
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Table */}
+        <div className="card" style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+            <thead style={{ borderBottom: '2px solid var(--border-strong)' }}>
+              <tr>
+                <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600 }}>Brand</th>
+                <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>Revenue</th>
+                <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>% of Group</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allCompanies.map((item, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ padding: '8px 12px', fontWeight: item.isFocal ? 600 : 400 }}>
+                    {item.company}
+                    {item.isFocal && ' (focal)'}
+                  </td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'monospace', fontSize: 11 }}>
+                    {formatUSD(item.revenue)}
+                  </td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'monospace', fontSize: 11 }}>
+                    {((item.revenue / totalRev) * 100).toFixed(1)}%
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ─── Brief Mode: Confidence Tab ──────────────────────────────────────────────
+
+function BriefConfidenceView({ tree, brief }) {
+  const confidence = tree.confidence || 'unknown';
+  const assessment = brief?.confidence_assessment || {};
+
+  const factorSymbols = {
+    high: '✓',
+    medium: '○',
+    low: '△'
+  };
+
+  const defaultFactors = {
+    high: [
+      '✓ Multiple Tier A/B sources (SEC, M&A press, official filings)',
+      '✓ Recently verified (<3 years)',
+      '✓ Clear parent-subsidiary relationship'
+    ],
+    medium: [
+      '○ Mix of Tier B sources and trade press',
+      '○ Partially verified, some gaps remain',
+      '○ Ownership path may have intermediaries'
+    ],
+    low: [
+      '△ Limited source evidence',
+      '△ Older information or unconfirmed reports',
+      '△ Complex structure, multiple interpretations possible'
+    ]
+  };
+
+  const factors = assessment.factors || defaultFactors[confidence] || [];
+  const risks = assessment.risks || [];
+
+  return (
+    <div style={{ paddingBottom: 20 }}>
+      <section className="section">
+        <div className="section-head">
+          <span className="section-title">Confidence Assessment</span>
+        </div>
+        <div className="card" style={{
+          padding: 16,
+          borderLeft: `4px solid ${confidenceColor(confidence)}`,
+          background: confidenceBgColor(confidence)
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4, textTransform: 'uppercase' }}>
+            Confidence: {confidence}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+            {confidence === 'high' && 'High confidence in the ownership structure based on multiple verified sources.'}
+            {confidence === 'medium' && 'Moderate confidence; some details may require additional verification.'}
+            {confidence === 'low' && 'Low confidence; significant uncertainty remains about the ownership structure.'}
+          </div>
+        </div>
+      </section>
+
+      <section className="section" style={{ marginTop: 16 }}>
+        <div className="section-head">
+          <span className="section-title">Supporting Factors</span>
+        </div>
+        <div className="card" style={{ padding: 12 }}>
+          <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
+            {factors.map((factor, i) => (
+              <li key={i} style={{ marginBottom: 6, color: 'var(--text-muted)' }}>
+                {factor}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      {risks.length > 0 && (
+        <section className="section" style={{ marginTop: 16 }}>
+          <div className="section-head">
+            <span className="section-title">Risk Factors</span>
+          </div>
+          <div className="card" style={{ padding: 12, background: 'var(--danger-bg)' }}>
+            <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
+              {risks.map((risk, i) => (
+                <li key={i} style={{ marginBottom: 6, color: 'var(--text)', fontWeight: 500 }}>
+                  {risk}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
+
+      <section className="section" style={{ marginTop: 16 }}>
+        <div className="card" style={{ padding: 12, fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface)' }}>
+          <strong>Methodology:</strong> Confidence determined by source tier (SEC filings/M&A press = Tier A, news/Crunchbase = Tier B, trade press = Tier C),
+          recency (&lt;3 years = full weight), and structural clarity. Two Tier A sources = high confidence.
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function SignalsView({ tree, positioning, selectedKey, onSelect }) {
   const signals = useMemo(() => extractAllSignals(tree), [tree]);
   const [filterType, setFilterType] = useState('all');
@@ -2988,10 +3361,17 @@ function ResultView({
           {briefSubNav === 'verdict' && (
             <BriefVerdictView tree={tree} positioning={positioning} brief={result.intelligence_brief} />
           )}
-          {briefSubNav !== 'verdict' && (
-            <div className="card" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
-              {briefSubNav} view coming soon
-            </div>
+          {briefSubNav === 'signals' && (
+            <BriefSignalsView tree={tree} positioning={positioning} brief={result.intelligence_brief} />
+          )}
+          {briefSubNav === 'mispricing' && (
+            <BriefMispricingView tree={tree} positioning={positioning} />
+          )}
+          {briefSubNav === 'competitive' && (
+            <BriefCompetitiveView tree={tree} />
+          )}
+          {briefSubNav === 'confidence' && (
+            <BriefConfidenceView tree={tree} brief={result.intelligence_brief} />
           )}
         </>
       )}
