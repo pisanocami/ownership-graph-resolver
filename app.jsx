@@ -3989,7 +3989,6 @@ import {
   HistoricalEdge,
   ControlEdge,
 } from './components/edges/index.js';
-import TreeView from './components/TreeView.jsx';
 
 // Map entity types to node components (Ticket #57)
 function selectNodeType(entity) {
