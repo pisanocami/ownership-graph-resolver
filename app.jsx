@@ -5278,7 +5278,7 @@ async function generateLegacyPDF(result, svgImage = null) {
   ].filter(({ node }) => Array.isArray(node.signals_found) && node.signals_found.length > 0);
   if (signalEntries.length > 0) {
     section('Signals Evidence');
-    text('Signal types found per entity. ✓ = signal present; confidence ranked by weight distribution.',
+    text('Signal types found per entity. Y = signal present; confidence ranked by weight distribution.',
       { size: 8.5, style: 'italic', color: C.muted, gap: 2.5 });
 
     // Build signal type matrix: collect all unique types across all entities
@@ -5342,7 +5342,7 @@ async function generateLegacyPDF(result, svgImage = null) {
       sortedTypes.forEach((type) => {
         if (typeCounts[type]) {
           font(8, 'bold'); pdf.setTextColor(...C.activeFg);
-          pdf.text('✓', rx + colW / 2, y + 0.5, { align: 'center', baseline: 'top' });
+          pdf.text('Y', rx + colW / 2, y + 0.5, { align: 'center', baseline: 'top' });
         }
         rx += colW;
       });
