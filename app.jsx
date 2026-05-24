@@ -2486,18 +2486,82 @@ async function generatePDF(result) {
 
   // ─── Cover band (page 1) ───
   pdf.setFillColor(...C.accent);
-  pdf.rect(0, 0, pageW, 34, 'F');
+  pdf.rect(0, 0, pageW, 40, 'F');
   font(22, 'bold'); pdf.setTextColor(...C.white);
-  pdf.text(focal, margin, 14, { baseline: 'middle' });
+  pdf.text(truncateToWidth(focal, contentW - 60), margin, 14, { baseline: 'middle' });
   font(10.5, 'normal'); pdf.setTextColor(...C.tint);
-  pdf.text('Ownership & Revenue Analysis', margin, 23, { baseline: 'middle' });
+  pdf.text('Ownership & Revenue Intelligence', margin, 23, { baseline: 'middle' });
   font(8.5, 'normal');
   pdf.text(`${dateStr} · ${timeStr}`, margin, 29, { baseline: 'middle' });
-  y = 42;
+  // Confidential tag (top-right)
+  {
+    font(7.5, 'bold');
+    const tag = 'CONFIDENTIAL · DEAL MATERIALS';
+    const tw = pdf.getTextWidth(tag) + 5;
+    pdf.setFillColor(...C.ink);
+    pdf.roundedRect(pageW - margin - tw, 9, tw, 6, 1.2, 1.2, 'F');
+    pdf.setTextColor(...C.white);
+    pdf.text(tag, pageW - margin - tw + 2.5, 12.4, { baseline: 'middle' });
+  }
+  y = 48;
+
+  // ─── KPI cards (cover) ───
+  {
+    const revEstCover = tree.revenue_estimate || {};
+    const coverageStr = recon && recon.ratio ? `${Math.round(recon.ratio * 100)}%` : '—';
+    const kpis = [
+      { label: 'EST. REVENUE', value: revEstCover.central > 0 ? formatUSD(revEstCover.central) : '—', bg: C.accentSoft, fg: C.accentHover },
+      { label: 'PARENT COVERAGE', value: coverageStr, bg: C.activeBg, fg: C.activeFg },
+      { label: 'CONFIDENCE', value: (revEstCover.confidence || 'unknown').toUpperCase(), bg: C.surface, fg: C.muted },
+    ];
+    const gap = 5;
+    const cardW = (contentW - gap * (kpis.length - 1)) / kpis.length;
+    const cardH = 22;
+    kpis.forEach((k, i) => {
+      const x = margin + i * (cardW + gap);
+      pdf.setFillColor(...k.bg);
+      pdf.roundedRect(x, y, cardW, cardH, 2, 2, 'F');
+      font(16, 'bold'); pdf.setTextColor(...k.fg);
+      pdf.text(truncateToWidth(k.value, cardW - 6), x + cardW / 2, y + 9, { align: 'center', baseline: 'middle' });
+      font(7, 'bold'); pdf.setTextColor(...C.muted);
+      pdf.text(k.label, x + cardW / 2, y + 17, { align: 'center', baseline: 'middle' });
+    });
+    y += cardH + 4;
+  }
 
   // ─── Executive Summary ───
   section('Executive Summary');
   const revEst = tree.revenue_estimate || {};
+
+  // Deal Brief box — structured at-a-glance summary
+  {
+    const briefRows = [
+      { label: 'TARGET', value: focal },
+      { label: 'PARENT', value: tree.parent?.company || 'Standalone (no parent)' },
+      { label: 'SEGMENT', value: tree.focal_segment || 'n/a' },
+      { label: 'REVENUE', value: revEst.central > 0 ? `${formatUSD(revEst.central)} (${formatUSD(revEst.low)}–${formatUSD(revEst.high)})` : '—' },
+      { label: 'STATUS', value: pa && pa.acquirer ? `Pending acquisition by ${pa.acquirer}` : (acq && acq.acquired_by ? `Acquired by ${acq.acquired_by}${acq.year ? ` (${acq.year})` : ''}` : deriveStatus(tree).label) },
+    ];
+    const briefH = 8 + briefRows.length * 6 + 3;
+    ensure(briefH);
+    const briefY = y;
+    pdf.setFillColor(...C.accentSoft);
+    pdf.roundedRect(margin, briefY, contentW, briefH, 2, 2, 'F');
+    pdf.setDrawColor(...C.accent); pdf.setLineWidth(0.4);
+    pdf.roundedRect(margin, briefY, contentW, briefH, 2, 2);
+    font(9, 'bold'); pdf.setTextColor(...C.accentHover);
+    pdf.text('DEAL BRIEF', margin + 5, briefY + 5, { baseline: 'top' });
+    let rowY = briefY + 12;
+    briefRows.forEach(({ label, value }) => {
+      font(8, 'bold'); pdf.setTextColor(...C.muted);
+      pdf.text(label, margin + 5, rowY, { baseline: 'top' });
+      font(8.5, 'normal'); pdf.setTextColor(...C.ink);
+      pdf.text(truncateToWidth(value, contentW - 45), margin + 38, rowY, { baseline: 'top' });
+      rowY += 6;
+    });
+    y = briefY + briefH + 4;
+  }
+
   const parentClause = tree.parent
     ? ` under ${tree.parent.company}${tree.focal_segment ? ` (${tree.focal_segment} division)` : ''}`
     : ' (standalone)';
