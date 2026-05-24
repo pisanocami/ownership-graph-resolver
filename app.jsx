@@ -2589,23 +2589,52 @@ async function generatePDF(result) {
     y = top + blockH + 3;
   }
 
-  // ─── Closed acquisition (historical) ───
-  const acq = tree.acquisition;
-  if (acq && acq.acquired_by) {
-    section('Closed Acquisition');
-    const yearStr = acq.year ? acq.year.toString() : 'date unknown';
-    const dealTypeStr = acq.deal_type ? ` (${acq.deal_type.replace(/_/g, ' ')})` : '';
-    const priceStr = acq.price_display ? ` for ${acq.price_display}` : (acq.price_usd ? ` for ${formatUSD(acq.price_usd)}` : '');
-    text(`Acquired by ${acq.acquired_by} in ${yearStr}${priceStr}${dealTypeStr}`, { size: 10.5, style: 'bold', color: C.text, gap: 1.5 });
-    if (acq.price_confidence && acq.price_display) {
-      let px = margin; const py = y;
-      px += pill(`price confidence: ${acq.price_confidence}`, px, py, C.surface, C.muted);
-      y = py + 8;
+  // ─── Acquisition History (chain-wide) ───
+  const acqHistory = [];
+  const walkChain = (n) => {
+    if (n.acquisition && n.acquisition.acquired_by) {
+      acqHistory.push({ node: n, acq: n.acquisition });
     }
-    if (acq.price_source_url && isSafeUrl(acq.price_source_url)) {
-      text(acq.price_source_url, { size: 8, color: C.accentHover, gap: 1 });
-    } else if (acq.source_url && isSafeUrl(acq.source_url)) {
-      text(acq.source_url, { size: 8, color: C.accentHover, gap: 1 });
+    if (n.parent) walkChain(n.parent);
+  };
+  walkChain(tree);
+
+  if (acqHistory.length > 0) {
+    section('Acquisition History');
+    acqHistory.sort((a, b) => (b.acq.year || 0) - (a.acq.year || 0));
+    acqHistory.forEach(({ node, acq }) => {
+      ensure(10);
+      const yearStr = acq.year ? acq.year.toString() : 'date unknown';
+      const dealTypeStr = acq.deal_type ? ` (${acq.deal_type.replace(/_/g, ' ')})` : '';
+      const priceStr = acq.price_display ? ` for ${acq.price_display}` : (acq.price_usd ? ` for ${formatUSD(acq.price_usd)}` : '');
+      font(9.5, 'bold'); pdf.setTextColor(...C.text);
+      pdf.text(`${yearStr}: ${node.company} acquired by ${acq.acquired_by}${priceStr}${dealTypeStr}`, margin, y, { baseline: 'top' });
+      y += 5;
+      if (acq.price_confidence && acq.price_display) {
+        pill(`confidence: ${acq.price_confidence}`, margin + 3, y, C.surface, C.muted);
+        y += 5;
+      }
+    });
+    y += 1;
+  } else {
+    // Fallback: show closed acquisition on focal only
+    const acq = tree.acquisition;
+    if (acq && acq.acquired_by) {
+      section('Closed Acquisition');
+      const yearStr = acq.year ? acq.year.toString() : 'date unknown';
+      const dealTypeStr = acq.deal_type ? ` (${acq.deal_type.replace(/_/g, ' ')})` : '';
+      const priceStr = acq.price_display ? ` for ${acq.price_display}` : (acq.price_usd ? ` for ${formatUSD(acq.price_usd)}` : '');
+      text(`Acquired by ${acq.acquired_by} in ${yearStr}${priceStr}${dealTypeStr}`, { size: 10.5, style: 'bold', color: C.text, gap: 1.5 });
+      if (acq.price_confidence && acq.price_display) {
+        let px = margin; const py = y;
+        px += pill(`price confidence: ${acq.price_confidence}`, px, py, C.surface, C.muted);
+        y = py + 8;
+      }
+      if (acq.price_source_url && isSafeUrl(acq.price_source_url)) {
+        text(acq.price_source_url, { size: 8, color: C.accentHover, gap: 1 });
+      } else if (acq.source_url && isSafeUrl(acq.source_url)) {
+        text(acq.source_url, { size: 8, color: C.accentHover, gap: 1 });
+      }
     }
   }
 
@@ -2684,11 +2713,40 @@ async function generatePDF(result) {
     });
   }
 
+  // ─── Segments Panel (for aggregators/conglomerates) ───
+  const parentSegments = tree.parent?.parent_anchor?.segments || tree.parent_anchor?.segments || [];
+  if (parentSegments.length > 0) {
+    section('Parent Business Segments');
+    const parentName = tree.parent?.company || 'Parent';
+    text(`${parentName}'s segments. Focal is${tree.focal_segment ? ` in "${tree.focal_segment}"` : ' not assigned to a specific segment'}.`,
+      { size: 8.5, style: 'italic', color: C.muted, gap: 2 });
+    const segRows = parentSegments.map((seg) => {
+      const rev = seg.revenue > 0 ? formatUSD(seg.revenue) : '—';
+      const badge = seg.contains_focal ? { text: 'contains focal', color: C.activeFg, bold: true } : '—';
+      return [
+        seg.name || '—',
+        rev,
+        badge,
+      ];
+    });
+    if (segRows.length > 0) {
+      table(['Segment', 'Revenue', 'Contains Focal'], segRows, [60, 50, 38]);
+    }
+  }
+
   // ─── Ownership Map (native vector diagram) ───
   const chain = [];
   let cp = tree.parent;
   while (cp) { chain.unshift(cp); cp = cp.parent; }
   const siblings = tree.siblings || [];
+
+  // Depth visualization
+  if (chain.length > 0) {
+    section('Ownership Hierarchy');
+    const depthStr = `${chain.length + 1} level${chain.length > 0 ? 's' : ''}`;
+    const chainStr = [...chain.map((n) => n.company || '?'), focal].join(' → ');
+    text(chainStr, { size: 8.5, color: C.muted, gap: 1.5 });
+  }
 
   const drawEntityBox = (x, yy, w, h, node, focal = false) => {
     pdf.setFillColor(...(focal ? C.accentSoft : C.white));
@@ -3061,6 +3119,41 @@ async function generatePDF(result) {
     });
   }
 
+  // ─── Divestiture Timeline ───
+  const divestitureNodes = [
+    { node: tree, role: 'focal' },
+    ...siblings.map((s) => ({ node: s, role: 'sibling' })),
+    ...cousins.map((c) => ({ node: c, role: 'cousin' })),
+  ].filter(({ node }) => node._divestiture || deriveDivestiture(node));
+
+  if (divestitureNodes.length > 0) {
+    section('Divestitures');
+    text('Entities that are being divested or have divesting status:', { size: 8.5, style: 'italic', color: C.muted, gap: 2 });
+    divestitureNodes.forEach(({ node, role }) => {
+      ensure(8);
+      font(10, 'bold'); pdf.setTextColor(...C.ink);
+      pdf.text(truncateToWidth(node.company, contentW - 40), margin, y + 0.3, { baseline: 'top' });
+      let lx = margin + pdf.getTextWidth(sanitize(node.company)) + 3;
+      pill(role, lx, y - 0.2, C.surface, C.muted);
+      y += 5;
+
+      const bits = [];
+      if (node.divest_announcement_date) bits.push(`announced ${node.divest_announcement_date}`);
+      if (node.expected_divest_close) bits.push(`expected close ${node.expected_divest_close}`);
+      if (bits.length > 0) {
+        font(8.5, 'normal'); pdf.setTextColor(...C.muted);
+        pdf.text(bits.join(' · '), margin + 3, y, { baseline: 'top' });
+        y += 4;
+      }
+      if (node.divest_reason) {
+        font(8.5, 'normal'); pdf.setTextColor(...C.text);
+        pdf.text(node.divest_reason, margin + 3, y, { baseline: 'top', maxW: contentW - 6 });
+        y += 4;
+      }
+    });
+    y += 1;
+  }
+
   // ─── Signals Evidence (per-entity revenue signals) ───
   const signalEntries = [
     { node: tree, role: 'focal' },
@@ -3082,7 +3175,14 @@ async function generatePDF(result) {
         pill(`${fc ?? '?'}/${fa ?? '?'} signals`, lx, y - 0.2, C.surface, C.muted);
       }
       y += 6;
-      const rows = node.signals_found.slice(0, 12).map((s) => {
+      // Sort signals by weight (high > medium > low > unknown)
+      const weightOrder = { high: 0, medium: 1, low: 2, unknown: 3 };
+      const sortedSignals = [...(node.signals_found || [])].sort((a, b) => {
+        const aWeight = weightOrder[a.weight?.toLowerCase()] ?? 3;
+        const bWeight = weightOrder[b.weight?.toLowerCase()] ?? 3;
+        return aWeight - bWeight;
+      });
+      const rows = sortedSignals.slice(0, 12).map((s) => {
         const unverified = !!s.context_unverified;
         const weight = (s.weight || '—') + (unverified ? ' · unverified' : '');
         return [
@@ -3096,6 +3196,54 @@ async function generatePDF(result) {
       table(['Type', 'Label', 'Value', 'Source', 'Weight'], rows, [22, 40, 50, 38, 28]);
     });
   }
+
+  // ─── Legend (reference) ───
+  section('Legend & Reference');
+  text('Status indicators:', { size: 9, style: 'bold', color: C.ink, gap: 1 });
+  [
+    { label: 'active', desc: 'currently operating' },
+    { label: 'legacy', desc: 'no longer active but historically significant' },
+    { label: 'discontinued', desc: 'ceased operations' },
+    { label: 'divesting', desc: 'in the process of being divested' },
+  ].forEach(({ label, desc }) => {
+    const [bg, fg] = statusColors(label);
+    ensure(4);
+    let px = margin;
+    px += pill(label, px, y, bg, fg) + 3;
+    font(8.5, 'normal'); pdf.setTextColor(...C.text);
+    pdf.text(desc, px, y + 1.2, { baseline: 'top' });
+    y += 5;
+  });
+
+  y += 2;
+  text('Revenue confidence levels:', { size: 9, style: 'bold', color: C.ink, gap: 1 });
+  [
+    { level: 'High', desc: 'Public disclosure, audited, or multiple strong sources' },
+    { level: 'Medium', desc: 'Solid secondary sources, employee counts, funding data' },
+    { level: 'Low', desc: 'Estimates, extrapolations, single-source signals' },
+  ].forEach(({ level, desc }) => {
+    ensure(4);
+    font(8.5, 'bold'); pdf.setTextColor(...C.text);
+    pdf.text(`${level}: `, margin, y, { baseline: 'top' });
+    font(8.5, 'normal'); pdf.setTextColor(...C.muted);
+    pdf.text(desc, margin + 25, y, { baseline: 'top', maxW: contentW - 25 });
+    y += 4;
+  });
+
+  y += 2;
+  text('Special badges:', { size: 9, style: 'bold', color: C.ink, gap: 1 });
+  [
+    { badge: 'review', desc: 'Revenue estimate may exceed parent or have hierarchy conflicts' },
+    { badge: 'PE-owned', desc: 'Backed by private equity firm' },
+    { badge: 'Pending Acquisition', desc: 'Deal announced but not yet closed' },
+  ].forEach(({ badge, desc }) => {
+    ensure(4);
+    font(8.5, 'bold'); pdf.setTextColor(...C.text);
+    pdf.text(`${badge}: `, margin, y, { baseline: 'top' });
+    font(8.5, 'normal'); pdf.setTextColor(...C.muted);
+    pdf.text(desc, margin + 50, y, { baseline: 'top', maxW: contentW - 50 });
+    y += 4;
+  });
 
   // ─── Footer + page numbers (all pages) ───
   const pageCount = pdf.internal.getNumberOfPages();
