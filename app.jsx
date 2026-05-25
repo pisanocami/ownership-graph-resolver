@@ -22,11 +22,14 @@ import {
 } from './synth.js';
 import { normalizeNodeType } from './schemas/entity.js';
 import { buildRunSnapshot, detectCrossRunVariance } from './determinism.js';
+import { createSignalCache, mergeSignals } from './signal_cache.js';
+import { requiredQueriesFor } from './search_strategies/index.js';
 import {
   isConsumerSector,
   sanitizeForPdf,
   refreshCompetitiveSectionConfidence,
   lookupPeerEvToRevenue,
+  applyInterpretationGate,
 } from './brief.js';
 
 // X.03 deterministic synthesis seed (Task #58): a stable seed derived from
@@ -41,6 +44,9 @@ function buildSynthesisSeed(focalName, parentName) {
   return `${focal}|${parent}|${day}`;
 }
 const __revenueCache = createRevenueCache({ persist: true });
+// D2 (NEW.37/38): signal-level cache so evidence captured in one run is retained
+// in later runs even when the model does not re-surface it.
+const __signalCache = createSignalCache({ persist: true });
 
 const PROVIDERS = {
   anthropic: {
@@ -1170,11 +1176,25 @@ export default function App() {
             const disambiguationNote = (ent.role === 'sibling' || ent.role === 'cousin') && ent.parent_company
               ? ` Disambiguation: "${ent.company}" is a common name — your FIRST web search MUST include the parent ("${ent.parent_company}")${ent.via_division ? ` or its division ("${ent.via_division}")` : ent.category ? ` or the category ("${ent.category}")` : ''} as a qualifier; mark any signal whose source does not reference ${ent.parent_company}, its other brands, or this sector as context_unverified.`
               : '';
-            const user = `Investigate the annual revenue of: "${ent.company}"${ent.domain ? ` (domain: ${ent.domain})` : ''}. Role in corporate family: ${ent.role}.${ctx}${disambiguationNote}`;
+            // D3 (NEW.36): always attempt the category whitelist queries
+            // (post-hoc append) so revenue anchors to the same sources across models.
+            const requiredQ = requiredQueriesFor({ company: ent.company, node_type: ent.node_type, category: ent.category });
+            const whitelistNote = requiredQ.length
+              ? ` Required searches you MUST attempt in addition to your own: ${requiredQ.map((q) => `"${q}"`).join('; ')}.`
+              : '';
+            const user = `Investigate the annual revenue of: "${ent.company}"${ent.domain ? ` (domain: ${ent.domain})` : ''}. Role in corporate family: ${ent.role}.${ctx}${disambiguationNote}${whitelistNote}`;
             const resp = await callLLM({ provider, model, system: REVENUE_PROMPT, user, maxSearches: 4, maxTokens: 3072 });
             appendTrace(resp.trace.map((t) => ({ ...t, tag })));
             const parsed = safeExtractJSON(resp.text);
             if (!parsed) return { company: ent.company, role: ent.role, error: 'parse_failed', confidence: 'low' };
+            // D2 (NEW.37/38): persist captured signals and merge in any retained
+            // from prior runs so they are never lost between runs.
+            try {
+              const fresh = (Array.isArray(parsed.signals_found) ? parsed.signals_found : [])
+                .map((s) => ({ entity_id: ent.company, signal_label: s.label || s.value || (s.type || 'signal'), ...s }));
+              __signalCache.setMany(fresh);
+              parsed.signals_found = mergeSignals(__signalCache.getByEntity(ent.company), fresh, { dedupBy: 'signal_label' });
+            } catch (_e) { /* retention is best-effort */ }
             return { company: ent.company, role: ent.role, ...parsed };
           } catch (e) {
             appendTrace([{ kind: 'error', tag, message: e.message }]);
@@ -1358,6 +1378,8 @@ RESPOND WITH A SINGLE JSON OBJECT (no markdown, no code fences):
                   if (si.interpretation !== null) {
                     brief.behavioral_signals[si.signal_index].interpretation = si.interpretation;
                     brief.behavioral_signals[si.signal_index].directional_implication = si.directional_implication;
+                    // B5 (NEW.25): reject interpretations that merely restate the evidence.
+                    applyInterpretationGate(brief.behavioral_signals[si.signal_index]);
                   }
                 }
               });
