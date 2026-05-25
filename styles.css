@@ -7,14 +7,14 @@
   --surface-2: #ffffff;
   --border: #e5e7eb;
   --border-strong: #d4d4d8;
-  --text: #18181b;
+  --text: #0F1012;            /* FON brand near-black (B2) */
   --text-muted: #52525b;
   --text-subtle: #a1a1aa;
-  --accent: #0891b2;
-  --accent-hover: #0e7490;
+  --accent: #40BECC;          /* FON brand teal (B2) */
+  --accent-hover: #2BA4B2;
   --accent-fg: #ffffff;
-  --accent-soft: #ecfeff;
-  --accent-soft-border: #a5f3fc;
+  --accent-soft: #E0F7FA;
+  --accent-soft-border: #B2EBF2;
   --success: #16a34a;
   --warning: #b45309;
   --warning-bg: #fffbeb;
@@ -26,9 +26,37 @@
   --info-border: #bfdbfe;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 6px rgba(0, 0, 0, 0.06);
-  --focus-ring: 0 0 0 3px rgba(8, 145, 178, 0.25);
+  --focus-ring: 0 0 0 3px rgba(64, 190, 204, 0.25);
   --flow-bg: #fafafa;
   --flow-dot: #d4d4d8;
+
+  /* Typography (B2) */
+  --font-display: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  /* Signal semantics (B2) */
+  --signal-positive: var(--success);
+  --signal-neutral: var(--text-muted);
+  --signal-negative: var(--danger);
+
+  /* Graph edge / group palette (B2 / C2 / C4) */
+  --c-coral-600: #E2725B;
+  --c-sage-500: #6FA287;
+  --c-teal-50: #E0F7FA;
+  --c-teal-400: #40BECC;
+  --radius-lg: 12px;
+
+  /* Four-tier brief hierarchy sizes (B1) */
+  --tier1-display: 36px;
+  --tier1-revenue: 24px;
+  --tier1-thesis: 16px;
+  --tier2-heading: 20px;
+  --tier2-body: 13px;
+  --tier3-heading: 16px;
+  --tier3-body: 12px;
+  --tier4-heading: 12px;
+  --tier4-body: 10px;
 }
 
 [data-theme='dark'] {

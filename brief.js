@@ -69,6 +69,98 @@ export function deriveSignalImplication(sig) {
   return 'neutral';
 }
 
+// ─── Signal quality gates (Stream B) ───────────────────────────────────────
+
+function truncate(str, n) {
+  if (str == null) return str;
+  const s = String(str);
+  return s.length <= n ? s : `${s.slice(0, n - 1).trimEnd()}…`;
+}
+
+function levenshtein(a, b) {
+  const m = a.length;
+  const n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  let cur = new Array(n + 1);
+  for (let i = 1; i <= m; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+    }
+    [prev, cur] = [cur, prev];
+  }
+  return prev[n];
+}
+
+function stringSimilarity(a, b) {
+  if (a === b) return 1;
+  if (!a.length || !b.length) return 0;
+  return 1 - levenshtein(a, b) / Math.max(a.length, b.length);
+}
+
+// B4 (NEW.21) — dedup signals by (evidence text + signal type). The min-3
+// fallback padding must run AFTER this so intentional padding survives.
+export function dedupSignals(signals) {
+  const seen = new Set();
+  const out = [];
+  for (const s of signals || []) {
+    const ev = (s.evidence || s.evidence_text || s.value || s.label || '').toLowerCase().trim();
+    const ty = (s.signal_type || s.type || '').toLowerCase().trim();
+    const key = `${ev}|${ty}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+  }
+  return out;
+}
+
+// B5 (NEW.25) — interpretation must not merely restate the evidence. Invalid
+// when string-similarity > 0.80 OR evidence-token overlap > 0.75.
+export function validateInterpretation(evidence, interpretation) {
+  if (!evidence || !interpretation) return { valid: true };
+  const e = String(evidence).toLowerCase();
+  const i = String(interpretation).toLowerCase();
+  if (stringSimilarity(e, i) > 0.80) {
+    return { valid: false, action: 'regenerate_with_stricter_prompt', reason: 'interpretation ≈ evidence (similarity)' };
+  }
+  const eTokens = new Set(e.split(/\s+/).filter(Boolean));
+  const iTokens = new Set(i.split(/\s+/).filter(Boolean));
+  let overlap = 0;
+  for (const t of eTokens) if (iTokens.has(t)) overlap++;
+  if (eTokens.size && overlap / eTokens.size > 0.75) {
+    return { valid: false, action: 'regenerate_with_stricter_prompt', reason: 'interpretation token-overlaps evidence' };
+  }
+  return { valid: true };
+}
+
+// Apply the gate to a classified signal once an interpretation has been filled
+// (by LLM enrichment). On failure, mark it rather than ship a restatement.
+export function applyInterpretationGate(signal) {
+  if (!signal || !signal.interpretation) return signal;
+  const v = validateInterpretation(signal.evidence || signal.evidence_text, signal.interpretation);
+  if (!v.valid) {
+    signal._interpretation_failed = true;
+    signal.interpretation = '[interpretation generation failed — see evidence]';
+  }
+  return signal;
+}
+
+// B6 (NEW.20) — guard against peer revenue that is really the peer's PARENT
+// revenue (Crest $82B = P&G total, not the brand).
+export function validatePeerRevenue(peerRevenue, peerParentRevenue, focalRevenue) {
+  if (!(peerRevenue > 0)) return { valid: true };
+  if (peerParentRevenue > 0 && peerRevenue >= peerParentRevenue * 0.95) {
+    return { valid: false, reason: 'Suspected parent revenue attribution', action: 'drop_revenue_estimate' };
+  }
+  if (focalRevenue > 0 && peerRevenue > focalRevenue * 10) {
+    return { valid: false, reason: 'Peer revenue >10× focal — verify category alignment', action: 'flag_for_review' };
+  }
+  return { valid: true };
+}
+
 // ─── Reconciliation Classification ────────────────────────────────────────
 export function classifyReconciliation(recon, tree) {
   if (!recon) return null;
@@ -755,7 +847,15 @@ export function pickTopSignals(signals, n = 3) {
     .map((s, idx) => ({ s, idx, score: (weightScore[s.weight] || 2) + (implScore[s.directional_implication] || 0) }))
     .sort((a, b) => b.score - a.score || a.idx - b.idx)
     .slice(0, n)
-    .map(({ s }) => s);
+    // B3 (NEW.19): the Top-3 preview carries its own truncated headline/tagline
+    // so it reads as a distinct scannable list, not a word-for-word copy of the
+    // Behavioral Signals body.
+    .map(({ s }) => ({
+      ...s,
+      evidence_headline: truncate(s.evidence || s.evidence_text || '', 80),
+      interpretation_tagline: truncate(s.interpretation || s.directional_implication || '', 60),
+      direction: s.directional_implication,
+    }));
 }
 
 // ─── History note deterministic fallback ─────────────────────────────────
@@ -863,6 +963,7 @@ export function buildMispricingSkeleton(tree, positioning, competitive_context =
         peers: competitive_context.slice(0, 5).map((p) => ({
           name: p.competitor,
           revenue: p.estimated_revenue_usd || null,
+          parent_revenue: p.parent_estimated_revenue_usd || p.parent_revenue_usd || null,
           ev_to_revenue: null, // LLM-fill
           discount_or_premium_pct: null, // LLM-fill
         })),
@@ -888,6 +989,17 @@ export function buildMispricingSkeleton(tree, positioning, competitive_context =
     if (!peer_multiples.decomposition) {
       peer_multiples.decomposition = buildDiscountDecomposition(tree, derivePublicAncestor(tree, positioning?.parent_anchor));
     }
+    // B6 (NEW.20): drop peer revenues that are really the peer's parent total
+    // (renders as "—"); flag implausibly large peers for review.
+    const focalCentral = tree.revenue_estimate?.central || 0;
+    peer_multiples.peers.forEach((p) => {
+      const v = validatePeerRevenue(p.revenue, p.parent_revenue, focalCentral);
+      if (!v.valid) {
+        p.revenue_validation = v;
+        if (v.action === 'drop_revenue_estimate') { p.revenue = null; p.revenue_dropped = true; }
+        else if (v.action === 'flag_for_review') { p.revenue_flagged = true; }
+      }
+    });
   }
 
   return {
@@ -934,6 +1046,10 @@ export function buildIntelligenceBrief(tree, positioning, opts = {}) {
   // sibling set looks geographic-only.
   const selfAware = buildSelfAwareCaptureSignal(tree, opts.backfillInfo || null);
   if (selfAware) behavioral_signals.unshift(selfAware);
+
+  // B4 (NEW.21): dedup real signals BEFORE the min-3 padding below so genuine
+  // duplicates collapse while intentional fallback padding survives.
+  behavioral_signals = dedupSignals(behavioral_signals);
 
   // Ensure minimum 3 behavioral signals.
   if (behavioral_signals.length < 3) {

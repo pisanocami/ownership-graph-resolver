@@ -4,3 +4,5 @@ export { default as BrandAuthorityEdge } from './BrandAuthorityEdge';
 export { default as AliasEdge } from './AliasEdge';
 export { default as HistoricalEdge } from './HistoricalEdge';
 export { default as ControlEdge } from './ControlEdge';
+export { default as LaunchEdge } from './LaunchEdge';
+export { default as StewardshipEdge } from './StewardshipEdge';

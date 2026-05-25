@@ -19,6 +19,7 @@ import {
   mergeCousins,
   createRevenueCache,
 } from './synth.js';
+import { normalizeNodeType } from './schemas/entity.js';
 import {
   isConsumerSector,
   sanitizeForPdf,
@@ -924,7 +925,7 @@ export default function App() {
     const link = document.createElement('link');
     link.id = 'orva-fonts';
     link.rel = 'stylesheet';
-    link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap';
+    link.href = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap';
     document.head.appendChild(link);
   }, []);
 
@@ -2206,10 +2207,24 @@ const confidenceBgColor = (conf) => {
   return 'rgba(239, 68, 68, 0.1)';
 };
 
+// Friendly label for the 8 canonical node types (lower-case form).
+function friendlyNodeTypeLabel(tree) {
+  return ({
+    individual: 'individual',
+    family: 'family holding',
+    private_equity_firm: 'PE firm',
+    public_company: 'public company',
+    private_company: 'private company',
+    divisional_aggregator: 'division',
+    house_of_brands_aggregator: 'house of brands',
+    operating_brand: 'operating brand',
+  })[normalizeNodeType(tree)] || 'operating brand';
+}
+
 function generateDefaultVerdict(tree, positioning) {
   const parent = tree.parent?.company;
   const confidence = tree.confidence;
-  const nodeType = tree.node_type === 'legal_entity' ? 'legal entity' : 'operating brand';
+  const nodeType = friendlyNodeTypeLabel(tree);
 
   if (!parent) {
     return `${tree.company} is an independent ${nodeType} with no identified parent company.`;
@@ -2230,7 +2245,7 @@ function BriefVerdictView({ tree, positioning, brief }) {
   const verdict = brief?.verdict?.label || generateDefaultVerdict(tree, positioning);
   const parent = tree.parent?.company || 'Standalone';
   const confidence = tree.confidence || 'unknown';
-  const nodeType = tree.node_type === 'legal_entity' ? 'Legal Entity' : 'Operating Brand';
+  const nodeType = friendlyNodeTypeLabel(tree).replace(/\b\w/g, (c) => c.toUpperCase());
   const layer = tree.layer || 'Unknown';
 
   const notes = Array.isArray(positioning?.strategic_notes)
@@ -3985,6 +4000,7 @@ import {
   PublicCompanyNode,
   PrivateCompanyNode,
   AggregatorNode,
+  HoldingNode,
   BrandNode,
 } from './components/nodes/index.js';
 import {
@@ -3993,25 +4009,31 @@ import {
   AliasEdge,
   HistoricalEdge,
   ControlEdge,
+  LaunchEdge,
+  StewardshipEdge,
 } from './components/edges/index.js';
 
-// Map entity types to node components (Ticket #57)
+// Map entity types to node components (C1 — all 8 canonical node types).
 function selectNodeType(entity) {
-  if (entity.node_type === 'individual') return 'individual';
-  if (entity.ubo_type === 'family_group') return 'family';
-  if (entity.ubo_type === 'pe_firm') return 'pe_firm';
-  if (entity.node_type === 'public_company' || entity.ticker) return 'public_company';
-  if (entity._generated) return 'divisional_aggregator'; // aggregator
-  if (entity.node_type === 'operating_brand') return 'brand';
+  const nt = normalizeNodeType(entity);
+  if (nt === 'individual') return 'individual';
+  if (nt === 'family' || entity.ubo_type === 'family_group') return 'family';
+  if (nt === 'private_equity_firm' || entity.ubo_type === 'pe_firm') return 'pe_firm';
+  if (nt === 'public_company' || entity.ticker) return 'public_company';
+  if (nt === 'house_of_brands_aggregator') return 'house_of_brands_aggregator';
+  if (nt === 'divisional_aggregator' || entity._generated) return 'divisional_aggregator';
+  if (nt === 'operating_brand') return 'brand';
   return 'private_company'; // default
 }
 
-// Map secondary relationships to edge types (Ticket #57)
+// Map secondary relationships to edge types (C2 — 6 secondary + primary).
 function selectEdgeType(edge, allEdges) {
   if (edge.data?.relationship_type === 'brand_authority') return 'brand_authority';
   if (edge.data?.relationship_type === 'geographic_alias') return 'geographic_alias';
   if (edge.data?.relationship_type === 'acquisition_history') return 'historical';
   if (edge.data?.relationship_type === 'controlling_shareholder') return 'control';
+  if (edge.data?.relationship_type === 'internal_launch_by') return 'internal_launch_by';
+  if (edge.data?.relationship_type === 'stewardship') return 'stewardship';
   return 'primary_parent'; // default for primary edges
 }
 
@@ -4022,6 +4044,7 @@ const flowNodeTypes = {
   public_company: PublicCompanyNode,
   private_company: PrivateCompanyNode,
   divisional_aggregator: AggregatorNode,
+  house_of_brands_aggregator: HoldingNode,
   brand: BrandNode,
 };
 
@@ -4031,6 +4054,8 @@ const flowEdgeTypes = {
   geographic_alias: AliasEdge,
   historical: HistoricalEdge,
   control: ControlEdge,
+  internal_launch_by: LaunchEdge,
+  stewardship: StewardshipEdge,
 };
 
 function HistoryRow({ item, active, onOpen, onDelete }) {
@@ -4329,7 +4354,8 @@ function buildFlowData(tree, selectedKey, onSelect) {
     }
   });
 
-  // Run dagre layout
+  // C3: only primary_parent edges were added to dagreGraph above, so secondary
+  // relationships never distort the hierarchy. Run the layout on the spine only.
   dagre.layout(dagreGraph);
 
   // Apply positions from dagre
@@ -4344,13 +4370,67 @@ function buildFlowData(tree, selectedKey, onSelect) {
     };
   });
 
-  // Build edges with proper types
+  // Primary (spine) edges.
   const edges = edgesRaw.map(edge => ({
     ...edge,
     type: edge.type || 'primary_parent',
   }));
 
-  return { nodes: layoutedNodes, edges };
+  // C2/C3: secondary relationships as curved OVERLAY edges, routed after the
+  // primary layout and never fed to dagre. Map related_entity_id → node id.
+  const nodeIdByCompany = new Map();
+  layoutedNodes.forEach((n) => {
+    const c = n.data?.node?.company;
+    if (c) nodeIdByCompany.set(c.toLowerCase().trim(), n.id);
+  });
+  layoutedNodes.forEach((n) => {
+    const rels = n.data?.node?.secondary_relationships || [];
+    rels.forEach((rel, ri) => {
+      const targetId = nodeIdByCompany.get((rel.related_entity_id || '').toLowerCase().trim());
+      if (!targetId || targetId === n.id) return;
+      edges.push({
+        id: `sec_${n.id}_${ri}`,
+        source: n.id,
+        target: targetId,
+        type: selectEdgeType({ data: { relationship_type: rel.relationship_type } }),
+        data: { relationship_type: rel.relationship_type, ...rel },
+        zIndex: 5,
+      });
+    });
+  });
+
+  // C4: translucent group container behind each divisional aggregator's brands.
+  // Computed from laid-out positions, drawn first (behind), non-interactive.
+  const groupNodes = [];
+  (tree._divisional_aggregators || []).forEach((agg, aggIdx) => {
+    const members = layoutedNodes.filter((n) => n.id === `agg${aggIdx}` || n.id.startsWith(`agg${aggIdx}_c`));
+    if (members.length === 0) return;
+    const xs = members.map((n) => n.position.x);
+    const ys = members.map((n) => n.position.y);
+    const minX = Math.min(...xs) - 16;
+    const minY = Math.min(...ys) - 26;
+    const maxX = Math.max(...xs) + 180 + 16;
+    const maxY = Math.max(...ys) + 80 + 16;
+    groupNodes.push({
+      id: `group${aggIdx}`,
+      type: 'group',
+      position: { x: minX, y: minY },
+      data: { label: agg.company },
+      style: {
+        width: maxX - minX,
+        height: maxY - minY,
+        backgroundColor: 'var(--c-teal-50)',
+        border: '0.5px dashed var(--c-teal-400)',
+        borderRadius: 'var(--radius-lg)',
+        opacity: 0.5,
+      },
+      selectable: false,
+      draggable: false,
+      zIndex: -1,
+    });
+  });
+
+  return { nodes: [...groupNodes, ...layoutedNodes], edges };
 }
 
 // ─── Detail panel ────────────────────────────────────────────────────────────
@@ -4955,72 +5035,69 @@ function drawConfidenceBreakdown(pdf, startY, pageW, margin, contentW, brief) {
 }
 
 function drawCompetitivePositioning(pdf, startY, pageW, margin, contentW, brief) {
-  // Competitive context: 2x2 matrix (Revenue × Distance)
+  // B8 (NEW.24) — real vector bar chart of competitor revenue, colored by
+  // competitive distance. Full names, not cryptic 3-letter tickers. Honest
+  // absence: competitors with no revenue render a "—" row, never a fake bar.
   if (!Array.isArray(brief.competitive_context) || brief.competitive_context.length === 0) return startY;
 
-  const comps = brief.competitive_context.slice(0, 8);
+  // Highest revenue first so the chart reads top-down by scale.
+  const comps = brief.competitive_context
+    .slice()
+    .sort((a, b) => (b.estimated_revenue_usd || 0) - (a.estimated_revenue_usd || 0))
+    .slice(0, 8);
+
   let y = startY + 2;
   pdf.setFontSize(10); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(17, 17, 20);
-  pdf.text('Competitive Landscape', margin + 2, y);
+  pdf.text('Competitive Landscape (revenue by competitor)', margin + 2, y);
   y += 5;
 
-  // Axes: Revenue (x) and Distance (y)
-  const chartX = margin + 20;
-  const chartY = y;
-  const chartW = contentW - 40;
-  const chartH = 18;
-
-  // Draw axes
-  pdf.setDrawColor(180, 180, 190);
-  pdf.setLineWidth(0.5);
-  pdf.line(chartX, chartY, chartX, chartY + chartH); // Y axis
-  pdf.line(chartX, chartY + chartH, chartX + chartW, chartY + chartH); // X axis
-
-  // Axis labels
-  pdf.setFontSize(7); pdf.setTextColor(100, 100, 100);
-  pdf.text('Revenue ->', chartX + chartW - 15, chartY + chartH + 2);
-  pdf.setFont('helvetica', 'italic');
-  pdf.text('Distance', chartX - 15, chartY + 2);
-  pdf.setFont('helvetica', 'normal');
-
-  // Distance categories (y)
-  const distMap = { direct: 3, adjacent: 2, tangential: 1 };
-  const revRange = { min: 0, max: Math.max(...comps.map((c) => c.estimated_revenue_usd || 0)) };
-
-  // Plot competitors
-  const distColors = { direct: [76, 175, 80], adjacent: [220, 160, 60], tangential: [150, 150, 160] };
+  const distColors = { direct: [64, 190, 204], adjacent: [220, 160, 60], tangential: [150, 150, 160] };
+  const labelW = 42;            // left gutter for the full competitor name
+  const valueW = 24;            // right gutter for the revenue value
+  const barX = margin + labelW;
+  const barAreaW = contentW - labelW - valueW;
+  const maxRev = Math.max(1, ...comps.map((c) => c.estimated_revenue_usd || 0));
+  const rowH = 6;
 
   comps.forEach((comp) => {
-    const dist = distMap[comp.competitive_distance] || 1;
     const rev = comp.estimated_revenue_usd || 0;
-    const xPos = chartX + (rev / revRange.max) * chartW * 0.9;
-    const yPos = chartY + chartH - dist * 5; // 5mm between distance bands for separation
-
     const color = distColors[comp.competitive_distance] || [150, 150, 160];
-    pdf.setFillColor(...color);
-    pdf.circle(xPos, yPos, 1.2, 'F');
+    const name = sanitizeForPdf(comp.competitor || '?');
 
-    // Label centered above the dot (not on it) so dots in different distance
-    // bands don't collide with each other's labels.
-    const label = sanitizeForPdf(comp.competitor || '?').substring(0, 3).toUpperCase();
-    pdf.setFontSize(6); pdf.setTextColor(60, 60, 60);
-    pdf.text(label, xPos, yPos - 2.2, { align: 'center', baseline: 'bottom' });
+    // name (left, full, ellipsized to fit the gutter)
+    pdf.setFontSize(7.5); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(40, 40, 50);
+    pdf.text(pdf.splitTextToSize(name, labelW - 3)[0], margin + 2, y + rowH / 2, { baseline: 'middle' });
+
+    // track + bar
+    pdf.setFillColor(238, 240, 243);
+    pdf.rect(barX, y + 1, barAreaW, rowH - 2, 'F');
+    if (rev > 0) {
+      const w = Math.max(1, (rev / maxRev) * barAreaW);
+      pdf.setFillColor(...color);
+      pdf.rect(barX, y + 1, w, rowH - 2, 'F');
+    }
+
+    // value (right) — "—" when no revenue (honest absence)
+    pdf.setFontSize(7); pdf.setTextColor(80, 80, 90);
+    pdf.text(rev > 0 ? sanitizeForPdf(formatUSD(rev)) : '-', barX + barAreaW + 2, y + rowH / 2, { baseline: 'middle' });
+
+    y += rowH;
   });
 
-  y += chartH + 4;
-
+  y += 2;
   // Legend
   pdf.setFontSize(7);
   const distLegend = [
-    { label: 'Direct', color: [76, 175, 80] },
+    { label: 'Direct', color: [64, 190, 204] },
     { label: 'Adjacent', color: [220, 160, 60] },
     { label: 'Tangential', color: [150, 150, 160] },
   ];
   distLegend.forEach((item, i) => {
+    const lx = barX + i * 36;
     pdf.setFillColor(...item.color);
-    pdf.circle(chartX + 20 + i * 40, y, 0.6, 'F');
+    pdf.rect(lx, y - 2, 3, 3, 'F');
     pdf.setTextColor(80, 80, 80);
-    pdf.text(item.label, chartX + 22 + i * 40, y + 0.4);
+    pdf.text(item.label, lx + 4.5, y + 0.4);
   });
 
   return y + 5;
@@ -5085,7 +5162,7 @@ async function generateBriefPDF(result, svgImage = null) {
     y += gap;
   };
 
-  const badge = (label, bgColor = [200, 220, 240], textColor = [8, 145, 178]) => {
+  const badge = (label, bgColor = [200, 220, 240], textColor = [64, 190, 204]) => {
     ensure(8);
     const bw = 25, bh = 5;
     pdf.setFillColor(...bgColor);
@@ -5113,8 +5190,9 @@ async function generateBriefPDF(result, svgImage = null) {
   section('VERDICT');
   const verdictLabel = brief.verdict?.label || 'N/A';
   const isNotActionable = /not actionable/i.test(verdictLabel);
-  const heroColor = isNotActionable ? [180, 60, 60] : [8, 145, 178];
-  text(verdictLabel, { size: 22, style: 'bold', color: heroColor });
+  const heroColor = isNotActionable ? [180, 60, 60] : [64, 190, 204];
+  // B1 Tier-1 hero: verdict is the single dominant element on page 1.
+  text(verdictLabel, { size: 28, style: 'bold', color: heroColor });
 
   // Confidence badge + reasoning.
   const confidenceLevels = { high: [76, 175, 80], medium: [255, 152, 0], low: [244, 67, 54] };
@@ -5135,8 +5213,8 @@ async function generateBriefPDF(result, svgImage = null) {
   if (brief.verdict?.capital_path_summary) {
     text(brief.verdict.capital_path_summary, { size: 9.5, color: [110, 110, 130], style: 'italic' });
   }
-  text(`Revenue range: ${revRange}`, { size: 10, color: [80, 120, 160] });
-  if (brief.verdict?.thesis) text(`Thesis: ${brief.verdict.thesis}`, { size: 10 });
+  text(`Revenue range: ${revRange}`, { size: 14, style: 'bold', color: [64, 190, 204] });
+  if (brief.verdict?.thesis) text(`Thesis: ${brief.verdict.thesis}`, { size: 12 });
 
   // "What would make this actionable" — verdict changers + condition→label map.
   const changers = brief.verdict?.verdict_changers || [];
@@ -5453,9 +5531,9 @@ async function generateBriefPDF(result, svgImage = null) {
     text('No identifiable peer set (B2B-niche or proprietary category).', { size: 10, color: [120, 120, 130] });
   }
 
-  // Strategic notes by audience. P-NEW.5: render ALL four audience labels — when
-  // a block is missing or only a pending sentinel, surface an explicit N/A line
-  // rather than silently dropping the audience.
+  // Strategic notes by audience. B7 (NEW.23): only render audiences that have
+  // real content; collapse empty/pending ones into a single footnote rather than
+  // giving every "N/A" the same visual weight as a populated block.
   const notes = brief.strategic_notes_by_audience || {};
   const audienceRows = [
     ['For investors', notes.for_investors],
@@ -5463,19 +5541,25 @@ async function generateBriefPDF(result, svgImage = null) {
     ['For M&A advisors', notes.for_ma_advisors],
     ['For growth-signal users', notes.for_growth_signal_users],
   ];
+  const hasContent = (note) =>
+    (Array.isArray(note) && note.length > 0) || (note && note !== 'Pending LLM enrichment');
+  const covered = audienceRows.filter(([, note]) => hasContent(note));
+  const omitted = audienceRows.filter(([, note]) => !hasContent(note)).map(([label]) => label);
   y += 4;
   section('STRATEGIC NOTES');
-  audienceRows.forEach(([label, note]) => {
+  covered.forEach(([label, note]) => {
     text(`${label}:`, { size: 10, style: 'bold' });
-    // for_growth_signal_users can be an array of ≥4 use cases (V2.1 P3.04)
-    if (Array.isArray(note) && note.length > 0) {
+    if (Array.isArray(note)) {
       note.forEach((u) => text(`   - ${u}`, { size: 9 }));
-    } else if (note && note !== 'Pending LLM enrichment') {
-      text(`   ${note}`, { size: 9 });
     } else {
-      text('   N/A - not applicable for this ownership pattern / pending enrichment.', { size: 9, color: [120, 120, 130], style: 'italic' });
+      text(`   ${note}`, { size: 9 });
     }
   });
+  if (omitted.length) {
+    y += 1;
+    text(`Audiences not covered: ${omitted.map((l) => l.replace(/^For /, '')).join(', ')} (no distinct read for this ownership pattern).`,
+      { size: 8, color: [120, 120, 130], style: 'italic' });
+  }
 
   // V2.1 P7.01 + P9.03 + P9.04 — confidence buckets, limitations, section confidence
   // V2.1 R.01 — never silent skip: always render the header + fallback.
@@ -5576,6 +5660,19 @@ async function generateBriefPDF(result, svgImage = null) {
   y += 4;
   section('DATA TRACE');
   text(`Report Date: ${dateStr}`, { size: 9 });
+  // Always disclose the model (open-question #5): transparency builds trust.
+  const modelUsed = result.model || brief.data_trace?.model || result.tree?.model || 'unknown';
+  text(`Model: ${sanitizeForPdf(String(modelUsed))} · decoding temperature 0 (deterministic)`, { size: 9, color: [110, 110, 120] });
+  // B9 (NEW.36): surface cross-run revenue variance vs the previous cached run.
+  const variance = brief.cross_run_variance || result.cross_run_variance || [];
+  if (Array.isArray(variance) && variance.length > 0) {
+    text('Cross-run variance (vs previous run):', { size: 9, style: 'bold', color: [150, 90, 40] });
+    variance.slice(0, 6).forEach((v) => {
+      const prevD = v.previous_run_date ? new Date(v.previous_run_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'previous run';
+      text(`  - ${sanitizeForPdf(v.entity)}: ${formatUSD(v.previous)} (${prevD}) -> ${formatUSD(v.current)} now (${v.variance_pct > 0 ? '+' : ''}${v.variance_pct}%)`,
+        { size: 8.5, color: [120, 100, 70] });
+    });
+  }
   // V2.1 P9.01 — split primary used vs excluded with reason.
   const pUsed = brief.data_trace?.primary_used || brief.data_trace?.primary_sources || [];
   if (pUsed.length > 0) {
@@ -5657,7 +5754,7 @@ async function generateLegacyPDF(result, svgImage = null) {
 
   // Palette (light, print-friendly) mirroring the app's design tokens.
   const C = {
-    accent: [8, 145, 178], accentHover: [14, 116, 144], accentSoft: [236, 254, 255],
+    accent: [64, 190, 204], accentHover: [43, 164, 178], accentSoft: [224, 247, 250],
     text: [24, 24, 27], muted: [82, 82, 91], subtle: [161, 161, 170],
     border: [229, 231, 235], surface: [247, 247, 248],
     activeFg: [21, 128, 61], activeBg: [220, 252, 231],

@@ -16,13 +16,15 @@ function TreeNodeRow({ entity, depth = 0, expanded, onToggle, onSelect }) {
     onSelect?.(entity.company);
   };
 
-  // Determine role chip
+  // Determine role chip (C5 — reflect the canonical aggregator/holding types)
   let roleChip = entity.role || 'entity';
-  if (entity._generated) roleChip = 'AGGREGATOR';
+  if (entity.node_type === 'house_of_brands_aggregator') roleChip = 'HOUSE OF BRANDS';
+  else if (entity.node_type === 'divisional_aggregator' || entity._generated) roleChip = 'AGGREGATOR';
+  else if (entity.node_type === 'private_equity_firm') roleChip = 'PE FIRM';
 
-  // Secondary relationships annotation
+  // Secondary relationships annotation (C5 — show all, not just the first)
   const secondaryLabel = entity.secondary_relationships?.length > 0
-    ? ` · ${entity.secondary_relationships[0].relationship_type}`
+    ? ` · ${entity.secondary_relationships.map((r) => r.relationship_type).join(', ')}`
     : '';
 
   return (
