@@ -18,8 +18,10 @@ import {
   mergeSiblings,
   mergeCousins,
   createRevenueCache,
+  enforceSchema,
 } from './synth.js';
 import { normalizeNodeType } from './schemas/entity.js';
+import { buildRunSnapshot, detectCrossRunVariance } from './determinism.js';
 import {
   isConsumerSector,
   sanitizeForPdf,
@@ -1035,7 +1037,14 @@ export default function App() {
         maxTokens: 6144,
       });
       appendTrace(ownershipResp.trace.map((t) => ({ ...t, tag: 'ownership' })));
-      const ownership = safeExtractJSON(ownershipResp.text);
+      const ownershipRaw = safeExtractJSON(ownershipResp.text);
+      // A6 (NEW.35): strip any model-improvised fields at the boundary so
+      // aggregation flows through the deterministic code path, not model output.
+      const schemaResult = ownershipRaw ? enforceSchema(ownershipRaw) : null;
+      const ownership = schemaResult ? schemaResult.cleaned : ownershipRaw;
+      if (schemaResult && schemaResult.rejected.length > 0) {
+        appendTrace([{ kind: 'phase', phase: 'schema', label: `Rejected improvised fields: ${schemaResult.rejected.join(', ')}` }]);
+      }
       if (!ownership) {
         const fr = ownershipResp.finishReason ? ` (finishReason: ${ownershipResp.finishReason})` : '';
         const preview = (ownershipResp.text || '').trim().slice(0, 200);
@@ -1195,8 +1204,36 @@ export default function App() {
           __revenueCache.set(k, byCompany[k]);
         }
       });
-      const synthesized = synthesize(ownership, byCompany, parentAnchor, entitiesByCompany, { seed: synthSeed });
-      const finalResult = { ...synthesized, _entities: entities, _revenueResults: revenueResults, _parentAnchor: parentAnchor };
+      // A7 (NEW.34): pass the siblings that completed revenue estimation so the
+      // synthesizer can guarantee none silently drop out of the final tree.
+      const capturedSiblings = (entities || [])
+        .filter((e) => e.role === 'sibling')
+        .map((e) => ({
+          ...e,
+          revenue_estimate: byCompany[keyOf(e)]?.revenue_estimate,
+          revenue_estimate_completed: !!byCompany[keyOf(e)],
+        }));
+      const synthesized = synthesize(ownership, byCompany, parentAnchor, entitiesByCompany, { seed: synthSeed, capturedSiblings });
+      const finalResult = { ...synthesized, model, _entities: entities, _revenueResults: revenueResults, _parentAnchor: parentAnchor };
+
+      // D4 (NEW.36): compare this run's revenue against prior cached runs for the
+      // same focal; attach variance flags for B9 to render in the Data Trace.
+      try {
+        const snapKey = 'ogr_run_snapshots_v1';
+        const store = (typeof localStorage !== 'undefined' && JSON.parse(localStorage.getItem(snapKey) || '{}')) || {};
+        const focalKey = (ownership?.company || 'unknown').toLowerCase().trim();
+        const prior = Array.isArray(store[focalKey]) ? store[focalKey] : [];
+        const snapshot = buildRunSnapshot(synthesized, { runId: synthSeed, model });
+        const variance = detectCrossRunVariance(snapshot, prior);
+        if (variance) {
+          finalResult.cross_run_variance = variance;
+          if (finalResult.intelligence_brief) finalResult.intelligence_brief.cross_run_variance = variance;
+        }
+        if (typeof localStorage !== 'undefined') {
+          store[focalKey] = [...prior, snapshot].slice(-5);
+          localStorage.setItem(snapKey, JSON.stringify(store));
+        }
+      } catch (_e) { /* variance is best-effort; never block the result */ }
 
       // ── Narrative phase: turn the structured result into an investor-grade
       // story (thesis → transitions → bottom line). Always runs on Gemini (pure
